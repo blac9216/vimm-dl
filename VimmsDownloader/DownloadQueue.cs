@@ -58,7 +58,11 @@ class DownloadQueue
         var renameOpts = await LoadRenameOptionsAsync();
         var downloadPath = _service.GetBasePath();
 
-        var completedDir = Path.Combine(downloadPath, "completed");
+        // The archive already landed in its per-console folder (e.g. completed/ps3/).
+        // Keep conversion output (ISO / extracted files) alongside it in the same folder.
+        var completedDir = Path.GetDirectoryName(completedFilePath) is { Length: > 0 } dir
+            ? dir
+            : Path.Combine(downloadPath, "completed");
         var tempBaseDir = Path.Combine(downloadPath, "ps3_temp");
 
         if (format == 0)

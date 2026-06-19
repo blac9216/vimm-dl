@@ -16,19 +16,25 @@ static class Ps3Endpoints
 
             if (!string.IsNullOrEmpty(req.Filename))
             {
-                var filepath = Path.Combine(completedDir, req.Filename);
+                // The archive lives in a per-console subfolder — find it by name anywhere
+                // under completed/, falling back to the root for legacy items.
+                string? found = null;
+                try { found = Directory.EnumerateFiles(completedDir, req.Filename, SearchOption.AllDirectories).FirstOrDefault(); }
+                catch { }
+                var filepath = found ?? Path.Combine(completedDir, req.Filename);
                 if (!File.Exists(filepath))
                     return Results.NotFound();
-                var enqueued = pipeline.Enqueue(filepath, completedDir, tempBaseDir, force: true);
+                var enqueued = pipeline.Enqueue(filepath, Path.GetDirectoryName(filepath)!, tempBaseDir, force: true);
                 return Results.Ok(new Ps3ConvertResponse(enqueued ? 1 : 0, enqueued ? 0 : 1, enqueued ? [req.Filename] : []));
             }
 
             int queued = 0, skipped = 0;
             var files = new List<string>();
-            foreach (var filepath in Directory.GetFiles(completedDir))
+            foreach (var filepath in Directory.GetFiles(completedDir, "*", SearchOption.AllDirectories))
             {
                 if (!PathHelpers.IsArchive(filepath)) continue;
-                if (pipeline.Enqueue(filepath, completedDir, tempBaseDir))
+                // Keep the converted ISO in the same per-console folder as the archive.
+                if (pipeline.Enqueue(filepath, Path.GetDirectoryName(filepath)!, tempBaseDir))
                 { queued++; files.Add(Path.GetFileName(filepath)); }
                 else skipped++;
             }

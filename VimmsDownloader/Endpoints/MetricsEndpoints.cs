@@ -48,10 +48,10 @@ static partial class MetricsEndpoints
             long orphanedTotal = 0;
             int orphanedCount = 0;
 
-            // Scan completed/ — archives + ISOs
+            // Scan completed/ — archives + ISOs (recurse into per-console subfolders)
             if (Directory.Exists(completedDir))
             {
-                foreach (var f in Directory.GetFiles(completedDir))
+                foreach (var f in Directory.GetFiles(completedDir, "*", SearchOption.AllDirectories))
                 {
                     var fi = new FileInfo(f);
                     if (fi.Name.StartsWith('.')) continue;

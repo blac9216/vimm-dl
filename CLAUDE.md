@@ -10,7 +10,7 @@ Vimm's Lair download queue manager with PS3 ISO conversion and sync. Modular arc
 
 All modules follow the convention in `Modules/MODULE_GUIDE.md`. Each module is a standalone class library with zero web dependencies, communicating with the host via a typed bridge (`IModuleBridge<TEvent>`).
 
-- **Module.Core** — `IModuleBridge<TEvent>` interface, `Result<T>` (generic result type + `FileOps` safe I/O helpers), `SharedConstants` (`FileExtensions`, `Platforms`), and `Pipeline/` infrastructure (`IPipeline`, `PipelineState`, `PipelinePhase`, `PipelineStatusEvent`, `PipelineFlowInfo`, `DuplicateCheckResult`). Every module references this.
+- **Module.Core** — `IModuleBridge<TEvent>` interface, `Result<T>` (generic result type + `FileOps` safe I/O helpers), `SharedConstants` (`FileExtensions`, `Platforms`), `ConsoleDirectories` (platform name → EmuDeck folder, e.g. "PlayStation 3" → `ps3`, "GameCube" → `gc`; null for unknown), and `Pipeline/` infrastructure (`IPipeline`, `PipelineState`, `PipelinePhase`, `PipelineStatusEvent`, `PipelineFlowInfo`, `DuplicateCheckResult`). Every module references this.
 - **Module.Core.Testing** — Shared test infrastructure: `FakeBridge<T>`, `TempDirectory`, `ToolsContainer` (Testcontainers with `ghcr.io/eduvhc/vimm-dl-tools`).
 - **Module.Download** — Download service: `DownloadService` (download loop, resume, progress, Result-based error handling), `VaultPageParser` (HTML parsing + format resolution with fallback), `IDownloadItemProvider` (async, host provides queue items). Bridge: `IDownloadBridge` emitting `DownloadStatusEvent`, `DownloadProgressEvent`, `DownloadCompletedEvent`, `DownloadErrorEvent`, `DownloadDoneEvent`.
 - **Module.Extractor** — 7z wrapper (`ZipExtract.QuickCheckAsync`, `ExtractAsync` returning `Result<bool>`). Auto-detects `7z` on PATH or `C:\Program Files\7-Zip\7z.exe` on Windows.
@@ -77,7 +77,7 @@ SQLite, file `queue.db` in `data/` subdirectory (derived from connection string)
 3. `StreamDownload` returns `Result<(string, string)>` — no exceptions for HTTP errors
 4. Streams with 80KB buffer, reports progress every 2s with speed (MB/s)
 5. Crash recovery: detects partial files, resumes via Range headers
-6. On completion: `provider.CompleteAsync()` (host handles DB), emits `DownloadCompletedEvent`
+6. On completion: file is moved into an EmuDeck-style per-console folder — `completed/{ConsoleDirectories.Resolve(platform)}/` (e.g. `completed/ps3/`); unknown/empty platforms stay in `completed/` root. Then `provider.CompleteAsync()` (host handles DB, stores full `filepath`), emits `DownloadCompletedEvent`
 7. `OnPostDownload` callback for PS3 pipeline routing
 8. Auto-resumes on backend startup if queue has items
 9. Background metadata fetch sends `MetaReady` SignalR event for instant UI refresh
@@ -192,7 +192,10 @@ Single bind mount: `-v ~/vimm:/vimms`
 │   └── queue.db          ← SQLite database
 └── downloads/
     ├── downloading/      ← Partial files (auto-resume)
-    ├── completed/        ← Archives + ISOs
+    ├── completed/        ← Archives + ISOs, sorted into EmuDeck per-console folders
+    │   ├── ps3/          ← e.g. PlayStation 3 archives + converted ISOs
+    │   ├── gc/           ← e.g. GameCube
+    │   └── snes/         ← e.g. Super Nintendo
     └── ps3_temp/         ← Conversion temp (auto-cleaned)
 ```
 
@@ -201,11 +204,18 @@ Single bind mount: `-v ~/vimm:/vimms`
 - `InitAsync` creates `data/` dir, startup creates `downloading/` + `completed/` subdirs
 - Bare metal: no connection string override → DB in working dir, downloads in `~/Downloads`
 
+### Completed-file organization (EmuDeck layout)
+
+- Completed downloads are sorted into `completed/{console}/` using `ConsoleDirectories.Resolve(platform)` — folder names match EmuDeck / EmulationStation (`ps3`, `gc`, `snes`, `psx`, …). Platform comes from the vault page (`VaultPageParser.ExtractPlatform`).
+- Unknown/empty platforms stay in `completed/` root (no wrong-folder guessing). Only **new** downloads are sorted — pre-existing flat files are left where they are.
+- PS3 conversion output (ISO / extracted files) lands in the **same** console folder as its archive.
+- All readers recurse into the subfolders: `/api/data`, `/api/metrics`, PS3 convert-all, orphan cleanup, and Sync (which also mirrors the per-console folder onto the sync target). Duplicate detection / delete resolve the item's folder from the stored `filepath`, so both new (nested) and legacy (flat) layouts work.
+
 ## Testing
 
-238 tests across 6 projects:
+276 tests across 6 projects:
 - 87 Sync (real file I/O, disk simulation, edge cases)
-- 61 Download (state management, file recovery, vault parser, format resolution, edge cases)
+- 99 Download (state management, file recovery, vault parser, platform extraction, EmuDeck console-folder mapping, format resolution, edge cases)
 - 38 Duplicate detection (DB query, filesystem, JB Folder, Dec ISO, pipeline delegation, generic fallback)
 - 25 Extractor (7z integration via Testcontainers)
 - 10 Ps3IsoTools (ParamSfo, FindJbFolder, IsoFilenameFormatter)

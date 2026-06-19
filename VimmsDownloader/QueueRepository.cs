@@ -112,7 +112,7 @@ class QueueRepository
         return items;
     }
 
-    public record DuplicateDbMatch(string Url, string Source, string? ConvPhase, string? Title, string? Filename, string? IsoFilename, string? Platform);
+    public record DuplicateDbMatch(string Url, string Source, string? ConvPhase, string? Title, string? Filename, string? IsoFilename, string? Platform, string? Filepath = null);
 
     public async Task<List<DuplicateDbMatch>> CheckDuplicatesAsync(List<string> urls)
     {
@@ -148,7 +148,7 @@ class QueueRepository
         await using (var cmd = db.CreateCommand())
         {
             cmd.CommandText = $"""
-                SELECT c.url, c.conv_phase, c.iso_filename, c.filename, m.title, m.platform
+                SELECT c.url, c.conv_phase, c.iso_filename, c.filename, m.title, m.platform, c.filepath
                 FROM completed_urls c LEFT JOIN url_meta m ON c.url = m.url
                 WHERE LOWER(c.url) IN ({placeholders})
             """;
@@ -165,9 +165,10 @@ class QueueRepository
                 var filename = r.IsDBNull(3) ? null : r.GetString(3);
                 var title = r.IsDBNull(4) ? null : r.GetString(4);
                 var platform = r.IsDBNull(5) ? null : r.GetString(5);
+                var filepath = r.IsDBNull(6) ? null : r.GetString(6);
 
                 if (!byUrl.TryGetValue(url, out var existing) || RankPhase(phase) > RankPhase(existing.ConvPhase))
-                    byUrl[url] = new DuplicateDbMatch(url, "completed", phase, title, filename, iso, platform);
+                    byUrl[url] = new DuplicateDbMatch(url, "completed", phase, title, filename, iso, platform, filepath);
             }
 
             results.AddRange(byUrl.Values);

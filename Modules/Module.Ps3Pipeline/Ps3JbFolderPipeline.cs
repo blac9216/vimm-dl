@@ -49,13 +49,18 @@ public class Ps3JbFolderPipeline
                         {
                             var zipName = lines[0].Trim();
                             var jbFolder = lines[1].Trim();
+                            // 3rd line (if present) is the archive's per-console folder, so the
+                            // resumed ISO lands beside it; older markers fall back to completed/ root.
+                            var itemCompletedDir = lines.Length >= 3 && lines[2].Trim().Length > 0
+                                ? lines[2].Trim()
+                                : completedDir;
                             if (Directory.Exists(jbFolder) && !_state.IsConverted(zipName))
                             {
                                 _state.Log.LogInformation("Resuming conversion for previously extracted: {Zip}", zipName);
                                 _state.Statuses[zipName] = new PipelineStatusEvent(zipName, Ps3Phase.Queued, "Resuming from extraction...");
                                 var cts = new CancellationTokenSource();
                                 _state.Cancellations[zipName] = cts;
-                                _convertQueue.Writer.TryWrite(new ConvertJob(jbFolder, dir, zipName, completedDir));
+                                _convertQueue.Writer.TryWrite(new ConvertJob(jbFolder, dir, zipName, itemCompletedDir));
                                 EnsureStarted();
                                 continue;
                             }
@@ -73,7 +78,8 @@ public class Ps3JbFolderPipeline
 
         if (Directory.Exists(completedDir))
         {
-            foreach (var f in Directory.GetFiles(completedDir, "temp_*.iso"))
+            // Temp ISOs are written into per-console subfolders (completed/ps3/, …).
+            foreach (var f in Directory.GetFiles(completedDir, "temp_*.iso", SearchOption.AllDirectories))
             {
                 _state.Log.LogInformation("Cleaning orphaned temp ISO: {Path}", f);
                 FileOps.TryDelete(f);
@@ -177,7 +183,7 @@ public class Ps3JbFolderPipeline
                 }
 
                 var markerResult = FileOps.TryWriteAllText(
-                    Path.Combine(tempDir, ".extraction_complete"), $"{zipName}\n{jbFolder}\n");
+                    Path.Combine(tempDir, ".extraction_complete"), $"{zipName}\n{jbFolder}\n{job.CompletedDir}\n");
                 if (!markerResult.IsOk)
                     _state.Log.LogWarning("Failed to write extraction marker for {Zip}: {Error}", zipName, markerResult.Error);
 

@@ -12,10 +12,11 @@ static class FileEndpoints
             dbItems.RemoveAll(i => !PathHelpers.IsArchive(i.Filename));
             var dbFilenames = new HashSet<string>(dbItems.Select(i => i.Filename), StringComparer.OrdinalIgnoreCase);
 
+            // Files are sorted into per-console subfolders (completed/ps3/, …), so recurse.
             var diskFiles = new Dictionary<string, FileInfo>(StringComparer.OrdinalIgnoreCase);
             if (Directory.Exists(completedDir))
             {
-                foreach (var f in Directory.GetFiles(completedDir))
+                foreach (var f in Directory.GetFiles(completedDir, "*", SearchOption.AllDirectories))
                     diskFiles[new FileInfo(f).Name] = new FileInfo(f);
             }
 
