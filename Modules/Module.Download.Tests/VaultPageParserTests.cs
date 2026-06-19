@@ -65,6 +65,49 @@ public class VaultPageParserTests
         Assert.IsNull(VaultPageParser.Parse(html, "https://vimm.net/vault/1", 0));
     }
 
+    // --- Platform extraction (drives EmuDeck console-folder sorting) ---
+
+    [TestMethod]
+    public void ExtractPlatform_SectionTitle()
+    {
+        var html = """<div class="sectionTitle">PlayStation 3</div>""";
+        Assert.AreEqual("PlayStation 3", VaultPageParser.ExtractPlatform(html));
+    }
+
+    [TestMethod]
+    public void ExtractPlatform_H2Fallback()
+    {
+        var html = "<h2>GameCube</h2>";
+        Assert.AreEqual("GameCube", VaultPageParser.ExtractPlatform(html));
+    }
+
+    [TestMethod]
+    public void ExtractPlatform_HtmlEntitiesDecoded()
+    {
+        var html = """<div class="sectionTitle">Pok&eacute;mon</div>""";
+        Assert.AreEqual("Pokémon", VaultPageParser.ExtractPlatform(html));
+    }
+
+    [TestMethod]
+    public void ExtractPlatform_NotFound_ReturnsNull()
+    {
+        Assert.IsNull(VaultPageParser.ExtractPlatform("<body>no platform here</body>"));
+    }
+
+    [TestMethod]
+    public void Parse_IncludesPlatform()
+    {
+        var html = """
+            <title>The Vault: God of War III (PlayStation 3)</title>
+            <div class="sectionTitle">PlayStation 3</div>
+            <input type="hidden" name="mediaId" value="83789">
+            <form id="dl_form" action="https://dl3.vimm.net/">
+            """;
+        var result = VaultPageParser.Parse(html, "https://vimm.net/vault/84578", 0);
+        Assert.IsNotNull(result);
+        Assert.AreEqual("PlayStation 3", result.Platform);
+    }
+
     [TestMethod]
     public void ResolveDlServer_FormAction()
     {

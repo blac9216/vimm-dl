@@ -117,8 +117,8 @@ public class SyncService
             return;
         }
 
-        var source = Path.Combine(GetCompletedDir(), filename);
-        if (!File.Exists(source))
+        var source = ResolveCompletedFile(filename);
+        if (source == null)
         {
             await Emit(new SyncCompletedEvent(filename, false, $"Source file not found: {filename}"));
             return;
@@ -152,7 +152,10 @@ public class SyncService
             return;
         }
 
-        var dest = Path.Combine(syncPath, filename);
+        // Mirror the source's per-console subfolder onto the target (EmuDeck layout).
+        var destDir = MirrorTargetDir(syncPath, source);
+        Directory.CreateDirectory(destDir);
+        var dest = Path.Combine(destDir, filename);
         IsCopying = true;
         CurrentFile = filename;
         CurrentProgress = 0;
@@ -257,8 +260,35 @@ public class SyncService
         catch { return false; }
     }
 
+    // Recurse: completed/ and EmuDeck targets keep ISOs in per-console subfolders.
     private static List<FileInfo> SafeGetIsos(string path)
-        => Directory.GetFiles(path, "*.iso").Select(f => new FileInfo(f)).ToList();
+        => Directory.GetFiles(path, "*.iso", SearchOption.AllDirectories).Select(f => new FileInfo(f)).ToList();
+
+    /// <summary>Locate an ISO by name under completed/, recursing into per-console folders.</summary>
+    private string? ResolveCompletedFile(string filename)
+    {
+        var completedDir = GetCompletedDir();
+        if (!Directory.Exists(completedDir)) return null;
+        var flat = Path.Combine(completedDir, filename);
+        if (File.Exists(flat)) return flat;
+        // Search patterns can't contain separators — match on the bare name.
+        var name = Path.GetFileName(filename);
+        if (string.IsNullOrEmpty(name)) return null;
+        try { return Directory.EnumerateFiles(completedDir, name, SearchOption.AllDirectories).FirstOrDefault(); }
+        catch (DirectoryNotFoundException) { return null; }
+    }
+
+    /// <summary>
+    /// Map a source file's console subfolder onto the sync target so the copy keeps the
+    /// EmuDeck layout (completed/ps3/Game.iso → target/ps3/Game.iso). Flat sources copy to the root.
+    /// </summary>
+    private string MirrorTargetDir(string syncPath, string source)
+    {
+        var sourceDir = Path.GetDirectoryName(source);
+        if (string.IsNullOrEmpty(sourceDir)) return syncPath;
+        var sub = Path.GetRelativePath(GetCompletedDir(), sourceDir);
+        return sub is "." or "" || sub.StartsWith("..") ? syncPath : Path.Combine(syncPath, sub);
+    }
 
     private static long SafeLength(FileInfo fi)
     {
@@ -277,7 +307,7 @@ public class SyncService
             if (!drive.IsReady) return null;
 
             var isos = Directory.Exists(path)
-                ? Directory.GetFiles(path, "*.iso").Select(f =>
+                ? Directory.GetFiles(path, "*.iso", SearchOption.AllDirectories).Select(f =>
                 {
                     try { return new FileInfo(f); }
                     catch { return null; }

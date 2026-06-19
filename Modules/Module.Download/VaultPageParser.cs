@@ -33,7 +33,14 @@ public static partial class VaultPageParser
     [GeneratedRegex(@"<option\s+value=""(\d+)""\s+title=""[^""]*"">[^<]+</option>", RegexOptions.IgnoreCase)]
     private static partial Regex FormatOptionRegex();
 
-    public record ParseResult(string MediaId, string Title, string DownloadUrl, int ResolvedFormat, string? FormatNote);
+    [GeneratedRegex(@"class=""sectionTitle""[^>]*>\s*([^<]+?)\s*</div>", RegexOptions.IgnoreCase)]
+    private static partial Regex SectionTitleRegex();
+
+    [GeneratedRegex(@"<h2[^>]*>\s*([^<]+?)\s*</h2>", RegexOptions.IgnoreCase)]
+    private static partial Regex H2Regex();
+
+    public record ParseResult(string MediaId, string Title, string DownloadUrl, int ResolvedFormat,
+        string? FormatNote, string? Platform);
 
     /// <summary>
     /// Parse the vault page HTML. Resolves format with fallback:
@@ -58,7 +65,19 @@ public static partial class VaultPageParser
             ? $"{dlServer}?mediaId={mediaId}&alt={resolvedFormat}"
             : $"{dlServer}?mediaId={mediaId}";
 
-        return new ParseResult(mediaId, title, downloadUrl, resolvedFormat, formatNote);
+        return new ParseResult(mediaId, title, downloadUrl, resolvedFormat, formatNote, ExtractPlatform(html));
+    }
+
+    /// <summary>
+    /// Extract the console/system name from the vault page. Vimm shows it in a
+    /// "sectionTitle" element (real site) or an &lt;h2&gt; (mock server). Used to
+    /// sort completed downloads into EmuDeck-style per-console folders.
+    /// </summary>
+    internal static string? ExtractPlatform(string html)
+    {
+        var m = SectionTitleRegex().Match(html);
+        if (!m.Success) m = H2Regex().Match(html);
+        return m.Success ? WebUtility.HtmlDecode(m.Groups[1].Value.Trim()) : null;
     }
 
     /// <summary>Extract available format numbers from option tags. Empty set = only default (0) available.</summary>

@@ -1,5 +1,9 @@
 static class DownloadEndpoints
 {
+    /// <summary>Directory portion of a stored filepath, or null if unavailable.</summary>
+    private static string? DirOf(string? filepath)
+        => !string.IsNullOrEmpty(filepath) && Path.GetDirectoryName(filepath) is { Length: > 0 } d ? d : null;
+
     public static void MapDownloadEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapPost("/api/queue", async (AddRequest req, QueueRepository repo,
@@ -24,11 +28,16 @@ static class DownloadEndpoints
                             continue;
                         }
 
+                        // Files live in a per-console subfolder (completed/ps3/, …).
+                        // Use the stored filepath's directory so disk checks look in the
+                        // right place; fall back to the completed root for legacy items.
+                        var itemDir = DirOf(m.Filepath) ?? completedDir;
+
                         // Delegate to pipeline — each console defines its own duplicate rules
                         var pipeline = queue.GetPipeline(m.Platform);
                         if (pipeline != null)
                         {
-                            var result = pipeline.CheckDuplicate(completedDir, m.Filename, m.IsoFilename, m.ConvPhase);
+                            var result = pipeline.CheckDuplicate(itemDir, m.Filename, m.IsoFilename, m.ConvPhase);
                             if (result == null) continue;
                             duplicates.Add(new DuplicateInfo(m.Url, "completed", result.Reason,
                                 m.Title, m.Filename, m.IsoFilename, result.ArchiveExists, result.IsoExists));
@@ -36,7 +45,7 @@ static class DownloadEndpoints
                         else
                         {
                             // Generic fallback for non-pipeline platforms
-                            var archiveExists = m.Filename != null && File.Exists(Path.Combine(completedDir, m.Filename));
+                            var archiveExists = m.Filename != null && File.Exists(Path.Combine(itemDir, m.Filename));
                             if (!archiveExists) continue;
                             duplicates.Add(new DuplicateInfo(m.Url, "completed", "Already downloaded",
                                 m.Title, m.Filename, null, archiveExists, false));
@@ -98,11 +107,13 @@ static class DownloadEndpoints
                 {
                     var (filepath, filename, isoFilename) = item.Value;
                     var completedDir = Path.Combine(queue.GetBasePath(), "completed");
+                    // The ISO sits in the same per-console folder as the archive.
+                    var itemDir = DirOf(filepath) ?? completedDir;
                     // Delete archive
                     if (filepath != null) try { File.Delete(filepath); } catch { }
-                    else if (filename != null) try { File.Delete(Path.Combine(completedDir, filename)); } catch { }
+                    else if (filename != null) try { File.Delete(Path.Combine(itemDir, filename)); } catch { }
                     // Delete ISO
-                    if (isoFilename != null) try { File.Delete(Path.Combine(completedDir, isoFilename)); } catch { }
+                    if (isoFilename != null) try { File.Delete(Path.Combine(itemDir, isoFilename)); } catch { }
                 }
             }
             await repo.DeleteCompletedAsync(id);

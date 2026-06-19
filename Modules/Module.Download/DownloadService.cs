@@ -112,9 +112,21 @@ public class DownloadService
                     await Emit(new DownloadStatusEvent($"Download URL: {parsed.DownloadUrl}"));
                     await Emit(new DownloadStatusEvent($"Downloading: {parsed.Title} [{formatLabel}] (mediaId={parsed.MediaId})"));
 
+                    // Sort completed files into an EmuDeck-style per-console folder
+                    // (e.g. completed/ps3/). Unknown platforms stay in completed/.
+                    var consoleDir = ConsoleDirectories.Resolve(parsed.Platform);
+                    var itemCompletedPath = consoleDir != null
+                        ? Path.Combine(completedPath, consoleDir)
+                        : completedPath;
+                    if (consoleDir != null)
+                    {
+                        Directory.CreateDirectory(itemCompletedPath);
+                        await Emit(new DownloadStatusEvent($"Console folder: {consoleDir} ({parsed.Platform})"));
+                    }
+
                     var result = await StreamDownload(
                         http, parsed.DownloadUrl, url, parsed.Title,
-                        downloadingPath, completedPath, ct);
+                        downloadingPath, itemCompletedPath, ct);
 
                     if (!result.IsOk)
                     {

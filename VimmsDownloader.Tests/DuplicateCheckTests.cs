@@ -526,9 +526,13 @@ public class DuplicateCheckTests
     // Implementation mirror — matches QueueRepository + pipeline delegation
     // ========================================================================
 
-    record DuplicateDbMatch(string Url, string Source, string? ConvPhase, string? Title, string? Filename, string? IsoFilename, string? Platform);
+    record DuplicateDbMatch(string Url, string Source, string? ConvPhase, string? Title, string? Filename, string? IsoFilename, string? Platform, string? Filepath = null);
     record DuplicateResult(string Url, string Source, string Reason, string? Title, string? Filename, string? IsoFilename,
         bool ArchiveExists, bool IsoExists);
+
+    /// <summary>Directory portion of a stored filepath, or null. Mirrors DownloadEndpoints.DirOf.</summary>
+    private static string? DirOf(string? filepath)
+        => !string.IsNullOrEmpty(filepath) && Path.GetDirectoryName(filepath) is { Length: > 0 } d ? d : null;
 
     /// <summary>DB-only check — mirrors QueueRepository.CheckDuplicatesAsync</summary>
     private async Task<List<DuplicateDbMatch>> CheckDuplicatesDbAsync(List<string> urls)
@@ -558,7 +562,7 @@ public class DuplicateCheckTests
         await using (var cmd = _db.CreateCommand())
         {
             cmd.CommandText = $"""
-                SELECT c.url, c.conv_phase, c.iso_filename, c.filename, m.title, m.platform
+                SELECT c.url, c.conv_phase, c.iso_filename, c.filename, m.title, m.platform, c.filepath
                 FROM completed_urls c LEFT JOIN url_meta m ON c.url = m.url
                 WHERE LOWER(c.url) IN ({placeholders})
             """;
@@ -575,9 +579,10 @@ public class DuplicateCheckTests
                 var filename = r.IsDBNull(3) ? null : r.GetString(3);
                 var title = r.IsDBNull(4) ? null : r.GetString(4);
                 var platform = r.IsDBNull(5) ? null : r.GetString(5);
+                var filepath = r.IsDBNull(6) ? null : r.GetString(6);
 
                 if (!byUrl.TryGetValue(url, out var existing) || RankPhase(phase) > RankPhase(existing.ConvPhase))
-                    byUrl[url] = new DuplicateDbMatch(url, "completed", phase, title, filename, iso, platform);
+                    byUrl[url] = new DuplicateDbMatch(url, "completed", phase, title, filename, iso, platform, filepath);
             }
             results.AddRange(byUrl.Values);
         }
@@ -604,10 +609,13 @@ public class DuplicateCheckTests
                 continue;
             }
 
+            // Files live in per-console subfolders; resolve from stored filepath (mirrors DownloadEndpoints).
+            var itemDir = DirOf(m.Filepath) ?? _completedDir;
+
             // PS3 items — delegate to pipeline-style check (mirrors Ps3ConversionPipeline.CheckDuplicate)
             if (IsPS3(m.Platform))
             {
-                var checkResult = Ps3CheckDuplicate(m.Filename, m.IsoFilename, m.ConvPhase);
+                var checkResult = Ps3CheckDuplicate(m.Filename, m.IsoFilename, m.ConvPhase, itemDir);
                 if (checkResult == null) continue;
                 results.Add(new DuplicateResult(m.Url, "completed", checkResult.Value.Reason,
                     m.Title, m.Filename, m.IsoFilename, checkResult.Value.ArchiveExists, checkResult.Value.IsoExists));
@@ -615,7 +623,7 @@ public class DuplicateCheckTests
             else
             {
                 // Generic fallback for non-pipeline platforms
-                var archiveExists = m.Filename != null && File.Exists(Path.Combine(_completedDir, m.Filename));
+                var archiveExists = m.Filename != null && File.Exists(Path.Combine(itemDir, m.Filename));
                 if (!archiveExists) continue;
                 results.Add(new DuplicateResult(m.Url, "completed", "Already downloaded",
                     m.Title, m.Filename, null, archiveExists, false));
@@ -627,19 +635,19 @@ public class DuplicateCheckTests
 
     /// <summary>Mirrors Ps3ConversionPipeline.CheckDuplicate</summary>
     private (string Reason, bool ArchiveExists, bool IsoExists)? Ps3CheckDuplicate(
-        string? filename, string? isoFilename, string? convPhase)
+        string? filename, string? isoFilename, string? convPhase, string completedDir)
     {
         // Active conversion — always block
         var isActive = convPhase != null && convPhase is not ("done" or "error" or "skipped");
         if (isActive)
         {
-            var archiveOnDisk = filename != null && File.Exists(Path.Combine(_completedDir, filename));
+            var archiveOnDisk = filename != null && File.Exists(Path.Combine(completedDir, filename));
             return ("Already downloaded (conversion in progress)", archiveOnDisk, false);
         }
 
         // Terminal state — check filesystem
-        var archiveExists = filename != null && File.Exists(Path.Combine(_completedDir, filename));
-        var isoExists = isoFilename != null && File.Exists(Path.Combine(_completedDir, isoFilename));
+        var archiveExists = filename != null && File.Exists(Path.Combine(completedDir, filename));
+        var isoExists = isoFilename != null && File.Exists(Path.Combine(completedDir, isoFilename));
 
         if (!archiveExists && !isoExists) return null;
 
@@ -693,7 +701,8 @@ public class DuplicateCheckTests
         """;
         cmd.Parameters.AddWithValue("$url", url);
         cmd.Parameters.AddWithValue("$filename", filename);
-        cmd.Parameters.AddWithValue("$filepath", $"/downloads/completed/{filename}");
+        // Store the real on-disk location so directory resolution (DirOf) matches the test fixtures.
+        cmd.Parameters.AddWithValue("$filepath", Path.Combine(_completedDir, filename));
         cmd.Parameters.AddWithValue("$phase", (object?)convPhase ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$msg", (object?)convMessage ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$iso", (object?)isoFilename ?? DBNull.Value);
