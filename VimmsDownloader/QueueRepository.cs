@@ -88,7 +88,7 @@ class QueueRepository
         await using var cmd = db.CreateCommand();
         cmd.CommandText = """
             SELECT q.id, q.url, q.format, m.title, m.platform, m.size, m.formats
-            FROM queued_urls q LEFT JOIN url_meta m ON q.url = m.url
+            FROM queued_urls q LEFT JOIN source_meta m ON q.source = m.source AND q.source_id = m.source_id
             ORDER BY q.id
         """;
         var items = new List<QueuedItem>();
@@ -129,7 +129,7 @@ class QueueRepository
         {
             cmd.CommandText = $"""
                 SELECT DISTINCT q.url, m.title, m.platform
-                FROM queued_urls q LEFT JOIN url_meta m ON q.url = m.url
+                FROM queued_urls q LEFT JOIN source_meta m ON q.source = m.source AND q.source_id = m.source_id
                 WHERE LOWER(q.url) IN ({placeholders})
             """;
             for (int i = 0; i < normalized.Count; i++)
@@ -149,7 +149,7 @@ class QueueRepository
         {
             cmd.CommandText = $"""
                 SELECT c.url, c.conv_phase, c.iso_filename, c.filename, m.title, m.platform, c.filepath
-                FROM completed_urls c LEFT JOIN url_meta m ON c.url = m.url
+                FROM completed_urls c LEFT JOIN source_meta m ON c.source = m.source AND c.source_id = m.source_id
                 WHERE LOWER(c.url) IN ({placeholders})
             """;
             for (int i = 0; i < normalized.Count; i++)
@@ -273,12 +273,15 @@ class QueueRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
+    // Metadata is keyed by (source, source_id) in source_meta. These accessors stay
+    // Vimm-implicit (source='vimm', source_id=url) until a second source is added in
+    // Phase 3, which generalizes the signatures.
     public async Task<MetaResponse?> GetMetaAsync(string url)
     {
         await using var db = await OpenAsync();
         await using var cmd = db.CreateCommand();
-        cmd.CommandText = "SELECT title, platform, size, formats, serial FROM url_meta WHERE url = $url";
-        cmd.Parameters.AddWithValue("$url", url);
+        cmd.CommandText = "SELECT title, platform, size, formats, serial FROM source_meta WHERE source = 'vimm' AND source_id = $sid";
+        cmd.Parameters.AddWithValue("$sid", url);
         await using var r = await cmd.ExecuteReaderAsync();
         if (!await r.ReadAsync() || r.IsDBNull(0)) return null;
 
@@ -291,10 +294,10 @@ class QueueRepository
         if (title != r.GetString(0) || platform != r.GetString(1))
         {
             await using var upd = db.CreateCommand();
-            upd.CommandText = "UPDATE url_meta SET title=$t, platform=$p WHERE url=$url";
+            upd.CommandText = "UPDATE source_meta SET title=$t, platform=$p WHERE source = 'vimm' AND source_id=$sid";
             upd.Parameters.AddWithValue("$t", title);
             upd.Parameters.AddWithValue("$p", platform);
-            upd.Parameters.AddWithValue("$url", url);
+            upd.Parameters.AddWithValue("$sid", url);
             await upd.ExecuteNonQueryAsync();
         }
 
@@ -306,10 +309,10 @@ class QueueRepository
         await using var db = await OpenAsync();
         await using var cmd = db.CreateCommand();
         cmd.CommandText = """
-            INSERT OR REPLACE INTO url_meta (url, title, platform, size, formats, serial)
-            VALUES ($url, $title, $platform, $size, $formats, $serial)
+            INSERT OR REPLACE INTO source_meta (source, source_id, title, platform, size, formats, serial)
+            VALUES ('vimm', $sid, $title, $platform, $size, $formats, $serial)
         """;
-        cmd.Parameters.AddWithValue("$url", url);
+        cmd.Parameters.AddWithValue("$sid", url);
         cmd.Parameters.AddWithValue("$title", title);
         cmd.Parameters.AddWithValue("$platform", platform);
         cmd.Parameters.AddWithValue("$size", size);
@@ -417,7 +420,7 @@ class QueueRepository
                    m.title, m.platform, m.size,
                    c.conv_phase, c.conv_message, c.iso_filename, c.format
             FROM completed_urls c
-            LEFT JOIN url_meta m ON c.url = m.url
+            LEFT JOIN source_meta m ON c.source = m.source AND c.source_id = m.source_id
             ORDER BY c.id DESC
         """;
         var items = new List<CompletedItem>();
