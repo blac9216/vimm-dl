@@ -57,10 +57,13 @@ static class DownloadEndpoints
                 }
             }
 
+            var source = string.IsNullOrWhiteSpace(req.Source) ? "vimm" : req.Source;
             foreach (var url in urls)
-                await repo.AddToQueueAsync(url, req.Format ?? 0);
+                await repo.AddToQueueAsync(url, req.Format ?? 0, source);
 
-            if (urls.Count > 0)
+            // Background metadata fetch is Vimm page-scraping; other sources derive
+            // their metadata differently (see later phases), so gate it on Vimm.
+            if (urls.Count > 0 && source == "vimm")
                 MetadataFetcher.FetchInBackground(urls, services, logger);
 
             return Results.Ok(new AddResponse(await repo.GetQueueIdsAsync(), null));

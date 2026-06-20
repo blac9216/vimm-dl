@@ -24,6 +24,8 @@ using Module.Sync.Bridge;
 [JsonSerializable(typeof(DownloadProgressEvent))]
 [JsonSerializable(typeof(AddRequest))]
 [JsonSerializable(typeof(AddResponse))]
+[JsonSerializable(typeof(SourceInfo))]
+[JsonSerializable(typeof(List<SourceInfo>))]
 [JsonSerializable(typeof(DuplicateInfo))]
 [JsonSerializable(typeof(List<DuplicateInfo>))]
 [JsonSerializable(typeof(QueuePatchRequest))]
