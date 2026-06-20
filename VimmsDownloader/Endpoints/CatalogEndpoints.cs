@@ -20,10 +20,26 @@ static class CatalogEndpoints
         });
 
         // Per-console counts + versions, plus whether a sync is currently running.
-        app.MapGet("/api/catalog/status", async (CatalogRepository repo, CatalogSyncState sync, CatalogScanState scan, CatalogCompatState compat) =>
+        app.MapGet("/api/catalog/status", async (CatalogRepository repo, CatalogSyncState sync, CatalogScanState scan,
+            CatalogCompatState compat, CatalogVerifyState verify) =>
         {
             var systems = await repo.GetSystemsAsync();
-            return new CatalogStatusResponse(sync.IsSyncing, scan.IsScanning, compat.IsRunning, systems.Sum(s => s.GameCount), systems);
+            return new CatalogStatusResponse(sync.IsSyncing, scan.IsScanning, compat.IsRunning, verify.IsRunning,
+                systems.Sum(s => s.GameCount), systems);
+        });
+
+        // Verify owned files' CRC32 against the catalog (background, single-flight).
+        app.MapPost("/api/catalog/verify", (CatalogVerifyService svc, CatalogVerifyState state,
+            ILogger<CatalogVerifyService> log) =>
+        {
+            if (!state.TryBegin()) return Results.Conflict("Verify already in progress");
+            _ = Task.Run(async () =>
+            {
+                try { await svc.VerifyAsync(state.Token); }
+                catch (Exception ex) { log.LogError(ex, "Verify crashed"); }
+                finally { state.End(); }
+            });
+            return Results.Accepted();
         });
 
         // Sync emulator compatibility (RPCS3 export) in the background (single-flight).
@@ -142,6 +158,25 @@ sealed class CatalogScanState
 
 /// <summary>Single-flight guard + cancellation for the background emulator-compatibility sync.</summary>
 sealed class CatalogCompatState
+{
+    private int _running;
+    private CancellationTokenSource _cts = new();
+
+    public bool IsRunning => Volatile.Read(ref _running) == 1;
+    public CancellationToken Token => _cts.Token;
+
+    public bool TryBegin()
+    {
+        if (Interlocked.CompareExchange(ref _running, 1, 0) != 0) return false;
+        _cts = new CancellationTokenSource();
+        return true;
+    }
+
+    public void End() => Volatile.Write(ref _running, 0);
+}
+
+/// <summary>Single-flight guard + cancellation for the background hash-verify pass.</summary>
+sealed class CatalogVerifyState
 {
     private int _running;
     private CancellationTokenSource _cts = new();

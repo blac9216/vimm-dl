@@ -27,6 +27,8 @@ builder.Services.AddSingleton<CatalogScanState>();
 builder.Services.AddSingleton<CatalogResolveService>();
 builder.Services.AddSingleton<CompatSyncService>();
 builder.Services.AddSingleton<CatalogCompatState>();
+builder.Services.AddSingleton<CatalogVerifyService>();
+builder.Services.AddSingleton<CatalogVerifyState>();
 builder.Services.ConfigureHttpJsonOptions(o =>
     o.SerializerOptions.TypeInfoResolverChain.Insert(0, AppJsonContext.Default));
 builder.Services.AddHttpClient("vimms")
