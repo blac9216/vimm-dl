@@ -185,13 +185,15 @@ class QueueRepository
         _ => 2,
     };
 
-    public async Task AddToQueueAsync(string url, int format)
+    public async Task AddToQueueAsync(string url, int format, string source = "vimm")
     {
         await using var db = await OpenAsync();
         await using var cmd = db.CreateCommand();
-        cmd.CommandText = "INSERT INTO queued_urls (url, format) VALUES ($url, $format)";
+        cmd.CommandText = "INSERT INTO queued_urls (url, format, source, source_id) VALUES ($url, $format, $source, $sourceId)";
         cmd.Parameters.AddWithValue("$url", url);
         cmd.Parameters.AddWithValue("$format", format);
+        cmd.Parameters.AddWithValue("$source", source);
+        cmd.Parameters.AddWithValue("$sourceId", url); // source_id == url for Vimm; distinct sources set their own later
         await cmd.ExecuteNonQueryAsync();
     }
 
@@ -316,14 +318,14 @@ class QueueRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
-    public async Task<(int Id, string Url, int Format)?> GetNextQueueItemAsync()
+    public async Task<(int Id, string Url, int Format, string Source)?> GetNextQueueItemAsync()
     {
         await using var db = await OpenAsync();
         await using var cmd = db.CreateCommand();
-        cmd.CommandText = "SELECT id, url, format FROM queued_urls ORDER BY id LIMIT 1";
+        cmd.CommandText = "SELECT id, url, format, source FROM queued_urls ORDER BY id LIMIT 1";
         await using var r = await cmd.ExecuteReaderAsync();
         if (!await r.ReadAsync()) return null;
-        return (r.GetInt32(0), r.GetString(1), r.GetInt32(2));
+        return (r.GetInt32(0), r.GetString(1), r.GetInt32(2), r.IsDBNull(3) ? "vimm" : r.GetString(3));
     }
 
     public async Task CompleteItemAsync(int id, string url, string filename, string filepath, int format)
@@ -332,14 +334,32 @@ class QueueRepository
         await using var tx = await db.BeginTransactionAsync();
         try
         {
+            // Carry the source identity from the queued row onto the completed row.
+            var source = "vimm";
+            var sourceId = url;
+            await using (var sel = db.CreateCommand())
+            {
+                sel.Transaction = (SqliteTransaction)tx;
+                sel.CommandText = "SELECT source, source_id FROM queued_urls WHERE id = $id";
+                sel.Parameters.AddWithValue("$id", id);
+                await using var sr = await sel.ExecuteReaderAsync();
+                if (await sr.ReadAsync())
+                {
+                    source = sr.IsDBNull(0) ? "vimm" : sr.GetString(0);
+                    sourceId = sr.IsDBNull(1) ? url : sr.GetString(1);
+                }
+            }
+
             await ExecTxAsync(db, (SqliteTransaction)tx, "DELETE FROM queued_urls WHERE id = $id", ("$id", id));
             await using var ins = db.CreateCommand();
             ins.Transaction = (SqliteTransaction)tx;
-            ins.CommandText = "INSERT INTO completed_urls (url, filename, filepath, completed_at, format) VALUES ($url, $filename, $filepath, datetime('now'), $format)";
+            ins.CommandText = "INSERT INTO completed_urls (url, filename, filepath, completed_at, format, source, source_id) VALUES ($url, $filename, $filepath, datetime('now'), $format, $source, $sourceId)";
             ins.Parameters.AddWithValue("$url", url);
             ins.Parameters.AddWithValue("$filename", filename);
             ins.Parameters.AddWithValue("$filepath", filepath);
             ins.Parameters.AddWithValue("$format", format);
+            ins.Parameters.AddWithValue("$source", source);
+            ins.Parameters.AddWithValue("$sourceId", sourceId);
             await ins.ExecuteNonQueryAsync();
             await tx.CommitAsync();
         }
