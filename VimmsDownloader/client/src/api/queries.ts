@@ -2,7 +2,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type {
   DataResponse, VersionResponse, SettingsResponse, MetaResponse,
   QueueImportResponse, Ps3ConvertResponse, SyncCompareResponse, QueueExportItem,
-  EventsResponse, MetricsResponse, AddResponse, SourceInfo, CatalogSet, CatalogFile,
+  EventsResponse, MetricsResponse, AddResponse, SourceInfo,
+  CatalogConsole, CatalogGamesResponse, CatalogStatus,
 } from '../types/api'
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -96,26 +97,43 @@ export function useSources() {
   })
 }
 
-// --- Browse (catalog sources) ---
+// --- Catalog (canonical No-Intro / Redump library) ---
 
-export function useBrowseSets(source: string, query: string, enabled: boolean) {
+export function useCatalogConsoles() {
   return useQuery({
-    queryKey: ['browse-sets', source, query],
-    queryFn: () => fetchJson<CatalogSet[]>(
-      `/api/sources/${encodeURIComponent(source)}/sets?q=${encodeURIComponent(query)}`),
-    enabled,
-    staleTime: 5 * 60 * 1000,
+    queryKey: ['catalog-consoles'],
+    queryFn: () => fetchJson<CatalogConsole[]>('/api/catalog/consoles'),
+    staleTime: 60 * 1000,
   })
 }
 
-export function useBrowseFiles(source: string, setId: string | null, filter: string) {
+export function useCatalogGames(console: string | null, q: string, page: number, pageSize = 100) {
+  const params = new URLSearchParams()
+  if (console) params.set('console', console)
+  if (q) params.set('q', q)
+  params.set('page', page.toString())
+  params.set('pageSize', pageSize.toString())
   return useQuery({
-    queryKey: ['browse-files', source, setId, filter],
-    queryFn: () => fetchJson<CatalogFile[]>(
-      `/api/sources/${encodeURIComponent(source)}/files?set=${encodeURIComponent(setId!)}`
-      + `&q=${encodeURIComponent(filter)}`),
-    enabled: !!setId,
-    staleTime: 5 * 60 * 1000,
+    queryKey: ['catalog-games', console, q, page, pageSize],
+    queryFn: () => fetchJson<CatalogGamesResponse>(`/api/catalog/games?${params}`),
+    staleTime: 60 * 1000,
+  })
+}
+
+export function useCatalogStatus() {
+  return useQuery({
+    queryKey: ['catalog-status'],
+    queryFn: () => fetchJson<CatalogStatus>('/api/catalog/status'),
+    // Poll while a sync is running so the UI advances; idle otherwise.
+    refetchInterval: q => (q.state.data?.syncing ? 2000 : false),
+  })
+}
+
+export function useSyncCatalog() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => postJson('/api/catalog/sync'),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['catalog-status'] }),
   })
 }
 
