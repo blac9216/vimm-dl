@@ -8,67 +8,31 @@ static class CatalogEndpoints
         // so it never blocks the request thread. 409 if one is already running.
         app.MapPost("/api/catalog/sync", (CatalogSyncService sync, CatalogSyncState state,
             ILogger<CatalogSyncService> log) =>
-        {
-            if (!state.TryBegin()) return Results.Conflict("Catalog sync already in progress");
-            _ = Task.Run(async () =>
-            {
-                try { await sync.SyncAsync(CatalogSystems.All, state.Token); }
-                catch (Exception ex) { log.LogError(ex, "Catalog sync crashed"); }
-                finally { state.End(); }
-            });
-            return Results.Accepted();
-        });
+            state.Run(log, "Catalog sync", ct => sync.SyncAsync(CatalogSystems.All, ct)));
 
-        // Per-console counts + versions, plus whether a sync is currently running.
+        // Per-console counts + versions, plus which background jobs are currently running.
         app.MapGet("/api/catalog/status", async (CatalogRepository repo, CatalogSyncState sync, CatalogScanState scan,
             CatalogCompatState compat, CatalogVerifyState verify) =>
         {
             var systems = await repo.GetSystemsAsync();
-            return new CatalogStatusResponse(sync.IsSyncing, scan.IsScanning, compat.IsRunning, verify.IsRunning,
+            return new CatalogStatusResponse(sync.IsRunning, scan.IsRunning, compat.IsRunning, verify.IsRunning,
                 systems.Sum(s => s.GameCount), systems);
         });
 
         // Verify owned files' CRC32 against the catalog (background, single-flight).
         app.MapPost("/api/catalog/verify", (CatalogVerifyService svc, CatalogVerifyState state,
             ILogger<CatalogVerifyService> log) =>
-        {
-            if (!state.TryBegin()) return Results.Conflict("Verify already in progress");
-            _ = Task.Run(async () =>
-            {
-                try { await svc.VerifyAsync(state.Token); }
-                catch (Exception ex) { log.LogError(ex, "Verify crashed"); }
-                finally { state.End(); }
-            });
-            return Results.Accepted();
-        });
+            state.Run(log, "Verify", svc.VerifyAsync));
 
         // Sync emulator compatibility (RPCS3 export) in the background (single-flight).
         app.MapPost("/api/catalog/compat/sync", (CompatSyncService svc, CatalogCompatState state,
             ILogger<CompatSyncService> log) =>
-        {
-            if (!state.TryBegin()) return Results.Conflict("Compatibility sync already in progress");
-            _ = Task.Run(async () =>
-            {
-                try { await svc.SyncAsync(state.Token); }
-                catch (Exception ex) { log.LogError(ex, "Compat sync crashed"); }
-                finally { state.End(); }
-            });
-            return Results.Accepted();
-        });
+            state.Run(log, "Compatibility sync", svc.SyncAsync));
 
         // Scan completed/ and record which catalog games are present on disk (background, single-flight).
         app.MapPost("/api/catalog/scan", (CatalogScanService scanner, CatalogScanState state,
             ILogger<CatalogScanService> log) =>
-        {
-            if (!state.TryBegin()) return Results.Conflict("Catalog scan already in progress");
-            _ = Task.Run(async () =>
-            {
-                try { await scanner.ScanAsync(state.Token); }
-                catch (Exception ex) { log.LogError(ex, "Catalog scan crashed"); }
-                finally { state.End(); }
-            });
-            return Results.Accepted();
-        });
+            state.Run(log, "Catalog scan", scanner.ScanAsync));
 
         // Consoles with counts — for the Library filter.
         app.MapGet("/api/catalog/consoles", async (CatalogRepository repo) => await repo.GetConsolesAsync());
@@ -90,9 +54,13 @@ static class CatalogEndpoints
         {
             if (string.IsNullOrWhiteSpace(req.Console) || string.IsNullOrWhiteSpace(req.Identifier))
                 return Results.BadRequest("console and identifier are required");
-            var source = string.IsNullOrWhiteSpace(req.Source) ? "archive" : req.Source!.Trim();
-            var id = await repo.AddSetAsync(req.Console.Trim(), source, req.Identifier.Trim(), req.Label);
-            return Results.Ok(new CatalogSetDto((int)id, req.Console.Trim(), source, req.Identifier.Trim(), req.Label));
+            // Normalize source to lower-case so it matches the resolver's lookup and the unique
+            // (console, source, identifier) constraint treats "Archive"/"archive" as one set.
+            var source = string.IsNullOrWhiteSpace(req.Source) ? "archive" : req.Source!.Trim().ToLowerInvariant();
+            var console = req.Console.Trim();
+            var identifier = req.Identifier.Trim();
+            var id = await repo.AddSetAsync(console, source, identifier, req.Label);
+            return Results.Ok(new CatalogSetDto((int)id, console, source, identifier, req.Label));
         });
 
         app.MapDelete("/api/catalog/sets/{id:int}", async (int id, CatalogRepository repo) =>
@@ -118,46 +86,12 @@ static class CatalogEndpoints
     }
 }
 
-/// <summary>Single-flight guard + cancellation for the background catalog sync.</summary>
-sealed class CatalogSyncState
-{
-    private int _running;
-    private CancellationTokenSource _cts = new();
-
-    public bool IsSyncing => Volatile.Read(ref _running) == 1;
-    public CancellationToken Token => _cts.Token;
-
-    public bool TryBegin()
-    {
-        if (Interlocked.CompareExchange(ref _running, 1, 0) != 0) return false;
-        _cts = new CancellationTokenSource();
-        return true;
-    }
-
-    public void End() => Volatile.Write(ref _running, 0);
-}
-
-/// <summary>Single-flight guard + cancellation for the background catalog scan (separate from sync).</summary>
-sealed class CatalogScanState
-{
-    private int _running;
-    private CancellationTokenSource _cts = new();
-
-    public bool IsScanning => Volatile.Read(ref _running) == 1;
-    public CancellationToken Token => _cts.Token;
-
-    public bool TryBegin()
-    {
-        if (Interlocked.CompareExchange(ref _running, 1, 0) != 0) return false;
-        _cts = new CancellationTokenSource();
-        return true;
-    }
-
-    public void End() => Volatile.Write(ref _running, 0);
-}
-
-/// <summary>Single-flight guard + cancellation for the background emulator-compatibility sync.</summary>
-sealed class CatalogCompatState
+/// <summary>
+/// Single-flight guard + cancellation shared by every background catalog job. The single-flight
+/// implementation lives here once; the marker subclasses below exist only so DI hands each job its
+/// own independent instance (so e.g. a scan and a verify can run concurrently but neither twice).
+/// </summary>
+abstract class BackgroundJobGate
 {
     private int _running;
     private CancellationTokenSource _cts = new();
@@ -173,23 +107,25 @@ sealed class CatalogCompatState
     }
 
     public void End() => Volatile.Write(ref _running, 0);
-}
 
-/// <summary>Single-flight guard + cancellation for the background hash-verify pass.</summary>
-sealed class CatalogVerifyState
-{
-    private int _running;
-    private CancellationTokenSource _cts = new();
-
-    public bool IsRunning => Volatile.Read(ref _running) == 1;
-    public CancellationToken Token => _cts.Token;
-
-    public bool TryBegin()
+    /// <summary>
+    /// Run <paramref name="work"/> on a background task if no run is in progress (202 Accepted);
+    /// otherwise 409 Conflict. The running flag is always cleared when the work finishes or throws.
+    /// </summary>
+    public IResult Run(ILogger log, string name, Func<CancellationToken, Task> work)
     {
-        if (Interlocked.CompareExchange(ref _running, 1, 0) != 0) return false;
-        _cts = new CancellationTokenSource();
-        return true;
+        if (!TryBegin()) return Results.Conflict($"{name} already in progress");
+        _ = Task.Run(async () =>
+        {
+            try { await work(Token); }
+            catch (Exception ex) { log.LogError(ex, "{Job} crashed", name); }
+            finally { End(); }
+        });
+        return Results.Accepted();
     }
-
-    public void End() => Volatile.Write(ref _running, 0);
 }
+
+sealed class CatalogSyncState : BackgroundJobGate;
+sealed class CatalogScanState : BackgroundJobGate;
+sealed class CatalogCompatState : BackgroundJobGate;
+sealed class CatalogVerifyState : BackgroundJobGate;

@@ -17,7 +17,7 @@ class CatalogResolveService(
         if (sources.Get("archive") is not ICatalogSource cat) return null;
         var http = httpFactory.CreateClient(((IDownloadSource)cat).HttpClientName);
 
-        foreach (var set in sets.Where(s => s.Source == "archive"))
+        foreach (var set in sets.Where(s => string.Equals(s.Source, "archive", StringComparison.OrdinalIgnoreCase)))
         {
             var files = await cat.ListFilesAsync(set.Identifier, name, http, ct);
             if (!files.IsOk)

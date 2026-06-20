@@ -17,6 +17,7 @@ public class CatalogSetsTests
         _db = new SqliteConnection("Data Source=:memory:");
         await _db.OpenAsync();
         await ApplyMigration("014_catalog_sets.sql");
+        await ApplyMigration("018_catalog_set_unique.sql");
     }
 
     [TestCleanup]
@@ -43,12 +44,31 @@ public class CatalogSetsTests
         Assert.IsFalse(await DeleteSet(99999)); // unknown id
     }
 
+    [TestMethod]
+    public async Task Add_Duplicate_UpsertsInsteadOfDuplicating()
+    {
+        // #40: re-adding the same (console, source, identifier) must not create a second row; it
+        // updates the label and returns the existing id (enforced by the unique index in 018).
+        var first = await AddSet("gba", "archive", "ef_gba_no-intro", "First");
+        var second = await AddSet("gba", "archive", "ef_gba_no-intro", "Updated");
+
+        Assert.AreEqual(first, second);            // same row id
+        var all = await GetSets("gba");
+        Assert.HasCount(1, all);                   // no duplicate row
+        Assert.AreEqual("Updated", all[0].Label);  // label upserted
+    }
+
     // --- mirrors of CatalogRepository set SQL ---
 
     private async Task<long> AddSet(string console, string source, string identifier, string? label)
     {
         await using var cmd = _db.CreateCommand();
-        cmd.CommandText = "INSERT INTO catalog_set (console, source, identifier, label, created_at) VALUES ($c,$s,$i,$l,datetime('now')) RETURNING id";
+        cmd.CommandText = """
+            INSERT INTO catalog_set (console, source, identifier, label, created_at)
+            VALUES ($c,$s,$i,$l,datetime('now'))
+            ON CONFLICT(console, source, identifier) DO UPDATE SET label = excluded.label
+            RETURNING id
+            """;
         cmd.Parameters.AddWithValue("$c", console);
         cmd.Parameters.AddWithValue("$s", source);
         cmd.Parameters.AddWithValue("$i", identifier);
