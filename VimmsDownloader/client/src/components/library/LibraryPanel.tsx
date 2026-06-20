@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useCatalogConsoles, useCatalogGames, useCatalogStatus, useSyncCatalog, useScanCatalog } from '../../api/queries'
+import { useCatalogConsoles, useCatalogGames, useCatalogStatus, useSyncCatalog, useScanCatalog, useQueueCatalogGame } from '../../api/queries'
 import { PlatformIcon } from '../shared/PlatformIcon'
+import { SetsDialog } from './SetsDialog'
 import { fmtBytes } from '../../lib/format'
 
 // Debounce the search box so we don't query the catalog on every keystroke.
@@ -23,11 +24,16 @@ export function LibraryPanel() {
   const [page, setPage] = useState(0)
   const query = useDebounced(searchInput, 350)
 
+  const [showSets, setShowSets] = useState(false)
+  const [queuedIds, setQueuedIds] = useState<Set<number>>(new Set())
+  const [queueError, setQueueError] = useState<string | null>(null)
+
   const qc = useQueryClient()
   const { data: consoles } = useCatalogConsoles()
   const { data: status } = useCatalogStatus()
   const syncMutation = useSyncCatalog()
   const scanMutation = useScanCatalog()
+  const queueGame = useQueueCatalogGame()
   const { data: gamesResp, isFetching } = useCatalogGames(selectedConsole || null, query, local, page, PAGE_SIZE)
 
   const syncing = status?.syncing ?? false
@@ -48,6 +54,16 @@ export function LibraryPanel() {
   function pickConsole(c: string) { setSelectedConsole(c); setPage(0) }
   function onSearch(v: string) { setSearchInput(v); setPage(0) }
   function pickLocal(v: string) { setLocal(v); setPage(0) }
+
+  async function handleQueue(id: number) {
+    setQueueError(null)
+    try {
+      await queueGame.mutateAsync(id)
+      setQueuedIds(prev => new Set(prev).add(id))
+    } catch (e) {
+      setQueueError(e instanceof Error ? e.message : 'Failed to queue download')
+    }
+  }
 
   // Empty catalog → sync call-to-action.
   if (totalInCatalog === 0) {
@@ -101,6 +117,11 @@ export function LibraryPanel() {
           className="flex-1 bg-surface/60 border border-border/40 rounded px-3 py-1 text-sm text-text
             placeholder:text-text-4 focus:outline-none focus:border-accent/30
             focus:shadow-[0_0_10px_rgba(91,155,213,0.08)]" />
+        <button onClick={() => setShowSets(true)} title="Manage download sources"
+          className="px-3 py-1 text-xs font-medium rounded bg-surface-2/40 text-text-3
+            border border-border/30 hover:bg-surface-2/70 hover:text-text shrink-0">
+          Sources
+        </button>
         <button onClick={() => scanMutation.mutate()} disabled={busy} title="Scan completed/ for owned games"
           className="px-3 py-1 text-xs font-medium rounded bg-surface-2/40 text-text-3
             border border-border/30 hover:bg-surface-2/70 hover:text-text disabled:opacity-40 shrink-0">
@@ -118,6 +139,14 @@ export function LibraryPanel() {
         {' · '}<span className="text-text-3">{totalInCatalog.toLocaleString()} in catalog</span>
       </div>
 
+      {queueError && (
+        <div className="mx-3 sm:mx-6 mt-2 p-2 bg-ps-circle/8 border border-ps-circle/20 rounded text-xs text-[#e06070] flex items-center gap-2">
+          <span className="flex-1">{queueError}</span>
+          <button onClick={() => setShowSets(true)} className="underline hover:text-text-2 shrink-0">Manage sources</button>
+          <button onClick={() => setQueueError(null)} className="text-text-4 hover:text-text shrink-0">×</button>
+        </div>
+      )}
+
       <div className="flex-1 overflow-y-auto">
         {games.map(g => (
           <div key={g.id} className="flex items-center gap-3 px-3 sm:px-6 py-2 border-b border-border/10 hover:bg-surface/30">
@@ -130,12 +159,18 @@ export function LibraryPanel() {
                 {g.serial && <span className="font-mono">{g.serial}</span>}
               </div>
             </div>
-            {g.owned && (
-              <span className="text-[9px] px-1.5 py-0.5 rounded bg-ps-triangle/15 text-ps-triangle
-                border border-ps-triangle/25 shrink-0">✓ Owned</span>
-            )}
             {g.size > 0 && (
               <span className="text-[10px] text-text-4 font-mono tabular-nums shrink-0">{fmtBytes(g.size)}</span>
+            )}
+            {g.owned ? (
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-ps-triangle/15 text-ps-triangle
+                border border-ps-triangle/25 shrink-0">✓ Owned</span>
+            ) : (
+              <button onClick={() => handleQueue(g.id)} disabled={queuedIds.has(g.id) || queueGame.isPending}
+                className="px-2.5 py-1 text-xs font-medium rounded bg-ps-cross/20 text-[#7eb3e0]
+                  border border-ps-cross/30 hover:bg-ps-cross/30 disabled:opacity-40 shrink-0">
+                {queuedIds.has(g.id) ? 'Queued' : 'Download'}
+              </button>
             )}
           </div>
         ))}
@@ -160,6 +195,8 @@ export function LibraryPanel() {
           </button>
         </div>
       )}
+
+      {showSets && <SetsDialog onClose={() => setShowSets(false)} />}
     </div>
   )
 }

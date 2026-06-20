@@ -3,7 +3,7 @@ import type {
   DataResponse, VersionResponse, SettingsResponse, MetaResponse,
   QueueImportResponse, Ps3ConvertResponse, SyncCompareResponse, QueueExportItem,
   EventsResponse, MetricsResponse, AddResponse, SourceInfo,
-  CatalogConsole, CatalogGamesResponse, CatalogStatus,
+  CatalogConsole, CatalogGamesResponse, CatalogStatus, CatalogSet,
 } from '../types/api'
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -143,6 +143,39 @@ export function useScanCatalog() {
   return useMutation({
     mutationFn: () => postJson('/api/catalog/scan'),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['catalog-status'] }),
+  })
+}
+
+export function useCatalogSets() {
+  return useQuery({
+    queryKey: ['catalog-sets'],
+    queryFn: () => fetchJson<CatalogSet[]>('/api/catalog/sets'),
+    staleTime: 60 * 1000,
+  })
+}
+
+export function useAddSet() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (data: { console: string; identifier: string; label?: string }) =>
+      postJson<CatalogSet>('/api/catalog/sets', data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['catalog-sets'] }),
+  })
+}
+
+export function useDeleteSet() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => del(`/api/catalog/sets/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['catalog-sets'] }),
+  })
+}
+
+export function useQueueCatalogGame() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => postJson<{ url: string }>(`/api/catalog/games/${id}/queue`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['data'] }),
   })
 }
 
