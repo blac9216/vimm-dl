@@ -219,10 +219,40 @@ class CatalogRepository : ICatalogStore
         await tx.CommitAsync(ct);
     }
 
+    /// <summary>Replace an emulator's compatibility entries wholesale (normalized serial → status).</summary>
+    public async Task ReplaceCompatAsync(string emulator, IReadOnlyList<(string Serial, string Status)> entries, CancellationToken ct)
+    {
+        await using var db = await OpenAsync();
+        await using var tx = (SqliteTransaction)await db.BeginTransactionAsync(ct);
+
+        await using (var del = db.CreateCommand())
+        {
+            del.Transaction = tx;
+            del.CommandText = "DELETE FROM catalog_compat WHERE emulator = $e";
+            del.Parameters.AddWithValue("$e", emulator);
+            await del.ExecuteNonQueryAsync(ct);
+        }
+        await using (var ins = db.CreateCommand())
+        {
+            ins.Transaction = tx;
+            ins.CommandText = "INSERT OR REPLACE INTO catalog_compat (emulator, serial_key, status) VALUES ($e, $s, $st)";
+            ins.Parameters.AddWithValue("$e", emulator);
+            var ps = ins.Parameters.Add("$s", SqliteType.Text);
+            var pst = ins.Parameters.Add("$st", SqliteType.Text);
+            foreach (var (serial, status) in entries)
+            {
+                ps.Value = serial;
+                pst.Value = status;
+                await ins.ExecuteNonQueryAsync(ct);
+            }
+        }
+        await tx.CommitAsync(ct);
+    }
+
     /// <summary>
     /// Paged game list, filtered by console and/or a case-insensitive name substring, and by
     /// local availability (<paramref name="local"/> = all | owned | remote). Each row carries an
-    /// <c>owned</c> flag from catalog_owned.
+    /// <c>owned</c> flag from catalog_owned and a best-effort emulator <c>compat</c> status.
     /// </summary>
     public async Task<(int Total, List<CatalogGameDto> Games)> GetGamesAsync(
         string? console, string? query, string local, bool dedupe, int page, int pageSize)
@@ -260,7 +290,8 @@ class CatalogRepository : ICatalogStore
             cmd.CommandText = $"""
                 SELECT g.id, g.name, s.console, g.region, g.serial, g.languages,
                        (SELECT COALESCE(SUM(r.size), 0) FROM catalog_rom r WHERE r.game_id = g.id) AS size,
-                       EXISTS(SELECT 1 FROM catalog_owned o WHERE o.game_id = g.id) AS owned
+                       EXISTS(SELECT 1 FROM catalog_owned o WHERE o.game_id = g.id) AS owned,
+                       (SELECT c.status FROM catalog_compat c WHERE c.serial_key = UPPER(REPLACE(g.serial, '-', '')) LIMIT 1) AS compat
                 FROM catalog_game g JOIN catalog_system s ON s.id = g.system_id
                 {where}
                 ORDER BY g.name
@@ -280,7 +311,8 @@ class CatalogRepository : ICatalogStore
                     r.IsDBNull(4) ? null : r.GetString(4),
                     r.IsDBNull(5) ? null : r.GetString(5),
                     r.GetInt64(6),
-                    r.GetInt32(7) != 0));
+                    r.GetInt32(7) != 0,
+                    r.IsDBNull(8) ? null : r.GetString(8)));
         }
         return (total, games);
     }

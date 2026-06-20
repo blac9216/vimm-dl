@@ -25,6 +25,8 @@ builder.Services.AddSingleton(sp => new Module.Catalog.CatalogSyncService(
 builder.Services.AddSingleton<CatalogScanService>();
 builder.Services.AddSingleton<CatalogScanState>();
 builder.Services.AddSingleton<CatalogResolveService>();
+builder.Services.AddSingleton<CompatSyncService>();
+builder.Services.AddSingleton<CatalogCompatState>();
 builder.Services.ConfigureHttpJsonOptions(o =>
     o.SerializerOptions.TypeInfoResolverChain.Insert(0, AppJsonContext.Default));
 builder.Services.AddHttpClient("vimms")
@@ -80,6 +82,15 @@ builder.Services.AddHttpClient("libretro")
     {
         c.Timeout = TimeSpan.FromMinutes(5);
         c.DefaultRequestHeaders.Add("User-Agent", "vimm-dl");
+    });
+
+// RPCS3 compatibility API — requires a browser User-Agent (403s otherwise).
+builder.Services.AddHttpClient("rpcs3")
+    .ConfigureHttpClient(c =>
+    {
+        c.Timeout = TimeSpan.FromMinutes(5);
+        c.DefaultRequestHeaders.Add("User-Agent",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
     });
 
 var app = builder.Build();
