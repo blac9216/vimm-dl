@@ -16,15 +16,12 @@ public sealed class VimmSource : IDownloadSource
 
     public async Task<Result<ResolvedDownload>> ResolveAsync(string sourceId, int format, HttpClient http, CancellationToken ct)
     {
-        string pageHtml;
-        try
-        {
-            pageHtml = await http.GetStringAsync(sourceId, ct);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            return Result<ResolvedDownload>.Fail($"Failed to load vault page: {ex.Message}");
-        }
+        // Let HTTP/network exceptions propagate. DownloadService relies on them for its
+        // existing rate-limit handling (HTTP 429 → 60s backoff + retry, item retained) and
+        // its queue-halt-on-error semantics. Swallowing them into a Result.Fail would make
+        // the caller drop the queued item — a behavior change. Only a parse miss (no mediaId)
+        // is an "expected" failure that drops the item, matching the pre-refactor flow exactly.
+        var pageHtml = await http.GetStringAsync(sourceId, ct);
 
         var parsed = VaultPageParser.Parse(pageHtml, sourceId, format);
         if (parsed == null)

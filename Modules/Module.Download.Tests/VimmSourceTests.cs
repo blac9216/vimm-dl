@@ -43,6 +43,26 @@ public class VimmSourceTests
     }
 
     [TestMethod]
+    public async Task ResolveAsync_HttpError_Propagates_NotSwallowed()
+    {
+        // A page-fetch HTTP error (e.g. 429) must propagate, not be turned into a
+        // Result.Fail — otherwise DownloadService would drop the queued item instead
+        // of applying its 429 backoff / queue-halt behavior. Regression guard for the
+        // "no behavior change" guarantee.
+        var client = StubClient("rate limited", HttpStatusCode.TooManyRequests);
+        var threw = false;
+        try
+        {
+            await new VimmSource().ResolveAsync("https://vimm.net/vault/1", 0, client, CancellationToken.None);
+        }
+        catch (HttpRequestException)
+        {
+            threw = true;
+        }
+        Assert.IsTrue(threw, "HTTP errors must propagate from ResolveAsync, not be swallowed into Result.Fail");
+    }
+
+    [TestMethod]
     public void Metadata_IsVimm()
     {
         var source = new VimmSource();
