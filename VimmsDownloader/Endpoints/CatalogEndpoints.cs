@@ -52,6 +52,39 @@ static class CatalogEndpoints
             var (total, games) = await repo.GetGamesAsync(console, q, local ?? "all", p, ps);
             return new CatalogGamesResponse(total, p, ps, games);
         });
+
+        // --- download sets (per-console source locations) ---
+        app.MapGet("/api/catalog/sets", async (CatalogRepository repo) => await repo.GetSetsAsync());
+
+        app.MapPost("/api/catalog/sets", async (AddSetRequest req, CatalogRepository repo) =>
+        {
+            if (string.IsNullOrWhiteSpace(req.Console) || string.IsNullOrWhiteSpace(req.Identifier))
+                return Results.BadRequest("console and identifier are required");
+            var source = string.IsNullOrWhiteSpace(req.Source) ? "archive" : req.Source!.Trim();
+            var id = await repo.AddSetAsync(req.Console.Trim(), source, req.Identifier.Trim(), req.Label);
+            return Results.Ok(new CatalogSetDto((int)id, req.Console.Trim(), source, req.Identifier.Trim(), req.Label));
+        });
+
+        app.MapDelete("/api/catalog/sets/{id:int}", async (int id, CatalogRepository repo) =>
+            await repo.DeleteSetAsync(id) ? Results.Ok() : Results.NotFound());
+
+        // Resolve a catalog game via its console's sets and queue it for download.
+        app.MapPost("/api/catalog/games/{id:int}/queue", async (int id, CatalogRepository repo,
+            CatalogResolveService resolver, QueueRepository queue, DownloadQueue downloadQueue, CancellationToken ct) =>
+        {
+            var game = await repo.GetGameByIdAsync(id);
+            if (game is null) return Results.NotFound("Unknown catalog game");
+
+            var url = await resolver.ResolveAsync(game.Value.Console, game.Value.Name, ct);
+            if (url is null) return Results.NotFound("No configured set provides this game");
+
+            if ((await queue.CheckDuplicatesAsync([url])).Count > 0)
+                return Results.Conflict("Already queued or completed");
+
+            await queue.AddToQueueAsync(url, 0, "archive");
+            if (!downloadQueue.IsRunning) await downloadQueue.StartAsync(null);
+            return Results.Ok(new CatalogQueueResponse(url));
+        });
     }
 }
 

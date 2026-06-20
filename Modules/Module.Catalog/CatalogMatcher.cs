@@ -51,4 +51,17 @@ public static class CatalogMatcher
     }
 
     private static string Key(string console, string name) => console + "|" + Normalize(name);
+
+    /// <summary>
+    /// From a set's file list, pick the download URL whose filename stem matches the game name
+    /// (same normalization as ownership). Returns null if no file matches.
+    /// </summary>
+    public static string? FindFile(IEnumerable<(string Name, string Url)> files, string gameName)
+    {
+        var target = Normalize(gameName);
+        foreach (var (name, url) in files)
+            if (Normalize(System.IO.Path.GetFileNameWithoutExtension(name)) == target)
+                return url;
+        return null;
+    }
 }

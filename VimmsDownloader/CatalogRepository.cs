@@ -259,4 +259,68 @@ class CatalogRepository : ICatalogStore
         }
         return (total, games);
     }
+
+    // --- download sets ---
+
+    public async Task<long> AddSetAsync(string console, string source, string identifier, string? label)
+    {
+        await using var db = await OpenAsync();
+        await using var cmd = db.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO catalog_set (console, source, identifier, label, created_at)
+            VALUES ($c, $s, $i, $l, datetime('now')) RETURNING id
+            """;
+        cmd.Parameters.AddWithValue("$c", console);
+        cmd.Parameters.AddWithValue("$s", source);
+        cmd.Parameters.AddWithValue("$i", identifier);
+        cmd.Parameters.AddWithValue("$l", (object?)label ?? DBNull.Value);
+        return Convert.ToInt64(await cmd.ExecuteScalarAsync());
+    }
+
+    public async Task<List<CatalogSetDto>> GetSetsAsync()
+    {
+        await using var db = await OpenAsync();
+        await using var cmd = db.CreateCommand();
+        cmd.CommandText = "SELECT id, console, source, identifier, label FROM catalog_set ORDER BY console, id";
+        return await ReadSetsAsync(cmd);
+    }
+
+    public async Task<List<CatalogSetDto>> GetSetsByConsoleAsync(string console)
+    {
+        await using var db = await OpenAsync();
+        await using var cmd = db.CreateCommand();
+        cmd.CommandText = "SELECT id, console, source, identifier, label FROM catalog_set WHERE console = $c ORDER BY id";
+        cmd.Parameters.AddWithValue("$c", console);
+        return await ReadSetsAsync(cmd);
+    }
+
+    public async Task<bool> DeleteSetAsync(int id)
+    {
+        await using var db = await OpenAsync();
+        await using var cmd = db.CreateCommand();
+        cmd.CommandText = "DELETE FROM catalog_set WHERE id = $id";
+        cmd.Parameters.AddWithValue("$id", id);
+        return await cmd.ExecuteNonQueryAsync() > 0;
+    }
+
+    /// <summary>(console, name) for a catalog game, or null if the id is unknown.</summary>
+    public async Task<(string Console, string Name)?> GetGameByIdAsync(int id)
+    {
+        await using var db = await OpenAsync();
+        await using var cmd = db.CreateCommand();
+        cmd.CommandText = "SELECT s.console, g.name FROM catalog_game g JOIN catalog_system s ON s.id = g.system_id WHERE g.id = $id";
+        cmd.Parameters.AddWithValue("$id", id);
+        await using var r = await cmd.ExecuteReaderAsync();
+        return await r.ReadAsync() ? (r.GetString(0), r.GetString(1)) : null;
+    }
+
+    private static async Task<List<CatalogSetDto>> ReadSetsAsync(SqliteCommand cmd)
+    {
+        await using var r = await cmd.ExecuteReaderAsync();
+        var list = new List<CatalogSetDto>();
+        while (await r.ReadAsync())
+            list.Add(new CatalogSetDto(r.GetInt32(0), r.GetString(1), r.GetString(2), r.GetString(3),
+                r.IsDBNull(4) ? null : r.GetString(4)));
+        return list;
+    }
 }
