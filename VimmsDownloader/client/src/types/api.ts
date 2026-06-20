@@ -75,6 +75,7 @@ export interface SourceInfo {
 export interface CatalogConsole {
   console: string
   gameCount: number
+  ownedCount: number
 }
 
 export interface CatalogGame {
@@ -85,6 +86,7 @@ export interface CatalogGame {
   serial: string | null
   languages: string | null
   size: number
+  owned: boolean
 }
 
 export interface CatalogGamesResponse {
@@ -105,6 +107,7 @@ export interface CatalogSystemStatus {
 
 export interface CatalogStatus {
   syncing: boolean
+  scanning: boolean
   totalGames: number
   systems: CatalogSystemStatus[]
 }

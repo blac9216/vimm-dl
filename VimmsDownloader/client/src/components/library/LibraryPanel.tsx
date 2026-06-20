@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useCatalogConsoles, useCatalogGames, useCatalogStatus, useSyncCatalog } from '../../api/queries'
+import { useCatalogConsoles, useCatalogGames, useCatalogStatus, useSyncCatalog, useScanCatalog } from '../../api/queries'
 import { PlatformIcon } from '../shared/PlatformIcon'
 import { fmtBytes } from '../../lib/format'
 
@@ -19,6 +19,7 @@ const PAGE_SIZE = 100
 export function LibraryPanel() {
   const [selectedConsole, setSelectedConsole] = useState('') // '' = all consoles
   const [searchInput, setSearchInput] = useState('')
+  const [local, setLocal] = useState('all') // all | owned | remote
   const [page, setPage] = useState(0)
   const query = useDebounced(searchInput, 350)
 
@@ -26,23 +27,27 @@ export function LibraryPanel() {
   const { data: consoles } = useCatalogConsoles()
   const { data: status } = useCatalogStatus()
   const syncMutation = useSyncCatalog()
-  const { data: gamesResp, isFetching } = useCatalogGames(selectedConsole || null, query, page, PAGE_SIZE)
+  const scanMutation = useScanCatalog()
+  const { data: gamesResp, isFetching } = useCatalogGames(selectedConsole || null, query, local, page, PAGE_SIZE)
 
   const syncing = status?.syncing ?? false
+  const scanning = status?.scanning ?? false
+  const busy = syncing || scanning
   const totalInCatalog = status?.totalGames ?? 0
 
-  // When a sync finishes, refresh the catalog views so new games/counts appear.
-  const wasSyncing = useRef(syncing)
+  // When a sync or scan finishes, refresh the catalog views so new games/counts/owned appear.
+  const wasBusy = useRef(busy)
   useEffect(() => {
-    if (wasSyncing.current && !syncing) {
+    if (wasBusy.current && !busy) {
       qc.invalidateQueries({ queryKey: ['catalog-consoles'] })
       qc.invalidateQueries({ queryKey: ['catalog-games'] })
     }
-    wasSyncing.current = syncing
-  }, [syncing, qc])
+    wasBusy.current = busy
+  }, [busy, qc])
 
   function pickConsole(c: string) { setSelectedConsole(c); setPage(0) }
   function onSearch(v: string) { setSearchInput(v); setPage(0) }
+  function pickLocal(v: string) { setLocal(v); setPage(0) }
 
   // Empty catalog → sync call-to-action.
   if (totalInCatalog === 0) {
@@ -79,15 +84,29 @@ export function LibraryPanel() {
             focus:outline-none focus:border-accent/40 shrink-0">
           <option value="">All consoles</option>
           {consoles?.map(c => (
-            <option key={c.console} value={c.console}>{c.console} ({c.gameCount.toLocaleString()})</option>
+            <option key={c.console} value={c.console}>
+              {c.console} ({c.ownedCount.toLocaleString()}/{c.gameCount.toLocaleString()})
+            </option>
           ))}
+        </select>
+        <select value={local} onChange={e => pickLocal(e.target.value)} title="Availability"
+          className="bg-surface/80 border border-border/60 rounded px-2 py-1 text-sm text-text
+            focus:outline-none focus:border-accent/40 shrink-0">
+          <option value="all">All</option>
+          <option value="owned">Owned</option>
+          <option value="remote">Missing</option>
         </select>
         <input type="text" value={searchInput} onChange={e => onSearch(e.target.value)}
           placeholder="Search games by name…"
           className="flex-1 bg-surface/60 border border-border/40 rounded px-3 py-1 text-sm text-text
             placeholder:text-text-4 focus:outline-none focus:border-accent/30
             focus:shadow-[0_0_10px_rgba(91,155,213,0.08)]" />
-        <button onClick={() => syncMutation.mutate()} disabled={syncing} title="Re-sync from No-Intro / Redump"
+        <button onClick={() => scanMutation.mutate()} disabled={busy} title="Scan completed/ for owned games"
+          className="px-3 py-1 text-xs font-medium rounded bg-surface-2/40 text-text-3
+            border border-border/30 hover:bg-surface-2/70 hover:text-text disabled:opacity-40 shrink-0">
+          {scanning ? 'Scanning…' : 'Scan'}
+        </button>
+        <button onClick={() => syncMutation.mutate()} disabled={busy} title="Re-sync from No-Intro / Redump"
           className="px-3 py-1 text-xs font-medium rounded bg-surface-2/40 text-text-3
             border border-border/30 hover:bg-surface-2/70 hover:text-text disabled:opacity-40 shrink-0">
           {syncing ? 'Syncing…' : 'Sync'}
@@ -111,6 +130,10 @@ export function LibraryPanel() {
                 {g.serial && <span className="font-mono">{g.serial}</span>}
               </div>
             </div>
+            {g.owned && (
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-ps-triangle/15 text-ps-triangle
+                border border-ps-triangle/25 shrink-0">✓ Owned</span>
+            )}
             {g.size > 0 && (
               <span className="text-[10px] text-text-4 font-mono tabular-nums shrink-0">{fmtBytes(g.size)}</span>
             )}

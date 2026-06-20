@@ -107,14 +107,15 @@ export function useCatalogConsoles() {
   })
 }
 
-export function useCatalogGames(console: string | null, q: string, page: number, pageSize = 100) {
+export function useCatalogGames(console: string | null, q: string, local: string, page: number, pageSize = 100) {
   const params = new URLSearchParams()
   if (console) params.set('console', console)
   if (q) params.set('q', q)
+  if (local && local !== 'all') params.set('local', local)
   params.set('page', page.toString())
   params.set('pageSize', pageSize.toString())
   return useQuery({
-    queryKey: ['catalog-games', console, q, page, pageSize],
+    queryKey: ['catalog-games', console, q, local, page, pageSize],
     queryFn: () => fetchJson<CatalogGamesResponse>(`/api/catalog/games?${params}`),
     staleTime: 60 * 1000,
   })
@@ -124,8 +125,8 @@ export function useCatalogStatus() {
   return useQuery({
     queryKey: ['catalog-status'],
     queryFn: () => fetchJson<CatalogStatus>('/api/catalog/status'),
-    // Poll while a sync is running so the UI advances; idle otherwise.
-    refetchInterval: q => (q.state.data?.syncing ? 2000 : false),
+    // Poll while a sync or scan is running so the UI advances; idle otherwise.
+    refetchInterval: q => (q.state.data?.syncing || q.state.data?.scanning ? 2000 : false),
   })
 }
 
@@ -133,6 +134,14 @@ export function useSyncCatalog() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: () => postJson('/api/catalog/sync'),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['catalog-status'] }),
+  })
+}
+
+export function useScanCatalog() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => postJson('/api/catalog/scan'),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['catalog-status'] }),
   })
 }
