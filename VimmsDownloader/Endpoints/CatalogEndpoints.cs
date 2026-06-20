@@ -20,10 +20,24 @@ static class CatalogEndpoints
         });
 
         // Per-console counts + versions, plus whether a sync is currently running.
-        app.MapGet("/api/catalog/status", async (CatalogRepository repo, CatalogSyncState sync, CatalogScanState scan) =>
+        app.MapGet("/api/catalog/status", async (CatalogRepository repo, CatalogSyncState sync, CatalogScanState scan, CatalogCompatState compat) =>
         {
             var systems = await repo.GetSystemsAsync();
-            return new CatalogStatusResponse(sync.IsSyncing, scan.IsScanning, systems.Sum(s => s.GameCount), systems);
+            return new CatalogStatusResponse(sync.IsSyncing, scan.IsScanning, compat.IsRunning, systems.Sum(s => s.GameCount), systems);
+        });
+
+        // Sync emulator compatibility (RPCS3 export) in the background (single-flight).
+        app.MapPost("/api/catalog/compat/sync", (CompatSyncService svc, CatalogCompatState state,
+            ILogger<CompatSyncService> log) =>
+        {
+            if (!state.TryBegin()) return Results.Conflict("Compatibility sync already in progress");
+            _ = Task.Run(async () =>
+            {
+                try { await svc.SyncAsync(state.Token); }
+                catch (Exception ex) { log.LogError(ex, "Compat sync crashed"); }
+                finally { state.End(); }
+            });
+            return Results.Accepted();
         });
 
         // Scan completed/ and record which catalog games are present on disk (background, single-flight).
@@ -114,6 +128,25 @@ sealed class CatalogScanState
     private CancellationTokenSource _cts = new();
 
     public bool IsScanning => Volatile.Read(ref _running) == 1;
+    public CancellationToken Token => _cts.Token;
+
+    public bool TryBegin()
+    {
+        if (Interlocked.CompareExchange(ref _running, 1, 0) != 0) return false;
+        _cts = new CancellationTokenSource();
+        return true;
+    }
+
+    public void End() => Volatile.Write(ref _running, 0);
+}
+
+/// <summary>Single-flight guard + cancellation for the background emulator-compatibility sync.</summary>
+sealed class CatalogCompatState
+{
+    private int _running;
+    private CancellationTokenSource _cts = new();
+
+    public bool IsRunning => Volatile.Read(ref _running) == 1;
     public CancellationToken Token => _cts.Token;
 
     public bool TryBegin()

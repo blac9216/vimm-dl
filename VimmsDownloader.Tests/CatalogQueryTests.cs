@@ -21,6 +21,7 @@ public class CatalogQueryTests
         await ApplyMigration("012_catalog.sql");
         await ApplyMigration("013_catalog_owned.sql");
         await ApplyMigration("015_catalog_1g1r.sql");
+        await ApplyMigration("016_catalog_compat.sql");
 
         // Two systems: SNES (no-intro) and PS3 (redump).
         await Exec("INSERT INTO catalog_system (id, dat_name, console, source, game_count) VALUES (1, 'Nintendo - Super Nintendo Entertainment System', 'snes', 'no-intro', 3)");
@@ -125,6 +126,18 @@ public class CatalogQueryTests
     }
 
     [TestMethod]
+    public async Task Games_Compat_JoinedByNormalizedSerial()
+    {
+        // Heavy Title's serial is "BLUS-1" → normalized "BLUS1"; seed an RPCS3 entry for it.
+        await Exec("INSERT INTO catalog_compat (emulator, serial_key, status) VALUES ('rpcs3', 'BLUS1', 'Playable')");
+        var (_, games) = await Games("ps3", null, 0, 100);
+        Assert.AreEqual("Playable", games.Single().Compat);
+
+        var (_, snes) = await Games("snes", null, 0, 100);
+        Assert.IsTrue(snes.All(g => g.Compat is null)); // no compat for non-matching serials
+    }
+
+    [TestMethod]
     public async Task Games_Dedupe_ExcludesNonParents()
     {
         await Exec("UPDATE catalog_game SET is_parent = 0 WHERE name = 'Chrono Trigger (USA)'");
@@ -153,7 +166,7 @@ public class CatalogQueryTests
         return list;
     }
 
-    private async Task<(int Total, List<(int Id, string Name, string Console, string? Region, string? Serial, string? Languages, long Size, bool Owned)> Games)>
+    private async Task<(int Total, List<(int Id, string Name, string Console, string? Region, string? Serial, string? Languages, long Size, bool Owned, string? Compat)> Games)>
         Games(string? console, string? query, int page, int pageSize, string local = "all", bool dedupe = false)
     {
         var like = string.IsNullOrWhiteSpace(query) ? null : "%" + query.Trim() + "%";
@@ -177,13 +190,14 @@ public class CatalogQueryTests
             total = Convert.ToInt32(await cnt.ExecuteScalarAsync());
         }
 
-        var games = new List<(int, string, string, string?, string?, string?, long, bool)>();
+        var games = new List<(int, string, string, string?, string?, string?, long, bool, string?)>();
         await using (var cmd = _db.CreateCommand())
         {
             cmd.CommandText = $"""
                 SELECT g.id, g.name, s.console, g.region, g.serial, g.languages,
                        (SELECT COALESCE(SUM(r.size), 0) FROM catalog_rom r WHERE r.game_id = g.id) AS size,
-                       EXISTS(SELECT 1 FROM catalog_owned o WHERE o.game_id = g.id) AS owned
+                       EXISTS(SELECT 1 FROM catalog_owned o WHERE o.game_id = g.id) AS owned,
+                       (SELECT c.status FROM catalog_compat c WHERE c.serial_key = UPPER(REPLACE(g.serial, '-', '')) LIMIT 1) AS compat
                 FROM catalog_game g JOIN catalog_system s ON s.id = g.system_id
                 {where}
                 ORDER BY g.name LIMIT $limit OFFSET $offset
@@ -201,7 +215,8 @@ public class CatalogQueryTests
                     r.IsDBNull(4) ? null : r.GetString(4),
                     r.IsDBNull(5) ? null : r.GetString(5),
                     r.GetInt64(6),
-                    r.GetInt32(7) != 0));
+                    r.GetInt32(7) != 0,
+                    r.IsDBNull(8) ? null : r.GetString(8)));
         }
         return (total, games);
     }
