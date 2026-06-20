@@ -9,6 +9,7 @@ builder.Services.AddSingleton<Module.Ps3Pipeline.Bridge.IPs3PipelineBridge, Sign
 builder.Services.AddSingleton<Module.Ps3Pipeline.Ps3ConversionPipeline>();
 builder.Services.AddSingleton<Module.Download.Bridge.IDownloadBridge, SignalRDownloadBridge>();
 builder.Services.AddSingleton<Module.Download.Sources.IDownloadSource, Module.Download.Sources.VimmSource>();
+builder.Services.AddSingleton<Module.Download.Sources.IDownloadSource, Module.Download.Sources.ArchiveSource>();
 builder.Services.AddSingleton<Module.Download.Sources.ISourceRegistry, Module.Download.Sources.SourceRegistry>();
 builder.Services.AddSingleton<Module.Download.DownloadService>();
 builder.Services.AddSingleton<DownloadQueue>();
@@ -46,6 +47,21 @@ builder.Services.AddHttpClient("vimms")
         c.DefaultRequestHeaders.Add("Upgrade-Insecure-Requests", "1");
         c.DefaultRequestHeaders.Add("DNT", "1");
         c.DefaultRequestHeaders.Referrer = new Uri("https://vimm.net/");
+    });
+
+// Internet Archive serves plain HTTPS files + a public metadata API — no auth needed.
+builder.Services.AddHttpClient("archive")
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+    {
+        AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate | DecompressionMethods.Brotli,
+        AllowAutoRedirect = true,
+        MaxAutomaticRedirections = 10
+    })
+    .ConfigureHttpClient(c =>
+    {
+        c.Timeout = TimeSpan.FromMinutes(60);
+        c.DefaultRequestHeaders.Add("User-Agent",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
     });
 
 var app = builder.Build();
