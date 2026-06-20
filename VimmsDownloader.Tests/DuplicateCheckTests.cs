@@ -74,7 +74,7 @@ public class DuplicateCheckTests
     public async Task NoDuplicates_ReturnsEmpty()
     {
         var result = await CheckDuplicatesDbAsync(["https://vimm.net/vault/1001", "https://vimm.net/vault/1002"]);
-        Assert.AreEqual(0, result.Count);
+        Assert.IsEmpty(result);
     }
 
     [TestMethod]
@@ -82,7 +82,7 @@ public class DuplicateCheckTests
     {
         await InsertQueued("https://vimm.net/vault/1001", 0);
         var result = await CheckDuplicatesDbAsync(["https://vimm.net/vault/1001"]);
-        Assert.AreEqual(1, result.Count);
+        Assert.HasCount(1, result);
         Assert.AreEqual("queued", result[0].Source);
     }
 
@@ -91,7 +91,7 @@ public class DuplicateCheckTests
     {
         await InsertQueued("https://vimm.net/vault/1001", 0);
         var result = await CheckDuplicatesDbAsync(["HTTPS://VIMM.NET/VAULT/1001"]);
-        Assert.AreEqual(1, result.Count);
+        Assert.HasCount(1, result);
     }
 
     [TestMethod]
@@ -100,7 +100,7 @@ public class DuplicateCheckTests
         await InsertQueued("https://vimm.net/vault/1001", 0);
         await InsertQueued("https://vimm.net/vault/1001", 1);
         var result = await CheckDuplicatesDbAsync(["https://vimm.net/vault/1001"]);
-        Assert.AreEqual(1, result.Count);
+        Assert.HasCount(1, result);
     }
 
     [TestMethod]
@@ -120,7 +120,7 @@ public class DuplicateCheckTests
         await InsertQueued("https://vimm.net/vault/1001", 1);
         await InsertCompleted("https://vimm.net/vault/1001", "Game.7z");
         var result = await CheckDuplicatesDbAsync(["https://vimm.net/vault/1001"]);
-        Assert.AreEqual(2, result.Count);
+        Assert.HasCount(2, result);
         Assert.IsTrue(result.Any(r => r.Source == "queued"));
         Assert.IsTrue(result.Any(r => r.Source == "completed"));
     }
@@ -135,7 +135,7 @@ public class DuplicateCheckTests
             "https://vimm.net/vault/1002",
             "https://vimm.net/vault/1003",
         ]);
-        Assert.AreEqual(2, result.Count);
+        Assert.HasCount(2, result);
     }
 
     [TestMethod]
@@ -145,13 +145,13 @@ public class DuplicateCheckTests
             await InsertCompleted($"https://vimm.net/vault/{i}", $"Game{i}.7z");
         var urls = Enumerable.Range(1, 50).Select(i => $"https://vimm.net/vault/{i}").ToList();
         var result = await CheckDuplicatesDbAsync(urls);
-        Assert.AreEqual(50, result.Count);
+        Assert.HasCount(50, result);
     }
 
     [TestMethod]
     public async Task EmptyUrlList_ReturnsEmpty()
     {
-        Assert.AreEqual(0, (await CheckDuplicatesDbAsync([])).Count);
+        Assert.IsEmpty(await CheckDuplicatesDbAsync([]));
     }
 
     [TestMethod]
@@ -159,14 +159,14 @@ public class DuplicateCheckTests
     {
         await InsertCompleted("https://vimm.net/vault/1001", "Game.7z");
         var result = await CheckDuplicatesDbAsync(["https://vimm.net/vault/1001", "https://vimm.net/vault/1001"]);
-        Assert.AreEqual(1, result.Count);
+        Assert.HasCount(1, result);
     }
 
     [TestMethod]
     public async Task UrlWithTrailingSlash_TreatedAsDifferent()
     {
         await InsertQueued("https://vimm.net/vault/1001", 0);
-        Assert.AreEqual(0, (await CheckDuplicatesDbAsync(["https://vimm.net/vault/1001/"])).Count);
+        Assert.IsEmpty(await CheckDuplicatesDbAsync(["https://vimm.net/vault/1001/"]));
     }
 
     [TestMethod]
@@ -195,7 +195,7 @@ public class DuplicateCheckTests
 
         var result = await CheckDuplicatesFullAsync(["https://vimm.net/vault/2001"]);
 
-        Assert.AreEqual(1, result.Count);
+        Assert.HasCount(1, result);
         Assert.IsTrue(result[0].ArchiveExists);
         Assert.IsTrue(result[0].IsoExists);
         Assert.AreEqual("Already converted to ISO (archive + ISO on disk)", result[0].Reason);
@@ -212,7 +212,7 @@ public class DuplicateCheckTests
 
         var result = await CheckDuplicatesFullAsync(["https://vimm.net/vault/2001"]);
 
-        Assert.AreEqual(1, result.Count);
+        Assert.HasCount(1, result);
         Assert.IsTrue(result[0].ArchiveExists, "Archive still on disk");
         Assert.IsFalse(result[0].IsoExists, "ISO was deleted");
         // conv_phase is "done" but ISO is missing — falls through to "archiveExists" reason
@@ -228,7 +228,7 @@ public class DuplicateCheckTests
 
         var result = await CheckDuplicatesFullAsync(["https://vimm.net/vault/2001"]);
 
-        Assert.AreEqual(0, result.Count, "No files on disk → not a duplicate");
+        Assert.IsEmpty(result, "No files on disk → not a duplicate");
     }
 
     [TestMethod]
@@ -242,7 +242,7 @@ public class DuplicateCheckTests
 
         var result = await CheckDuplicatesFullAsync(["https://vimm.net/vault/2001"]);
 
-        Assert.AreEqual(1, result.Count);
+        Assert.HasCount(1, result);
         Assert.AreEqual("Already downloaded (conversion in progress)", result[0].Reason);
     }
 
@@ -256,7 +256,7 @@ public class DuplicateCheckTests
 
         var result = await CheckDuplicatesFullAsync(["https://vimm.net/vault/2001"]);
 
-        Assert.AreEqual(1, result.Count);
+        Assert.HasCount(1, result);
         Assert.AreEqual("Already downloaded (conversion in progress)", result[0].Reason);
     }
 
@@ -270,7 +270,7 @@ public class DuplicateCheckTests
 
         var result = await CheckDuplicatesFullAsync(["https://vimm.net/vault/2001"]);
 
-        Assert.AreEqual(1, result.Count);
+        Assert.HasCount(1, result);
         Assert.AreEqual("Already downloaded (conversion in progress)", result[0].Reason);
     }
 
@@ -284,7 +284,7 @@ public class DuplicateCheckTests
 
         var result = await CheckDuplicatesFullAsync(["https://vimm.net/vault/2001"]);
 
-        Assert.AreEqual(1, result.Count);
+        Assert.HasCount(1, result);
         Assert.AreEqual("Already downloaded (conversion in progress)", result[0].Reason);
     }
 
@@ -300,7 +300,7 @@ public class DuplicateCheckTests
 
         var result = await CheckDuplicatesFullAsync(["https://vimm.net/vault/2001"]);
 
-        Assert.AreEqual(1, result.Count, "Active conversion always blocks");
+        Assert.HasCount(1, result, "Active conversion always blocks");
         Assert.AreEqual("Already downloaded (conversion in progress)", result[0].Reason);
     }
 
@@ -314,7 +314,7 @@ public class DuplicateCheckTests
 
         var result = await CheckDuplicatesFullAsync(["https://vimm.net/vault/2001"]);
 
-        Assert.AreEqual(1, result.Count);
+        Assert.HasCount(1, result);
         Assert.AreEqual("Already downloaded (conversion failed)", result[0].Reason);
     }
 
@@ -327,7 +327,7 @@ public class DuplicateCheckTests
 
         var result = await CheckDuplicatesFullAsync(["https://vimm.net/vault/2001"]);
 
-        Assert.AreEqual(1, result.Count);
+        Assert.HasCount(1, result);
         Assert.AreEqual("Already downloaded", result[0].Reason);
     }
 
@@ -348,7 +348,7 @@ public class DuplicateCheckTests
 
         var result = await CheckDuplicatesFullAsync(["https://vimm.net/vault/3001"]);
 
-        Assert.AreEqual(1, result.Count);
+        Assert.HasCount(1, result);
         Assert.IsFalse(result[0].ArchiveExists, "Original .dec.iso was renamed away");
         Assert.IsTrue(result[0].IsoExists, "Renamed ISO exists");
         Assert.AreEqual("Already converted to ISO", result[0].Reason);
@@ -364,7 +364,7 @@ public class DuplicateCheckTests
 
         var result = await CheckDuplicatesFullAsync(["https://vimm.net/vault/3001"]);
 
-        Assert.AreEqual(0, result.Count, "No files on disk → free to re-download");
+        Assert.IsEmpty(result, "No files on disk → free to re-download");
     }
 
     [TestMethod]
@@ -378,7 +378,7 @@ public class DuplicateCheckTests
 
         var result = await CheckDuplicatesFullAsync(["https://vimm.net/vault/3002"]);
 
-        Assert.AreEqual(1, result.Count);
+        Assert.HasCount(1, result);
         Assert.IsTrue(result[0].ArchiveExists);
         Assert.IsTrue(result[0].IsoExists);
         Assert.AreEqual("Already converted to ISO (archive + ISO on disk)", result[0].Reason);
@@ -395,7 +395,7 @@ public class DuplicateCheckTests
 
         var result = await CheckDuplicatesFullAsync(["https://vimm.net/vault/3002"]);
 
-        Assert.AreEqual(1, result.Count);
+        Assert.HasCount(1, result);
         Assert.IsFalse(result[0].ArchiveExists);
         Assert.IsTrue(result[0].IsoExists);
         Assert.AreEqual("Already converted to ISO", result[0].Reason);
@@ -411,7 +411,7 @@ public class DuplicateCheckTests
 
         var result = await CheckDuplicatesFullAsync(["https://vimm.net/vault/3002"]);
 
-        Assert.AreEqual(1, result.Count);
+        Assert.HasCount(1, result);
         Assert.AreEqual("Already downloaded (conversion in progress)", result[0].Reason);
     }
 
@@ -424,7 +424,7 @@ public class DuplicateCheckTests
 
         var result = await CheckDuplicatesFullAsync(["https://vimm.net/vault/3002"]);
 
-        Assert.AreEqual(1, result.Count, "Active conversion always blocks");
+        Assert.HasCount(1, result, "Active conversion always blocks");
     }
 
     // ========================================================================
@@ -457,7 +457,7 @@ public class DuplicateCheckTests
             "https://vimm.net/vault/5001",
         ]);
 
-        Assert.AreEqual(2, result.Count, "Only items with files on disk");
+        Assert.HasCount(2, result, "Only items with files on disk");
         Assert.IsTrue(result.Any(r => r.Url == "https://vimm.net/vault/2001"));
         Assert.IsTrue(result.Any(r => r.Url == "https://vimm.net/vault/3001"));
     }
@@ -474,7 +474,7 @@ public class DuplicateCheckTests
 
         var result = await CheckDuplicatesFullAsync(["https://vimm.net/vault/5001"]);
 
-        Assert.AreEqual(1, result.Count);
+        Assert.HasCount(1, result);
         Assert.AreEqual("Already downloaded", result[0].Reason);
         Assert.IsTrue(result[0].ArchiveExists);
     }
@@ -486,7 +486,7 @@ public class DuplicateCheckTests
 
         var result = await CheckDuplicatesFullAsync(["https://vimm.net/vault/5001"]);
 
-        Assert.AreEqual(0, result.Count, "Non-PS3 with no archive on disk is not a duplicate");
+        Assert.IsEmpty(result, "Non-PS3 with no archive on disk is not a duplicate");
     }
 
     // ========================================================================

@@ -155,7 +155,7 @@ public class CatalogQueryTests
     {
         await Exec("UPDATE catalog_owned SET verified = 1 WHERE game_id = 1"); // Super Mario World
         var (_, games) = await Games("snes", null, 0, 100);
-        Assert.AreEqual(true, games.Single(g => g.Name == "Super Mario World (USA)").Verified);
+        Assert.IsTrue(games.Single(g => g.Name == "Super Mario World (USA)").Verified);
         Assert.IsNull(games.Single(g => g.Name == "Chrono Trigger (USA)").Verified); // not owned → null
     }
 

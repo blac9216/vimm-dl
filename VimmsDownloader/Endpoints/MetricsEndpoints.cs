@@ -25,7 +25,7 @@ static partial class MetricsEndpoints
             }
             catch { }
 
-            // Queued total: parse size strings from url_meta
+            // Queued total: parse size strings from the cached metadata (source_meta)
             var queued = await repo.GetQueuedItemsAsync();
             long queuedTotal = 0;
             foreach (var item in queued)
