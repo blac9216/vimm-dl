@@ -73,7 +73,7 @@ public class SourceIdentityTests
         await ApplyMigration("010_add_source_identity.sql", ignoreDuplicates: false);
 
         // Mirrors AddToQueueAsync with a non-default source.
-        await Exec("INSERT INTO queued_urls (url, format, source, source_id) VALUES ('https://x/1', 0, 'myrient', 'myr-123')");
+        await Exec("INSERT INTO queued_urls (url, format, source, source_id) VALUES ('https://x/1', 0, 'archive', 'arc-123')");
 
         // Mirrors GetNextQueueItemAsync (now returns source).
         await using (var cmd = _db.CreateCommand())
@@ -81,7 +81,7 @@ public class SourceIdentityTests
             cmd.CommandText = "SELECT id, url, format, source FROM queued_urls ORDER BY id LIMIT 1";
             await using var r = await cmd.ExecuteReaderAsync();
             Assert.IsTrue(await r.ReadAsync());
-            Assert.AreEqual("myrient", r.GetString(3));
+            Assert.AreEqual("archive", r.GetString(3));
         }
 
         // Mirrors CompleteItemAsync: read (source, source_id) from the queued row, carry onto completed.
@@ -103,8 +103,8 @@ public class SourceIdentityTests
         }
 
         var (cSource, cSourceId) = await ReadSource("completed_urls", "https://x/1");
-        Assert.AreEqual("myrient", cSource);
-        Assert.AreEqual("myr-123", cSourceId);
+        Assert.AreEqual("archive", cSource);
+        Assert.AreEqual("arc-123", cSourceId);
     }
 
     [TestMethod]
