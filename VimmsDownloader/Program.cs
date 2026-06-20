@@ -8,6 +8,8 @@ builder.Services.AddSingleton<QueueRepository>();
 builder.Services.AddSingleton<Module.Ps3Pipeline.Bridge.IPs3PipelineBridge, SignalRPs3PipelineBridge>();
 builder.Services.AddSingleton<Module.Ps3Pipeline.Ps3ConversionPipeline>();
 builder.Services.AddSingleton<Module.Download.Bridge.IDownloadBridge, SignalRDownloadBridge>();
+builder.Services.AddSingleton<Module.Download.Sources.IDownloadSource, Module.Download.Sources.VimmSource>();
+builder.Services.AddSingleton<Module.Download.Sources.ISourceRegistry, Module.Download.Sources.SourceRegistry>();
 builder.Services.AddSingleton<Module.Download.DownloadService>();
 builder.Services.AddSingleton<DownloadQueue>();
 builder.Services.AddSingleton<Module.Sync.Bridge.ISyncBridge, SignalRSyncBridge>();

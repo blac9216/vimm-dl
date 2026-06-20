@@ -1,7 +1,14 @@
 namespace Module.Download;
 
-/// <summary>An item to download from the queue.</summary>
-public record DownloadItem(int Id, string Url, int Format);
+/// <summary>
+/// An item to download from the queue. <see cref="Url"/> is the source-specific
+/// identifier (for Vimm: the vault URL); <see cref="Source"/> selects which
+/// <see cref="Sources.IDownloadSource"/> resolves it (defaults to Vimm).
+/// </summary>
+public record DownloadItem(int Id, string Url, int Format)
+{
+    public string Source { get; init; } = "vimm";
+}
 
 /// <summary>
 /// Interface for the host to provide queue items. The module doesn't

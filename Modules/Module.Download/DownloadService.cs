@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Module.Core;
 using Module.Download.Bridge;
+using Module.Download.Sources;
 
 namespace Module.Download;
 
@@ -9,6 +10,7 @@ public class DownloadService
     private readonly IDownloadBridge _bridge;
     private readonly ILogger<DownloadService> _log;
     private readonly IHttpClientFactory _httpFactory;
+    private readonly ISourceRegistry _sources;
     private CancellationTokenSource? _cts;
 
     public bool IsRunning { get; private set; }
@@ -21,19 +23,19 @@ public class DownloadService
     public string? ActiveDownloadPath { get; private set; }
 
     private string _downloadPath = "";
-    private string _httpClientName = "vimms";
 
-    public DownloadService(IDownloadBridge bridge, ILogger<DownloadService> log, IHttpClientFactory httpFactory)
+    public DownloadService(IDownloadBridge bridge, ILogger<DownloadService> log,
+        IHttpClientFactory httpFactory, ISourceRegistry sources)
     {
         _bridge = bridge;
         _log = log;
         _httpFactory = httpFactory;
+        _sources = sources;
     }
 
-    public void Configure(string downloadPath, string httpClientName = "vimms")
+    public void Configure(string downloadPath)
     {
         _downloadPath = downloadPath;
-        _httpClientName = httpClientName;
     }
 
     public string GetBasePath()
@@ -94,38 +96,48 @@ public class DownloadService
 
                 try
                 {
-                    var http = _httpFactory.CreateClient(_httpClientName);
-                    var pageHtml = await http.GetStringAsync(url, ct);
-
-                    var parsed = VaultPageParser.Parse(pageHtml, url, format);
-                    if (parsed == null)
+                    var source = _sources.Get(item.Source);
+                    if (source == null)
                     {
-                        await Emit(new DownloadErrorEvent($"Could not find mediaId for {url}"));
+                        await Emit(new DownloadErrorEvent($"Unknown download source '{item.Source}' for {url}"));
                         await provider.RemoveAsync(id);
                         continue;
                     }
 
-                    if (parsed.FormatNote != null)
-                        await Emit(new DownloadStatusEvent($"Format fallback: {parsed.FormatNote}"));
+                    var http = _httpFactory.CreateClient(source.HttpClientName);
 
-                    var formatLabel = parsed.ResolvedFormat == 0 ? "JB Folder" : $".dec.iso (format {parsed.ResolvedFormat})";
-                    await Emit(new DownloadStatusEvent($"Download URL: {parsed.DownloadUrl}"));
-                    await Emit(new DownloadStatusEvent($"Downloading: {parsed.Title} [{formatLabel}] (mediaId={parsed.MediaId})"));
+                    // The source ("where the bytes come from") resolves the item into a
+                    // concrete, streamable download. Everything below is source-agnostic.
+                    var resolveResult = await source.ResolveAsync(url, format, http, ct);
+                    if (!resolveResult.IsOk)
+                    {
+                        await Emit(new DownloadErrorEvent($"{resolveResult.Error}"));
+                        await provider.RemoveAsync(id);
+                        continue;
+                    }
+                    var resolved = resolveResult.Value!;
+
+                    if (resolved.FormatNote != null)
+                        await Emit(new DownloadStatusEvent($"Format fallback: {resolved.FormatNote}"));
+
+                    var formatLabel = resolved.ResolvedFormat == 0 ? "JB Folder" : $".dec.iso (format {resolved.ResolvedFormat})";
+                    await Emit(new DownloadStatusEvent($"Download URL: {resolved.DownloadUrl}"));
+                    await Emit(new DownloadStatusEvent($"Downloading: {resolved.Title} [{formatLabel}] (source={source.Id})"));
 
                     // Sort completed files into an EmuDeck-style per-console folder
                     // (e.g. completed/ps3/). Unknown platforms stay in completed/.
-                    var consoleDir = ConsoleDirectories.Resolve(parsed.Platform);
+                    var consoleDir = ConsoleDirectories.Resolve(resolved.Platform);
                     var itemCompletedPath = consoleDir != null
                         ? Path.Combine(completedPath, consoleDir)
                         : completedPath;
                     if (consoleDir != null)
                     {
                         Directory.CreateDirectory(itemCompletedPath);
-                        await Emit(new DownloadStatusEvent($"Console folder: {consoleDir} ({parsed.Platform})"));
+                        await Emit(new DownloadStatusEvent($"Console folder: {consoleDir} ({resolved.Platform})"));
                     }
 
                     var result = await StreamDownload(
-                        http, parsed.DownloadUrl, url, parsed.Title,
+                        http, resolved.DownloadUrl, resolved.RequestHeaders, resolved.Title,
                         downloadingPath, itemCompletedPath, ct);
 
                     if (!result.IsOk)
@@ -191,12 +203,19 @@ public class DownloadService
     }
 
     private async Task<Result<(string Filename, string CompletedPath)>> StreamDownload(
-        HttpClient http, string downloadUrl, string vaultUrl, string gameTitle,
-        string downloadingPath, string completedPath, CancellationToken ct)
+        HttpClient http, string downloadUrl, IReadOnlyList<(string Name, string Value)>? extraHeaders,
+        string gameTitle, string downloadingPath, string completedPath, CancellationToken ct)
     {
+        // Apply any source-specific request headers (e.g. Vimm's Referer / Sec-Fetch-Site).
+        static void ApplyHeaders(HttpRequestMessage req, IReadOnlyList<(string Name, string Value)>? headers)
+        {
+            if (headers == null) return;
+            foreach (var (name, value) in headers)
+                req.Headers.TryAddWithoutValidation(name, value);
+        }
+
         var headRequest = new HttpRequestMessage(HttpMethod.Get, downloadUrl);
-        headRequest.Headers.Referrer = new Uri(vaultUrl);
-        headRequest.Headers.Add("Sec-Fetch-Site", "cross-site");
+        ApplyHeaders(headRequest, extraHeaders);
         using var headResponse = await http.SendAsync(headRequest, HttpCompletionOption.ResponseHeadersRead, ct);
 
         if (!headResponse.IsSuccessStatusCode)
@@ -236,8 +255,7 @@ public class DownloadService
         {
             headResponse.Dispose();
             var rangeRequest = new HttpRequestMessage(HttpMethod.Get, downloadUrl);
-            rangeRequest.Headers.Referrer = new Uri(vaultUrl);
-            rangeRequest.Headers.Add("Sec-Fetch-Site", "cross-site");
+            ApplyHeaders(rangeRequest, extraHeaders);
             rangeRequest.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(existingBytes, null);
             response = await http.SendAsync(rangeRequest, HttpCompletionOption.ResponseHeadersRead, ct);
 
@@ -251,8 +269,7 @@ public class DownloadService
                 response.Dispose();
                 existingBytes = 0;
                 var freshRequest = new HttpRequestMessage(HttpMethod.Get, downloadUrl);
-                freshRequest.Headers.Referrer = new Uri(vaultUrl);
-                freshRequest.Headers.Add("Sec-Fetch-Site", "cross-site");
+                ApplyHeaders(freshRequest, extraHeaders);
                 response = await http.SendAsync(freshRequest, HttpCompletionOption.ResponseHeadersRead, ct);
 
                 if (!response.IsSuccessStatusCode)
