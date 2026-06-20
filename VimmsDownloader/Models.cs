@@ -1,4 +1,5 @@
-record AddRequest(List<string> Urls, int? Format = null, bool Force = false);
+record AddRequest(List<string> Urls, int? Format = null, bool Force = false, string? Source = null);
+record SourceInfo(string Id, string DisplayName);
 record AddResponse(List<QueueIdRow>? Queued, List<DuplicateInfo>? Duplicates);
 record DuplicateInfo(string Url, string Source, string Reason, string? Title, string? Filename, string? IsoFilename,
     bool ArchiveExists, bool IsoExists);

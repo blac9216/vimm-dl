@@ -137,7 +137,7 @@ public class DownloadService
                     }
 
                     var result = await StreamDownload(
-                        http, resolved.DownloadUrl, resolved.RequestHeaders, resolved.Title,
+                        http, resolved.DownloadUrl, resolved.RequestHeaders, resolved.SuggestedFilename, resolved.Title,
                         downloadingPath, itemCompletedPath, ct);
 
                     if (!result.IsOk)
@@ -204,7 +204,7 @@ public class DownloadService
 
     private async Task<Result<(string Filename, string CompletedPath)>> StreamDownload(
         HttpClient http, string downloadUrl, IReadOnlyList<(string Name, string Value)>? extraHeaders,
-        string gameTitle, string downloadingPath, string completedPath, CancellationToken ct)
+        string? suggestedFilename, string gameTitle, string downloadingPath, string completedPath, CancellationToken ct)
     {
         // Apply any source-specific request headers (e.g. Vimm's Referer / Sec-Fetch-Site).
         static void ApplyHeaders(HttpRequestMessage req, IReadOnlyList<(string Name, string Value)>? headers)
@@ -223,7 +223,7 @@ public class DownloadService
 
         var filename = headResponse.Content.Headers.ContentDisposition?.FileNameStar
             ?? headResponse.Content.Headers.ContentDisposition?.FileName?.Trim('"')
-            ?? $"{gameTitle}.zip";
+            ?? (string.IsNullOrEmpty(suggestedFilename) ? $"{gameTitle}.zip" : suggestedFilename);
         filename = string.Join("_", filename.Split(Path.GetInvalidFileNameChars()));
 
         CurrentFile = filename;
