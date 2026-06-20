@@ -26,7 +26,9 @@ public class DuplicateCheckTests
             CREATE TABLE queued_urls (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 url TEXT NOT NULL,
-                format INTEGER NOT NULL DEFAULT 0
+                format INTEGER NOT NULL DEFAULT 0,
+                source TEXT NOT NULL DEFAULT 'vimm',
+                source_id TEXT
             );
             CREATE TABLE completed_urls (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -36,15 +38,19 @@ public class DuplicateCheckTests
                 completed_at TEXT,
                 conv_phase TEXT,
                 conv_message TEXT,
-                iso_filename TEXT
+                iso_filename TEXT,
+                source TEXT NOT NULL DEFAULT 'vimm',
+                source_id TEXT
             );
-            CREATE TABLE url_meta (
-                url TEXT PRIMARY KEY,
+            CREATE TABLE source_meta (
+                source TEXT NOT NULL,
+                source_id TEXT NOT NULL,
                 title TEXT NOT NULL,
                 platform TEXT NOT NULL,
                 size TEXT NOT NULL,
                 formats TEXT,
-                serial TEXT
+                serial TEXT,
+                PRIMARY KEY (source, source_id)
             );
         """);
 
@@ -547,7 +553,7 @@ public class DuplicateCheckTests
         {
             cmd.CommandText = $"""
                 SELECT DISTINCT q.url, m.title, m.platform
-                FROM queued_urls q LEFT JOIN url_meta m ON q.url = m.url
+                FROM queued_urls q LEFT JOIN source_meta m ON q.source = m.source AND q.source_id = m.source_id
                 WHERE LOWER(q.url) IN ({placeholders})
             """;
             for (int i = 0; i < normalized.Count; i++)
@@ -563,7 +569,7 @@ public class DuplicateCheckTests
         {
             cmd.CommandText = $"""
                 SELECT c.url, c.conv_phase, c.iso_filename, c.filename, m.title, m.platform, c.filepath
-                FROM completed_urls c LEFT JOIN url_meta m ON c.url = m.url
+                FROM completed_urls c LEFT JOIN source_meta m ON c.source = m.source AND c.source_id = m.source_id
                 WHERE LOWER(c.url) IN ({placeholders})
             """;
             for (int i = 0; i < normalized.Count; i++)
@@ -684,7 +690,7 @@ public class DuplicateCheckTests
     private async Task InsertQueued(string url, int format)
     {
         await using var cmd = _db.CreateCommand();
-        cmd.CommandText = "INSERT INTO queued_urls (url, format) VALUES ($url, $format)";
+        cmd.CommandText = "INSERT INTO queued_urls (url, format, source, source_id) VALUES ($url, $format, 'vimm', $url)";
         cmd.Parameters.AddWithValue("$url", url);
         cmd.Parameters.AddWithValue("$format", format);
         await cmd.ExecuteNonQueryAsync();
@@ -696,8 +702,8 @@ public class DuplicateCheckTests
     {
         await using var cmd = _db.CreateCommand();
         cmd.CommandText = """
-            INSERT INTO completed_urls (url, filename, filepath, completed_at, conv_phase, conv_message, iso_filename)
-            VALUES ($url, $filename, $filepath, datetime('now'), $phase, $msg, $iso)
+            INSERT INTO completed_urls (url, filename, filepath, completed_at, conv_phase, conv_message, iso_filename, source, source_id)
+            VALUES ($url, $filename, $filepath, datetime('now'), $phase, $msg, $iso, 'vimm', $url)
         """;
         cmd.Parameters.AddWithValue("$url", url);
         cmd.Parameters.AddWithValue("$filename", filename);
@@ -715,7 +721,7 @@ public class DuplicateCheckTests
     private async Task InsertMeta(string url, string title, string platform)
     {
         await using var cmd = _db.CreateCommand();
-        cmd.CommandText = "INSERT OR REPLACE INTO url_meta (url, title, platform, size) VALUES ($url, $title, $platform, '')";
+        cmd.CommandText = "INSERT OR REPLACE INTO source_meta (source, source_id, title, platform, size) VALUES ('vimm', $url, $title, $platform, '')";
         cmd.Parameters.AddWithValue("$url", url);
         cmd.Parameters.AddWithValue("$title", title);
         cmd.Parameters.AddWithValue("$platform", platform);

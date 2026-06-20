@@ -107,6 +107,29 @@ public class SourceIdentityTests
         Assert.AreEqual("myr-123", cSourceId);
     }
 
+    [TestMethod]
+    public async Task Migration011_CopiesUrlMetaToSourceMeta()
+    {
+        // A legacy url_meta cache exists; 011 must copy it into source_meta as source='vimm'.
+        await Exec("""
+            CREATE TABLE url_meta (
+                url TEXT PRIMARY KEY, title TEXT NOT NULL, platform TEXT NOT NULL,
+                size TEXT NOT NULL, formats TEXT, serial TEXT
+            );
+        """);
+        await Exec("INSERT INTO url_meta (url, title, platform, size) VALUES ('https://vimm.net/vault/9', 'God of War', 'PlayStation 3', '30 GB')");
+
+        await ApplyMigration("011_metadata_by_source.sql", ignoreDuplicates: false);
+
+        await using var cmd = _db.CreateCommand();
+        cmd.CommandText = "SELECT source, title, platform FROM source_meta WHERE source_id = 'https://vimm.net/vault/9'";
+        await using var r = await cmd.ExecuteReaderAsync();
+        Assert.IsTrue(await r.ReadAsync(), "row should have been copied into source_meta");
+        Assert.AreEqual("vimm", r.GetString(0));
+        Assert.AreEqual("God of War", r.GetString(1));
+        Assert.AreEqual("PlayStation 3", r.GetString(2));
+    }
+
     // --- helpers ---
 
     private async Task Exec(string sql)
