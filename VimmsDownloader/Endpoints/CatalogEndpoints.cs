@@ -20,22 +20,36 @@ static class CatalogEndpoints
         });
 
         // Per-console counts + versions, plus whether a sync is currently running.
-        app.MapGet("/api/catalog/status", async (CatalogRepository repo, CatalogSyncState state) =>
+        app.MapGet("/api/catalog/status", async (CatalogRepository repo, CatalogSyncState sync, CatalogScanState scan) =>
         {
             var systems = await repo.GetSystemsAsync();
-            return new CatalogStatusResponse(state.IsSyncing, systems.Sum(s => s.GameCount), systems);
+            return new CatalogStatusResponse(sync.IsSyncing, scan.IsScanning, systems.Sum(s => s.GameCount), systems);
+        });
+
+        // Scan completed/ and record which catalog games are present on disk (background, single-flight).
+        app.MapPost("/api/catalog/scan", (CatalogScanService scanner, CatalogScanState state,
+            ILogger<CatalogScanService> log) =>
+        {
+            if (!state.TryBegin()) return Results.Conflict("Catalog scan already in progress");
+            _ = Task.Run(async () =>
+            {
+                try { await scanner.ScanAsync(state.Token); }
+                catch (Exception ex) { log.LogError(ex, "Catalog scan crashed"); }
+                finally { state.End(); }
+            });
+            return Results.Accepted();
         });
 
         // Consoles with counts — for the Library filter.
         app.MapGet("/api/catalog/consoles", async (CatalogRepository repo) => await repo.GetConsolesAsync());
 
         // Paged game browse, filtered by console and/or name.
-        app.MapGet("/api/catalog/games", async (string? console, string? q, int? page, int? pageSize,
+        app.MapGet("/api/catalog/games", async (string? console, string? q, string? local, int? page, int? pageSize,
             CatalogRepository repo) =>
         {
             var ps = Math.Clamp(pageSize ?? 100, 1, 200);
             var p = Math.Max(0, page ?? 0);
-            var (total, games) = await repo.GetGamesAsync(console, q, p, ps);
+            var (total, games) = await repo.GetGamesAsync(console, q, local ?? "all", p, ps);
             return new CatalogGamesResponse(total, p, ps, games);
         });
     }
@@ -48,6 +62,25 @@ sealed class CatalogSyncState
     private CancellationTokenSource _cts = new();
 
     public bool IsSyncing => Volatile.Read(ref _running) == 1;
+    public CancellationToken Token => _cts.Token;
+
+    public bool TryBegin()
+    {
+        if (Interlocked.CompareExchange(ref _running, 1, 0) != 0) return false;
+        _cts = new CancellationTokenSource();
+        return true;
+    }
+
+    public void End() => Volatile.Write(ref _running, 0);
+}
+
+/// <summary>Single-flight guard + cancellation for the background catalog scan (separate from sync).</summary>
+sealed class CatalogScanState
+{
+    private int _running;
+    private CancellationTokenSource _cts = new();
+
+    public bool IsScanning => Volatile.Read(ref _running) == 1;
     public CancellationToken Token => _cts.Token;
 
     public bool TryBegin()

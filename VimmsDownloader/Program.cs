@@ -22,6 +22,8 @@ builder.Services.AddSingleton(sp => new Module.Catalog.CatalogSyncService(
     sp.GetRequiredService<IHttpClientFactory>().CreateClient("libretro"),
     sp.GetRequiredService<Module.Catalog.ICatalogStore>(),
     sp.GetRequiredService<ILogger<Module.Catalog.CatalogSyncService>>()));
+builder.Services.AddSingleton<CatalogScanService>();
+builder.Services.AddSingleton<CatalogScanState>();
 builder.Services.ConfigureHttpJsonOptions(o =>
     o.SerializerOptions.TypeInfoResolverChain.Insert(0, AppJsonContext.Default));
 builder.Services.AddHttpClient("vimms")
