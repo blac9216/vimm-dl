@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useCatalogConsoles, useCatalogGames, useCatalogStatus, useSyncCatalog, useScanCatalog, useQueueCatalogGame } from '../../api/queries'
+import { useCatalogConsoles, useCatalogGames, useCatalogStatus, useSyncCatalog, useScanCatalog, useSyncCompat, useQueueCatalogGame } from '../../api/queries'
 import { PlatformIcon } from '../shared/PlatformIcon'
 import { SetsDialog } from './SetsDialog'
 import { fmtBytes } from '../../lib/format'
@@ -13,6 +13,17 @@ function useDebounced<T>(value: T, ms: number): T {
     return () => clearTimeout(t)
   }, [value, ms])
   return debounced
+}
+
+// Color an emulator compatibility status (RPCS3-style: Playable/Ingame/Intro/Loadable/Nothing).
+function compatClass(status: string): string {
+  switch (status) {
+    case 'Playable': return 'bg-ps-triangle/15 text-ps-triangle border-ps-triangle/25'
+    case 'Ingame': return 'bg-accent/15 text-accent border-accent/30'
+    case 'Intro':
+    case 'Loadable': return 'bg-[#e0a060]/15 text-[#e0a060] border-[#e0a060]/30'
+    default: return 'bg-ps-circle/10 text-[#e06070] border-ps-circle/20' // Nothing / unknown
+  }
 }
 
 const PAGE_SIZE = 100
@@ -34,12 +45,14 @@ export function LibraryPanel() {
   const { data: status } = useCatalogStatus()
   const syncMutation = useSyncCatalog()
   const scanMutation = useScanCatalog()
+  const compatMutation = useSyncCompat()
   const queueGame = useQueueCatalogGame()
   const { data: gamesResp, isFetching } = useCatalogGames(selectedConsole || null, query, local, dedupe, page, PAGE_SIZE)
 
   const syncing = status?.syncing ?? false
   const scanning = status?.scanning ?? false
-  const busy = syncing || scanning
+  const compatSyncing = status?.compatSyncing ?? false
+  const busy = syncing || scanning || compatSyncing
   const totalInCatalog = status?.totalGames ?? 0
 
   // When a sync or scan finishes, refresh the catalog views so new games/counts/owned appear.
@@ -134,6 +147,11 @@ export function LibraryPanel() {
             border border-border/30 hover:bg-surface-2/70 hover:text-text disabled:opacity-40 shrink-0">
           {scanning ? 'Scanning…' : 'Scan'}
         </button>
+        <button onClick={() => compatMutation.mutate()} disabled={busy} title="Sync emulator compatibility (RPCS3)"
+          className="px-3 py-1 text-xs font-medium rounded bg-surface-2/40 text-text-3
+            border border-border/30 hover:bg-surface-2/70 hover:text-text disabled:opacity-40 shrink-0">
+          {compatSyncing ? 'Compat…' : 'Compat'}
+        </button>
         <button onClick={() => syncMutation.mutate()} disabled={busy} title="Re-sync from No-Intro / Redump"
           className="px-3 py-1 text-xs font-medium rounded bg-surface-2/40 text-text-3
             border border-border/30 hover:bg-surface-2/70 hover:text-text disabled:opacity-40 shrink-0">
@@ -166,6 +184,10 @@ export function LibraryPanel() {
                 {g.serial && <span className="font-mono">{g.serial}</span>}
               </div>
             </div>
+            {g.compat && (
+              <span className={`text-[9px] px-1.5 py-0.5 rounded border shrink-0 ${compatClass(g.compat)}`}
+                title={`RPCS3: ${g.compat}`}>{g.compat}</span>
+            )}
             {g.size > 0 && (
               <span className="text-[10px] text-text-4 font-mono tabular-nums shrink-0">{fmtBytes(g.size)}</span>
             )}
