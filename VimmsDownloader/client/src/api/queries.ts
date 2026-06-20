@@ -126,8 +126,11 @@ export function useCatalogStatus() {
   return useQuery({
     queryKey: ['catalog-status'],
     queryFn: () => fetchJson<CatalogStatus>('/api/catalog/status'),
-    // Poll while a sync/scan/compat job is running so the UI advances; idle otherwise.
-    refetchInterval: q => (q.state.data?.syncing || q.state.data?.scanning || q.state.data?.compatSyncing ? 2000 : false),
+    // Poll while any catalog job is running so the UI advances; idle otherwise.
+    refetchInterval: q => {
+      const s = q.state.data
+      return s?.syncing || s?.scanning || s?.compatSyncing || s?.verifying ? 2000 : false
+    },
   })
 }
 
@@ -151,6 +154,14 @@ export function useSyncCompat() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: () => postJson('/api/catalog/compat/sync'),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['catalog-status'] }),
+  })
+}
+
+export function useVerifyCatalog() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => postJson('/api/catalog/verify'),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['catalog-status'] }),
   })
 }
