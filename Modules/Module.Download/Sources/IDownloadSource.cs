@@ -5,7 +5,7 @@ namespace Module.Download.Sources;
 /// <summary>
 /// A pluggable download source — "where the bytes come from". The Vimm's Lair
 /// vault is one source (<see cref="VimmSource"/>); future sources (Internet
-/// Archive, Myrient, lolroms, Wii U NUS) implement this same contract so the
+/// Archive, lolroms, Wii U NUS) implement this same contract so the
 /// generic streaming core in <see cref="DownloadService"/> stays source-agnostic.
 /// </summary>
 public interface IDownloadSource
