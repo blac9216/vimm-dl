@@ -20,6 +20,7 @@ public class CatalogQueryTests
         await _db.OpenAsync();
         await ApplyMigration("012_catalog.sql");
         await ApplyMigration("013_catalog_owned.sql");
+        await ApplyMigration("015_catalog_1g1r.sql");
 
         // Two systems: SNES (no-intro) and PS3 (redump).
         await Exec("INSERT INTO catalog_system (id, dat_name, console, source, game_count) VALUES (1, 'Nintendo - Super Nintendo Entertainment System', 'snes', 'no-intro', 3)");
@@ -123,6 +124,16 @@ public class CatalogQueryTests
         Assert.IsTrue(games.All(g => !g.Owned));
     }
 
+    [TestMethod]
+    public async Task Games_Dedupe_ExcludesNonParents()
+    {
+        await Exec("UPDATE catalog_game SET is_parent = 0 WHERE name = 'Chrono Trigger (USA)'");
+        var (dedupTotal, _) = await Games("snes", null, 0, 100, "all", dedupe: true);
+        Assert.AreEqual(2, dedupTotal); // Chrono (non-parent) excluded
+        var (allTotal, _) = await Games("snes", null, 0, 100, "all", dedupe: false);
+        Assert.AreEqual(3, allTotal);   // default view unchanged
+    }
+
     // --- mirrors of CatalogRepository query SQL ---
 
     private async Task<List<(string Console, int Total, int Owned)>> Consoles()
@@ -143,7 +154,7 @@ public class CatalogQueryTests
     }
 
     private async Task<(int Total, List<(int Id, string Name, string Console, string? Region, string? Serial, string? Languages, long Size, bool Owned)> Games)>
-        Games(string? console, string? query, int page, int pageSize, string local = "all")
+        Games(string? console, string? query, int page, int pageSize, string local = "all", bool dedupe = false)
     {
         var like = string.IsNullOrWhiteSpace(query) ? null : "%" + query.Trim() + "%";
         const string where = """
@@ -152,6 +163,7 @@ public class CatalogQueryTests
               AND ($local = 'all'
                    OR ($local = 'owned'  AND     EXISTS(SELECT 1 FROM catalog_owned o WHERE o.game_id = g.id))
                    OR ($local = 'remote' AND NOT EXISTS(SELECT 1 FROM catalog_owned o WHERE o.game_id = g.id)))
+              AND ($dedupe = 0 OR g.is_parent = 1)
             """;
 
         int total;
@@ -161,6 +173,7 @@ public class CatalogQueryTests
             cnt.Parameters.AddWithValue("$console", (object?)console ?? DBNull.Value);
             cnt.Parameters.AddWithValue("$like", (object?)like ?? DBNull.Value);
             cnt.Parameters.AddWithValue("$local", local);
+            cnt.Parameters.AddWithValue("$dedupe", dedupe ? 1 : 0);
             total = Convert.ToInt32(await cnt.ExecuteScalarAsync());
         }
 
@@ -178,6 +191,7 @@ public class CatalogQueryTests
             cmd.Parameters.AddWithValue("$console", (object?)console ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$like", (object?)like ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$local", local);
+            cmd.Parameters.AddWithValue("$dedupe", dedupe ? 1 : 0);
             cmd.Parameters.AddWithValue("$limit", pageSize);
             cmd.Parameters.AddWithValue("$offset", page * pageSize);
             await using var r = await cmd.ExecuteReaderAsync();
