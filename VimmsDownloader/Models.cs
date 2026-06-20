@@ -43,6 +43,9 @@ record CatalogStatusResponse(bool Syncing, bool Scanning, int TotalGames, List<C
 record CatalogConsole(string Console, int GameCount, int OwnedCount);
 record CatalogGameDto(int Id, string Name, string Console, string? Region, string? Serial, string? Languages, long Size, bool Owned);
 record CatalogGamesResponse(int Total, int Page, int PageSize, List<CatalogGameDto> Games);
+record CatalogSetDto(int Id, string Console, string Source, string Identifier, string? Label);
+record AddSetRequest(string Console, string Identifier, string? Label = null, string? Source = null);
+record CatalogQueueResponse(string Url);
 
 record MetricsResponse(long DiskFreeBytes, long DiskTotalBytes,
     long QueuedTotalBytes, int QueuedCount,

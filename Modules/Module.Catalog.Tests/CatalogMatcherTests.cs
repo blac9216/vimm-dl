@@ -64,6 +64,25 @@ public class CatalogMatcherTests
     }
 
     [TestMethod]
+    public void FindFile_MatchesByStem_IgnoringExtension()
+    {
+        (string, string)[] files =
+        [
+            ("Advance Wars (USA).zip", "https://archive.org/download/set/Advance%20Wars%20(USA).zip"),
+            ("Some Other (USA).zip", "https://x/other"),
+        ];
+        Assert.AreEqual("https://archive.org/download/set/Advance%20Wars%20(USA).zip",
+            CatalogMatcher.FindFile(files, "Advance Wars (USA)"));
+    }
+
+    [TestMethod]
+    public void FindFile_NoMatch_ReturnsNull()
+    {
+        (string, string)[] files = [("Different Game (Europe).7z", "https://x/d")];
+        Assert.IsNull(CatalogMatcher.FindFile(files, "Advance Wars (USA)"));
+    }
+
+    [TestMethod]
     public void Match_MultipleFiles_MatchesEachConsole()
     {
         var owned = CatalogMatcher.Match(Games,
