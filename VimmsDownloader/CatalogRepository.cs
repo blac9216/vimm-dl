@@ -249,10 +249,54 @@ class CatalogRepository : ICatalogStore
         await tx.CommitAsync(ct);
     }
 
+    /// <summary>Owned games + their file path + the catalog CRC32s to verify against.</summary>
+    public async Task<List<(long GameId, string Filepath, HashSet<string> Crcs)>> GetOwnedForVerifyAsync()
+    {
+        await using var db = await OpenAsync();
+        await using var cmd = db.CreateCommand();
+        cmd.CommandText = """
+            SELECT o.game_id, o.filepath, r.crc
+            FROM catalog_owned o JOIN catalog_rom r ON r.game_id = o.game_id
+            WHERE r.crc IS NOT NULL
+            ORDER BY o.game_id
+            """;
+        await using var rd = await cmd.ExecuteReaderAsync();
+        var map = new Dictionary<long, (string Path, HashSet<string> Crcs)>();
+        while (await rd.ReadAsync())
+        {
+            var gid = rd.GetInt64(0);
+            if (!map.TryGetValue(gid, out var e))
+                map[gid] = e = (rd.GetString(1), new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+            e.Crcs.Add(rd.GetString(2));
+        }
+        return map.Select(kv => (kv.Key, kv.Value.Path, kv.Value.Crcs)).ToList();
+    }
+
+    /// <summary>Persist verify results (game_id → matched?) onto catalog_owned.</summary>
+    public async Task SetVerifiedAsync(IReadOnlyDictionary<long, bool> results, CancellationToken ct)
+    {
+        await using var db = await OpenAsync();
+        await using var tx = (SqliteTransaction)await db.BeginTransactionAsync(ct);
+        await using (var cmd = db.CreateCommand())
+        {
+            cmd.Transaction = tx;
+            cmd.CommandText = "UPDATE catalog_owned SET verified = $v WHERE game_id = $g";
+            var pv = cmd.Parameters.Add("$v", SqliteType.Integer);
+            var pg = cmd.Parameters.Add("$g", SqliteType.Integer);
+            foreach (var (gid, ok) in results)
+            {
+                pv.Value = ok ? 1 : 0;
+                pg.Value = gid;
+                await cmd.ExecuteNonQueryAsync(ct);
+            }
+        }
+        await tx.CommitAsync(ct);
+    }
+
     /// <summary>
     /// Paged game list, filtered by console and/or a case-insensitive name substring, and by
     /// local availability (<paramref name="local"/> = all | owned | remote). Each row carries an
-    /// <c>owned</c> flag from catalog_owned and a best-effort emulator <c>compat</c> status.
+    /// <c>owned</c> flag, a best-effort emulator <c>compat</c> status, and a <c>verified</c> result.
     /// </summary>
     public async Task<(int Total, List<CatalogGameDto> Games)> GetGamesAsync(
         string? console, string? query, string local, bool dedupe, int page, int pageSize)
@@ -291,7 +335,8 @@ class CatalogRepository : ICatalogStore
                 SELECT g.id, g.name, s.console, g.region, g.serial, g.languages,
                        (SELECT COALESCE(SUM(r.size), 0) FROM catalog_rom r WHERE r.game_id = g.id) AS size,
                        EXISTS(SELECT 1 FROM catalog_owned o WHERE o.game_id = g.id) AS owned,
-                       (SELECT c.status FROM catalog_compat c WHERE c.serial_key = UPPER(REPLACE(g.serial, '-', '')) LIMIT 1) AS compat
+                       (SELECT c.status FROM catalog_compat c WHERE c.serial_key = UPPER(REPLACE(g.serial, '-', '')) LIMIT 1) AS compat,
+                       (SELECT o.verified FROM catalog_owned o WHERE o.game_id = g.id) AS verified
                 FROM catalog_game g JOIN catalog_system s ON s.id = g.system_id
                 {where}
                 ORDER BY g.name
@@ -312,7 +357,8 @@ class CatalogRepository : ICatalogStore
                     r.IsDBNull(5) ? null : r.GetString(5),
                     r.GetInt64(6),
                     r.GetInt32(7) != 0,
-                    r.IsDBNull(8) ? null : r.GetString(8)));
+                    r.IsDBNull(8) ? null : r.GetString(8),
+                    r.IsDBNull(9) ? null : r.GetInt32(9) != 0));
         }
         return (total, games);
     }
