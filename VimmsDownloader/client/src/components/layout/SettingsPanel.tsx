@@ -150,6 +150,12 @@ export function SettingsPanel() {
             </div>
             <div className="space-y-1 border border-border/20 rounded p-3 bg-card/30">
               <Toggle
+                label="Browse (Beta)"
+                description="Enable the Browse tab to search and queue ROMs from catalog sources"
+                checked={settings.featureBrowse}
+                onChange={() => toggle('feature_browse', settings.featureBrowse)}
+              />
+              <Toggle
                 label="Sync (Beta)"
                 description="Enable the Sync tab for copying ISOs to an external drive"
                 checked={settings.featureSync}

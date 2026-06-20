@@ -7,7 +7,7 @@ static class SourceEndpoints
         // Registered download sources, for the toolbar source picker.
         app.MapGet("/api/sources", (ISourceRegistry registry) =>
             registry.All
-                .Select(s => new SourceInfo(s.Id, s.DisplayName))
+                .Select(s => new SourceInfo(s.Id, s.DisplayName, Catalog: s is ICatalogSource))
                 .OrderBy(s => s.DisplayName, StringComparer.OrdinalIgnoreCase)
                 .ToList());
 

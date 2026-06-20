@@ -30,7 +30,8 @@ static class SettingsEndpoints
                 Ps3DefaultFormat: int.TryParse(s.GetValueOrDefault(SettingsKeys.Ps3DefaultFormat, "1"), out var dfp) ? dfp : 1,
                 Ps3PreserveArchive: s.GetValueOrDefault(SettingsKeys.Ps3PreserveArchive, "true") == "true",
                 FeatureSync: s.GetValueOrDefault(SettingsKeys.FeatureSync, "false") == "true",
-                FeatureEvents: s.GetValueOrDefault(SettingsKeys.FeatureEvents, "false") == "true"
+                FeatureEvents: s.GetValueOrDefault(SettingsKeys.FeatureEvents, "false") == "true",
+                FeatureBrowse: s.GetValueOrDefault(SettingsKeys.FeatureBrowse, "false") == "true"
             );
         });
 

@@ -1,5 +1,5 @@
 record AddRequest(List<string> Urls, int? Format = null, bool Force = false, string? Source = null);
-record SourceInfo(string Id, string DisplayName);
+record SourceInfo(string Id, string DisplayName, bool Catalog);
 record AddResponse(List<QueueIdRow>? Queued, List<DuplicateInfo>? Duplicates);
 record DuplicateInfo(string Url, string Source, string Reason, string? Title, string? Filename, string? IsoFilename,
     bool ArchiveExists, bool IsoExists);
@@ -34,7 +34,7 @@ record SettingsResponse(string Platform, string OsDescription, string Hostname, 
     string Ipv4, string DefaultPath, string ActivePath,
     bool FixThe, bool AddSerial, bool StripRegion, int Ps3Parallelism,
     int Ps3DefaultFormat, bool Ps3PreserveArchive,
-    bool FeatureSync, bool FeatureEvents);
+    bool FeatureSync, bool FeatureEvents, bool FeatureBrowse);
 
 record MetricsResponse(long DiskFreeBytes, long DiskTotalBytes,
     long QueuedTotalBytes, int QueuedCount,

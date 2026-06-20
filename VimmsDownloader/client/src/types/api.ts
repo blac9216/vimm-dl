@@ -68,6 +68,19 @@ export interface MetaResponse {
 export interface SourceInfo {
   id: string
   displayName: string
+  catalog: boolean
+}
+
+export interface CatalogSet {
+  id: string
+  title: string
+  platform: string | null
+}
+
+export interface CatalogFile {
+  name: string
+  size: number
+  downloadUrl: string
 }
 
 export interface VersionResponse {
@@ -121,6 +134,7 @@ export interface SettingsResponse {
   ps3PreserveArchive: boolean
   featureSync: boolean
   featureEvents: boolean
+  featureBrowse: boolean
 }
 
 export interface CheckPathResponse {
