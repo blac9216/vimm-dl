@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type {
   DataResponse, VersionResponse, SettingsResponse, MetaResponse,
   QueueImportResponse, Ps3ConvertResponse, SyncCompareResponse, QueueExportItem,
-  EventsResponse, MetricsResponse, AddResponse, SourceInfo,
+  EventsResponse, MetricsResponse, AddResponse, SourceInfo, CatalogSet, CatalogFile,
 } from '../types/api'
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -93,6 +93,29 @@ export function useSources() {
     queryKey: ['sources'],
     queryFn: () => fetchJson<SourceInfo[]>('/api/sources'),
     staleTime: Infinity,
+  })
+}
+
+// --- Browse (catalog sources) ---
+
+export function useBrowseSets(source: string, query: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ['browse-sets', source, query],
+    queryFn: () => fetchJson<CatalogSet[]>(
+      `/api/sources/${encodeURIComponent(source)}/sets?q=${encodeURIComponent(query)}`),
+    enabled,
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
+export function useBrowseFiles(source: string, setId: string | null, filter: string) {
+  return useQuery({
+    queryKey: ['browse-files', source, setId, filter],
+    queryFn: () => fetchJson<CatalogFile[]>(
+      `/api/sources/${encodeURIComponent(source)}/files?set=${encodeURIComponent(setId!)}`
+      + `&q=${encodeURIComponent(filter)}`),
+    enabled: !!setId,
+    staleTime: 5 * 60 * 1000,
   })
 }
 

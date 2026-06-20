@@ -10,6 +10,7 @@ import { UpdateBanner } from './components/shared/UpdateBanner'
 import { ActivePanel } from './components/active/ActivePanel'
 import { CompletedPanel } from './components/completed/CompletedPanel'
 import { SyncPanel } from './components/sync/SyncPanel'
+import { BrowsePanel } from './components/browse/BrowsePanel'
 import { SettingsPanel } from './components/layout/SettingsPanel'
 import { EventsPanel } from './components/events/EventsPanel'
 import { MetricsPanel } from './components/metrics/MetricsPanel'
@@ -79,8 +80,9 @@ function AppContent() {
     const hidden = new Set<Tab>()
     if (!settings?.featureSync) hidden.add('sync')
     if (!settings?.featureEvents) hidden.add('events')
+    if (!settings?.featureBrowse) hidden.add('browse')
     return hidden
-  }, [settings?.featureSync, settings?.featureEvents])
+  }, [settings?.featureSync, settings?.featureEvents, settings?.featureBrowse])
 
   // If the active tab gets hidden, fall back to 'active'
   useEffect(() => {
@@ -111,6 +113,7 @@ function AppContent() {
               onViewEvents={handleViewEvents}
             />
           )}
+          {activeTab === 'browse' && <BrowsePanel />}
           {activeTab === 'metrics' && <MetricsPanel />}
           {activeTab === 'events' && (
             <EventsPanel
