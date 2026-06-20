@@ -31,7 +31,7 @@ static class SettingsEndpoints
                 Ps3PreserveArchive: s.GetValueOrDefault(SettingsKeys.Ps3PreserveArchive, "true") == "true",
                 FeatureSync: s.GetValueOrDefault(SettingsKeys.FeatureSync, "false") == "true",
                 FeatureEvents: s.GetValueOrDefault(SettingsKeys.FeatureEvents, "false") == "true",
-                FeatureBrowse: s.GetValueOrDefault(SettingsKeys.FeatureBrowse, "false") == "true"
+                FeatureLibrary: s.GetValueOrDefault(SettingsKeys.FeatureLibrary, "false") == "true"
             );
         });
 

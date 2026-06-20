@@ -71,16 +71,42 @@ export interface SourceInfo {
   catalog: boolean
 }
 
-export interface CatalogSet {
-  id: string
-  title: string
-  platform: string | null
+// Canonical catalog (No-Intro / Redump)
+export interface CatalogConsole {
+  console: string
+  gameCount: number
 }
 
-export interface CatalogFile {
+export interface CatalogGame {
+  id: number
   name: string
+  console: string
+  region: string | null
+  serial: string | null
+  languages: string | null
   size: number
-  downloadUrl: string
+}
+
+export interface CatalogGamesResponse {
+  total: number
+  page: number
+  pageSize: number
+  games: CatalogGame[]
+}
+
+export interface CatalogSystemStatus {
+  datName: string
+  console: string
+  source: string
+  datVersion: string | null
+  gameCount: number
+  syncedAt: string | null
+}
+
+export interface CatalogStatus {
+  syncing: boolean
+  totalGames: number
+  systems: CatalogSystemStatus[]
 }
 
 export interface VersionResponse {
@@ -134,7 +160,7 @@ export interface SettingsResponse {
   ps3PreserveArchive: boolean
   featureSync: boolean
   featureEvents: boolean
-  featureBrowse: boolean
+  featureLibrary: boolean
 }
 
 export interface CheckPathResponse {
