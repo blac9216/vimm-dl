@@ -6,8 +6,8 @@ class QueueItemProvider(QueueRepository repo) : IDownloadItemProvider
     {
         var row = await repo.GetNextQueueItemAsync();
         if (row == null) return null;
-        var (id, url, format) = row.Value;
-        return new DownloadItem(id, url, format);
+        var (id, url, format, source) = row.Value;
+        return new DownloadItem(id, url, format) { Source = source };
     }
 
     public async Task CompleteAsync(int id, string url, string filename, string filepath, int format)
