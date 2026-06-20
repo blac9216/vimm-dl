@@ -140,50 +140,111 @@ class CatalogRepository : ICatalogStore
     {
         await using var db = await OpenAsync();
         await using var cmd = db.CreateCommand();
-        cmd.CommandText = "SELECT console, SUM(game_count) FROM catalog_system GROUP BY console ORDER BY console";
+        // Total from the cheap stored count; owned via the small catalog_owned table.
+        cmd.CommandText = """
+            SELECT s.console, SUM(s.game_count) AS total,
+                   (SELECT COUNT(*) FROM catalog_owned o
+                      JOIN catalog_game g ON g.id = o.game_id
+                      JOIN catalog_system s2 ON s2.id = g.system_id
+                      WHERE s2.console = s.console) AS owned
+            FROM catalog_system s GROUP BY s.console ORDER BY s.console
+            """;
         await using var r = await cmd.ExecuteReaderAsync();
         var list = new List<CatalogConsole>();
         while (await r.ReadAsync())
-            list.Add(new CatalogConsole(r.GetString(0), r.GetInt32(1)));
+            list.Add(new CatalogConsole(r.GetString(0), r.GetInt32(1), r.GetInt32(2)));
         return list;
     }
 
-    /// <summary>Paged game list, filtered by console and/or a case-insensitive name substring.</summary>
-    public async Task<(int Total, List<CatalogGameDto> Games)> GetGamesAsync(string? console, string? query, int page, int pageSize)
+    /// <summary>All games as (id, console, name) — the key set for matching local files.</summary>
+    public async Task<List<(long Id, string Console, string Name)>> GetGameKeysAsync()
+    {
+        await using var db = await OpenAsync();
+        await using var cmd = db.CreateCommand();
+        cmd.CommandText = "SELECT g.id, s.console, g.name FROM catalog_game g JOIN catalog_system s ON s.id = g.system_id";
+        await using var r = await cmd.ExecuteReaderAsync();
+        var list = new List<(long, string, string)>();
+        while (await r.ReadAsync())
+            list.Add((r.GetInt64(0), r.GetString(1), r.GetString(2)));
+        return list;
+    }
+
+    /// <summary>Replace the owned set wholesale (game_id → local filepath).</summary>
+    public async Task ReplaceOwnedAsync(IReadOnlyDictionary<long, string> owned, CancellationToken ct)
+    {
+        await using var db = await OpenAsync();
+        await using var tx = (SqliteTransaction)await db.BeginTransactionAsync(ct);
+
+        await using (var del = db.CreateCommand())
+        {
+            del.Transaction = tx;
+            del.CommandText = "DELETE FROM catalog_owned";
+            await del.ExecuteNonQueryAsync(ct);
+        }
+        await using (var ins = db.CreateCommand())
+        {
+            ins.Transaction = tx;
+            ins.CommandText = "INSERT OR REPLACE INTO catalog_owned (game_id, filepath, matched_at) VALUES ($g, $p, datetime('now'))";
+            var pg = ins.Parameters.Add("$g", SqliteType.Integer);
+            var pp = ins.Parameters.Add("$p", SqliteType.Text);
+            foreach (var (gid, path) in owned)
+            {
+                pg.Value = gid;
+                pp.Value = path;
+                await ins.ExecuteNonQueryAsync(ct);
+            }
+        }
+        await tx.CommitAsync(ct);
+    }
+
+    /// <summary>
+    /// Paged game list, filtered by console and/or a case-insensitive name substring, and by
+    /// local availability (<paramref name="local"/> = all | owned | remote). Each row carries an
+    /// <c>owned</c> flag from catalog_owned.
+    /// </summary>
+    public async Task<(int Total, List<CatalogGameDto> Games)> GetGamesAsync(
+        string? console, string? query, string local, int page, int pageSize)
     {
         pageSize = Math.Clamp(pageSize, 1, 200);
         page = Math.Max(0, page);
         var like = string.IsNullOrWhiteSpace(query) ? null : "%" + query.Trim() + "%";
+        local = local is "owned" or "remote" ? local : "all";
+
+        const string where = """
+            WHERE ($console IS NULL OR s.console = $console)
+              AND ($like IS NULL OR g.name LIKE $like)
+              AND ($local = 'all'
+                   OR ($local = 'owned'  AND     EXISTS(SELECT 1 FROM catalog_owned o WHERE o.game_id = g.id))
+                   OR ($local = 'remote' AND NOT EXISTS(SELECT 1 FROM catalog_owned o WHERE o.game_id = g.id)))
+            """;
 
         await using var db = await OpenAsync();
 
         int total;
         await using (var cnt = db.CreateCommand())
         {
-            cnt.CommandText = """
-                SELECT COUNT(*) FROM catalog_game g JOIN catalog_system s ON s.id = g.system_id
-                WHERE ($console IS NULL OR s.console = $console)
-                  AND ($like IS NULL OR g.name LIKE $like)
-                """;
+            cnt.CommandText = $"SELECT COUNT(*) FROM catalog_game g JOIN catalog_system s ON s.id = g.system_id {where}";
             cnt.Parameters.AddWithValue("$console", (object?)console ?? DBNull.Value);
             cnt.Parameters.AddWithValue("$like", (object?)like ?? DBNull.Value);
+            cnt.Parameters.AddWithValue("$local", local);
             total = Convert.ToInt32(await cnt.ExecuteScalarAsync());
         }
 
         var games = new List<CatalogGameDto>();
         await using (var cmd = db.CreateCommand())
         {
-            cmd.CommandText = """
+            cmd.CommandText = $"""
                 SELECT g.id, g.name, s.console, g.region, g.serial, g.languages,
-                       (SELECT COALESCE(SUM(r.size), 0) FROM catalog_rom r WHERE r.game_id = g.id) AS size
+                       (SELECT COALESCE(SUM(r.size), 0) FROM catalog_rom r WHERE r.game_id = g.id) AS size,
+                       EXISTS(SELECT 1 FROM catalog_owned o WHERE o.game_id = g.id) AS owned
                 FROM catalog_game g JOIN catalog_system s ON s.id = g.system_id
-                WHERE ($console IS NULL OR s.console = $console)
-                  AND ($like IS NULL OR g.name LIKE $like)
+                {where}
                 ORDER BY g.name
                 LIMIT $limit OFFSET $offset
                 """;
             cmd.Parameters.AddWithValue("$console", (object?)console ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$like", (object?)like ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$local", local);
             cmd.Parameters.AddWithValue("$limit", pageSize);
             cmd.Parameters.AddWithValue("$offset", page * pageSize);
             await using var r = await cmd.ExecuteReaderAsync();
@@ -193,7 +254,8 @@ class CatalogRepository : ICatalogStore
                     r.IsDBNull(3) ? null : r.GetString(3),
                     r.IsDBNull(4) ? null : r.GetString(4),
                     r.IsDBNull(5) ? null : r.GetString(5),
-                    r.GetInt64(6)));
+                    r.GetInt64(6),
+                    r.GetInt32(7) != 0));
         }
         return (total, games);
     }

@@ -39,9 +39,9 @@ record SettingsResponse(string Platform, string OsDescription, string Hostname, 
 // Catalog (No-Intro / Redump canonical game list)
 record CatalogSystemStatus(string DatName, string Console, string Source,
     string? DatVersion, int GameCount, string? SyncedAt);
-record CatalogStatusResponse(bool Syncing, int TotalGames, List<CatalogSystemStatus> Systems);
-record CatalogConsole(string Console, int GameCount);
-record CatalogGameDto(int Id, string Name, string Console, string? Region, string? Serial, string? Languages, long Size);
+record CatalogStatusResponse(bool Syncing, bool Scanning, int TotalGames, List<CatalogSystemStatus> Systems);
+record CatalogConsole(string Console, int GameCount, int OwnedCount);
+record CatalogGameDto(int Id, string Name, string Console, string? Region, string? Serial, string? Languages, long Size, bool Owned);
 record CatalogGamesResponse(int Total, int Page, int PageSize, List<CatalogGameDto> Games);
 
 record MetricsResponse(long DiskFreeBytes, long DiskTotalBytes,

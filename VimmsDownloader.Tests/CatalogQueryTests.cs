@@ -19,6 +19,7 @@ public class CatalogQueryTests
         _db = new SqliteConnection("Data Source=:memory:");
         await _db.OpenAsync();
         await ApplyMigration("012_catalog.sql");
+        await ApplyMigration("013_catalog_owned.sql");
 
         // Two systems: SNES (no-intro) and PS3 (redump).
         await Exec("INSERT INTO catalog_system (id, dat_name, console, source, game_count) VALUES (1, 'Nintendo - Super Nintendo Entertainment System', 'snes', 'no-intro', 3)");
@@ -32,19 +33,23 @@ public class CatalogQueryTests
         // PS3 multi-disc game → size is the SUM of its roms.
         await AddGame(2, "Heavy Title (USA) (Disc 1)", "USA", "BLUS-1", null,
             [("d1.iso", 1000), ("d2.iso", 2000)]);
+
+        // Mark two as owned: Super Mario World (game 1, snes) and Heavy Title (game 4, ps3).
+        await Exec("INSERT INTO catalog_owned (game_id, filepath) VALUES (1, '/dl/snes/Super Mario World (USA).sfc')");
+        await Exec("INSERT INTO catalog_owned (game_id, filepath) VALUES (4, '/dl/ps3/Heavy Title (USA) (Disc 1).iso')");
     }
 
     [TestCleanup]
     public async Task Cleanup() => await _db.DisposeAsync();
 
     [TestMethod]
-    public async Task Consoles_ReturnsPerConsoleCounts()
+    public async Task Consoles_ReturnsPerConsoleCountsWithOwned()
     {
         var consoles = await Consoles();
         Assert.HasCount(2, consoles);
-        // ORDER BY console → ps3 before snes
-        Assert.AreEqual(("ps3", 1), consoles[0]);
-        Assert.AreEqual(("snes", 3), consoles[1]);
+        // ORDER BY console → ps3 before snes; owned: ps3=1 (Heavy), snes=1 (SMW)
+        Assert.AreEqual(("ps3", 1, 1), consoles[0]);
+        Assert.AreEqual(("snes", 3, 1), consoles[1]);
     }
 
     [TestMethod]
@@ -94,47 +99,85 @@ public class CatalogQueryTests
         Assert.AreEqual(3000, games[0].Size); // 1000 + 2000 across the two discs
     }
 
+    [TestMethod]
+    public async Task Games_OwnedFlagReflectsCatalogOwned()
+    {
+        var (_, games) = await Games("snes", null, 0, 100);
+        Assert.IsTrue(games.Single(g => g.Name == "Super Mario World (USA)").Owned);
+        Assert.IsFalse(games.Single(g => g.Name == "Chrono Trigger (USA)").Owned);
+    }
+
+    [TestMethod]
+    public async Task Games_LocalFilter_OwnedOnly()
+    {
+        var (total, games) = await Games(null, null, 0, 100, "owned");
+        Assert.AreEqual(2, total); // SMW (snes) + Heavy (ps3)
+        Assert.IsTrue(games.All(g => g.Owned));
+    }
+
+    [TestMethod]
+    public async Task Games_LocalFilter_RemoteOnly()
+    {
+        var (total, games) = await Games("snes", null, 0, 100, "remote");
+        Assert.AreEqual(2, total); // Chrono + Metroid (SMW is owned)
+        Assert.IsTrue(games.All(g => !g.Owned));
+    }
+
     // --- mirrors of CatalogRepository query SQL ---
 
-    private async Task<List<(string Console, int Count)>> Consoles()
+    private async Task<List<(string Console, int Total, int Owned)>> Consoles()
     {
         await using var cmd = _db.CreateCommand();
-        cmd.CommandText = "SELECT console, SUM(game_count) FROM catalog_system GROUP BY console ORDER BY console";
+        cmd.CommandText = """
+            SELECT s.console, SUM(s.game_count) AS total,
+                   (SELECT COUNT(*) FROM catalog_owned o
+                      JOIN catalog_game g ON g.id = o.game_id
+                      JOIN catalog_system s2 ON s2.id = g.system_id
+                      WHERE s2.console = s.console) AS owned
+            FROM catalog_system s GROUP BY s.console ORDER BY s.console
+            """;
         await using var r = await cmd.ExecuteReaderAsync();
-        var list = new List<(string, int)>();
-        while (await r.ReadAsync()) list.Add((r.GetString(0), r.GetInt32(1)));
+        var list = new List<(string, int, int)>();
+        while (await r.ReadAsync()) list.Add((r.GetString(0), r.GetInt32(1), r.GetInt32(2)));
         return list;
     }
 
-    private async Task<(int Total, List<(int Id, string Name, string Console, string? Region, string? Serial, string? Languages, long Size)> Games)>
-        Games(string? console, string? query, int page, int pageSize)
+    private async Task<(int Total, List<(int Id, string Name, string Console, string? Region, string? Serial, string? Languages, long Size, bool Owned)> Games)>
+        Games(string? console, string? query, int page, int pageSize, string local = "all")
     {
         var like = string.IsNullOrWhiteSpace(query) ? null : "%" + query.Trim() + "%";
+        const string where = """
+            WHERE ($console IS NULL OR s.console = $console)
+              AND ($like IS NULL OR g.name LIKE $like)
+              AND ($local = 'all'
+                   OR ($local = 'owned'  AND     EXISTS(SELECT 1 FROM catalog_owned o WHERE o.game_id = g.id))
+                   OR ($local = 'remote' AND NOT EXISTS(SELECT 1 FROM catalog_owned o WHERE o.game_id = g.id)))
+            """;
 
         int total;
         await using (var cnt = _db.CreateCommand())
         {
-            cnt.CommandText = """
-                SELECT COUNT(*) FROM catalog_game g JOIN catalog_system s ON s.id = g.system_id
-                WHERE ($console IS NULL OR s.console = $console) AND ($like IS NULL OR g.name LIKE $like)
-                """;
+            cnt.CommandText = $"SELECT COUNT(*) FROM catalog_game g JOIN catalog_system s ON s.id = g.system_id {where}";
             cnt.Parameters.AddWithValue("$console", (object?)console ?? DBNull.Value);
             cnt.Parameters.AddWithValue("$like", (object?)like ?? DBNull.Value);
+            cnt.Parameters.AddWithValue("$local", local);
             total = Convert.ToInt32(await cnt.ExecuteScalarAsync());
         }
 
-        var games = new List<(int, string, string, string?, string?, string?, long)>();
+        var games = new List<(int, string, string, string?, string?, string?, long, bool)>();
         await using (var cmd = _db.CreateCommand())
         {
-            cmd.CommandText = """
+            cmd.CommandText = $"""
                 SELECT g.id, g.name, s.console, g.region, g.serial, g.languages,
-                       (SELECT COALESCE(SUM(r.size), 0) FROM catalog_rom r WHERE r.game_id = g.id) AS size
+                       (SELECT COALESCE(SUM(r.size), 0) FROM catalog_rom r WHERE r.game_id = g.id) AS size,
+                       EXISTS(SELECT 1 FROM catalog_owned o WHERE o.game_id = g.id) AS owned
                 FROM catalog_game g JOIN catalog_system s ON s.id = g.system_id
-                WHERE ($console IS NULL OR s.console = $console) AND ($like IS NULL OR g.name LIKE $like)
+                {where}
                 ORDER BY g.name LIMIT $limit OFFSET $offset
                 """;
             cmd.Parameters.AddWithValue("$console", (object?)console ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$like", (object?)like ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$local", local);
             cmd.Parameters.AddWithValue("$limit", pageSize);
             cmd.Parameters.AddWithValue("$offset", page * pageSize);
             await using var r = await cmd.ExecuteReaderAsync();
@@ -143,7 +186,8 @@ public class CatalogQueryTests
                     r.IsDBNull(3) ? null : r.GetString(3),
                     r.IsDBNull(4) ? null : r.GetString(4),
                     r.IsDBNull(5) ? null : r.GetString(5),
-                    r.GetInt64(6)));
+                    r.GetInt64(6),
+                    r.GetInt32(7) != 0));
         }
         return (total, games);
     }
