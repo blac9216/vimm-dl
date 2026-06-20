@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useAddToQueue, useSettings } from '../../api/queries'
+import { useAddToQueue, useSettings, useSources } from '../../api/queries'
 import { useDownload } from '../../hooks/useDownloadState'
 import { parseUrls } from '../../lib/format'
 import { DuplicateDialog } from '../shared/DuplicateDialog'
@@ -7,17 +7,23 @@ import type { DuplicateInfo } from '../../types/api'
 
 export function Toolbar() {
   const [text, setText] = useState('')
+  const [source, setSource] = useState('vimm')
   const [duplicates, setDuplicates] = useState<DuplicateInfo[] | null>(null)
   const [pendingUrls, setPendingUrls] = useState<string[]>([])
   const addMutation = useAddToQueue()
   const { state, connection } = useDownload()
   const { data: config } = useSettings()
+  const { data: sources } = useSources()
+
+  // Vimm uses the configured PS3 format; other sources ignore it (resolve to 0).
+  const addFormat = source === 'vimm' ? config?.ps3DefaultFormat ?? 1 : 0
+  const sourceName = sources?.find(s => s.id === source)?.displayName ?? "Vimm's Lair"
 
   async function handleAdd() {
     const urls = parseUrls(text)
     if (urls.length === 0) return
 
-    const result = await addMutation.mutateAsync({ urls, format: config?.ps3DefaultFormat ?? 1 })
+    const result = await addMutation.mutateAsync({ urls, format: addFormat, source })
 
     if (result?.duplicates && result.duplicates.length > 0) {
       setDuplicates(result.duplicates)
@@ -34,7 +40,7 @@ export function Toolbar() {
   async function handleForceAdd() {
     if (pendingUrls.length === 0) return
 
-    await addMutation.mutateAsync({ urls: pendingUrls, format: config?.ps3DefaultFormat ?? 1, force: true })
+    await addMutation.mutateAsync({ urls: pendingUrls, format: addFormat, force: true, source })
     setDuplicates(null)
     setPendingUrls([])
     setText('')
@@ -59,11 +65,24 @@ export function Toolbar() {
   return (
     <>
       <div className="flex gap-2 sm:gap-3 px-3 sm:px-6 py-2 sm:py-2.5 border-b border-border/30">
+        {sources && sources.length > 1 && (
+          <select
+            value={source}
+            onChange={e => setSource(e.target.value)}
+            title="Download source"
+            className="bg-surface/80 border border-border/60 rounded px-2 py-1.5 text-sm text-text
+              focus:outline-none focus:border-accent/40 transition-all min-h-[32px] shrink-0"
+          >
+            {sources.map(s => (
+              <option key={s.id} value={s.id}>{s.displayName}</option>
+            ))}
+          </select>
+        )}
         <textarea
           value={text}
           onChange={e => setText(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Paste vault URLs here..."
+          placeholder={source === 'vimm' ? 'Paste vault URLs here...' : `Paste ${sourceName} file URLs here...`}
           rows={1}
           className="flex-1 bg-surface/80 border border-border/60 rounded px-3 py-1.5 text-sm text-text
             placeholder:text-text-4 resize-none focus:outline-none focus:border-accent/40 focus:shadow-[0_0_12px_rgba(91,155,213,0.1)]

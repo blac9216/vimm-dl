@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type {
   DataResponse, VersionResponse, SettingsResponse, MetaResponse,
   QueueImportResponse, Ps3ConvertResponse, SyncCompareResponse, QueueExportItem,
-  EventsResponse, MetricsResponse, AddResponse,
+  EventsResponse, MetricsResponse, AddResponse, SourceInfo,
 } from '../types/api'
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -88,10 +88,18 @@ export function useMeta(url: string | null) {
 
 // --- Queue ---
 
+export function useSources() {
+  return useQuery({
+    queryKey: ['sources'],
+    queryFn: () => fetchJson<SourceInfo[]>('/api/sources'),
+    staleTime: Infinity,
+  })
+}
+
 export function useAddToQueue() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (data: { urls: string[]; format?: number; force?: boolean }) =>
+    mutationFn: (data: { urls: string[]; format?: number; force?: boolean; source?: string }) =>
       postJson<AddResponse>('/api/queue', data),
     onSuccess: (data) => {
       if (data?.queued) qc.invalidateQueries({ queryKey: ['data'] })

@@ -65,6 +65,11 @@ export interface MetaResponse {
   serial: string | null
 }
 
+export interface SourceInfo {
+  id: string
+  displayName: string
+}
+
 export interface VersionResponse {
   current: string
   latest: string | null
