@@ -15,6 +15,13 @@ builder.Services.AddSingleton<Module.Download.DownloadService>();
 builder.Services.AddSingleton<DownloadQueue>();
 builder.Services.AddSingleton<Module.Sync.Bridge.ISyncBridge, SignalRSyncBridge>();
 builder.Services.AddSingleton<Module.Sync.SyncService>();
+builder.Services.AddSingleton<CatalogRepository>();
+builder.Services.AddSingleton<Module.Catalog.ICatalogStore>(sp => sp.GetRequiredService<CatalogRepository>());
+builder.Services.AddSingleton<CatalogSyncState>();
+builder.Services.AddSingleton(sp => new Module.Catalog.CatalogSyncService(
+    sp.GetRequiredService<IHttpClientFactory>().CreateClient("libretro"),
+    sp.GetRequiredService<Module.Catalog.ICatalogStore>(),
+    sp.GetRequiredService<ILogger<Module.Catalog.CatalogSyncService>>()));
 builder.Services.ConfigureHttpJsonOptions(o =>
     o.SerializerOptions.TypeInfoResolverChain.Insert(0, AppJsonContext.Default));
 builder.Services.AddHttpClient("vimms")
@@ -64,12 +71,23 @@ builder.Services.AddHttpClient("archive")
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
     });
 
+// libretro-database raw files (the No-Intro/Redump mirror) — plain HTTPS, no auth.
+builder.Services.AddHttpClient("libretro")
+    .ConfigureHttpClient(c =>
+    {
+        c.Timeout = TimeSpan.FromMinutes(5);
+        c.DefaultRequestHeaders.Add("User-Agent", "vimm-dl");
+    });
+
 var app = builder.Build();
 
 // Init DB
 var repo = app.Services.GetRequiredService<QueueRepository>();
 await repo.InitAsync(app.Configuration.GetConnectionString("Default"),
     app.Services.GetRequiredService<ILogger<QueueRepository>>());
+
+// Catalog shares queue.db (tables created by migration 012, run above).
+app.Services.GetRequiredService<CatalogRepository>().Configure(app.Configuration.GetConnectionString("Default"));
 
 // Prune old events (7-day retention, 50k max rows)
 await repo.PruneEventsAsync();
@@ -120,6 +138,7 @@ app.MapFileEndpoints();
 app.MapDownloadEndpoints();
 app.MapMetadataEndpoints();
 app.MapSourceEndpoints();
+app.MapCatalogEndpoints();
 app.MapPs3Endpoints();
 app.MapSyncEndpoints();
 app.MapSettingsEndpoints();

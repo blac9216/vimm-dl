@@ -22,6 +22,7 @@
     <ProjectReference Include="..\Modules\Module.Ps3Pipeline\Module.Ps3Pipeline.csproj" />
     <ProjectReference Include="..\Modules\Module.Sync\Module.Sync.csproj" />
     <ProjectReference Include="..\Modules\Module.Download\Module.Download.csproj" />
+    <ProjectReference Include="..\Modules\Module.Catalog\Module.Catalog.csproj" />
   </ItemGroup>
 
 </Project>
