@@ -11,7 +11,7 @@ namespace Module.Download.Sources;
 /// best-effort from the item's metadata API (title / subject); on any failure the file
 /// still downloads and lands in <c>completed/</c> root.
 /// </summary>
-public sealed class ArchiveSource : IDownloadSource
+public sealed class ArchiveSource : IDownloadSource, ICatalogSource
 {
     private readonly ILogger<ArchiveSource> _log;
 
@@ -38,13 +38,101 @@ public sealed class ArchiveSource : IDownloadSource
             FormatNote: null));
     }
 
+    // --- ICatalogSource: in-app browse ---
+
+    public async Task<Result<IReadOnlyList<CatalogSet>>> SearchSetsAsync(string query, HttpClient http, CancellationToken ct)
+    {
+        // Bias toward ROM "sets" (mediatype:software), most-downloaded first; the user picks.
+        var q = string.IsNullOrWhiteSpace(query) ? "mediatype:software" : $"({query}) AND mediatype:software";
+        var url = "https://archive.org/advancedsearch.php?q=" + Uri.EscapeDataString(q)
+            + "&fl[]=identifier&fl[]=title&fl[]=subject&sort[]=" + Uri.EscapeDataString("downloads desc")
+            + "&rows=40&output=json";
+        try
+        {
+            var json = await http.GetStringAsync(url, ct);
+            using var doc = JsonDocument.Parse(json);
+            var sets = new List<CatalogSet>();
+            if (doc.RootElement.TryGetProperty("response", out var resp)
+                && resp.TryGetProperty("docs", out var docs) && docs.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var d in docs.EnumerateArray())
+                {
+                    if (!d.TryGetProperty("identifier", out var idEl) || idEl.ValueKind != JsonValueKind.String) continue;
+                    var id = idEl.GetString()!;
+                    var title = d.TryGetProperty("title", out var tEl) && tEl.ValueKind == JsonValueKind.String ? tEl.GetString()! : id;
+                    string? platform = null;
+                    foreach (var cand in PlatformCandidates(d))
+                        if (ConsoleDirectories.Resolve(cand) != null) { platform = cand; break; }
+                    sets.Add(new CatalogSet(id, title, platform));
+                }
+            }
+            return Result<IReadOnlyList<CatalogSet>>.Ok(sets);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _log.LogWarning("archive.org search failed: {Error}", ex.Message);
+            return Result<IReadOnlyList<CatalogSet>>.Fail($"archive.org search failed: {ex.Message}");
+        }
+    }
+
+    public async Task<Result<IReadOnlyList<CatalogFile>>> ListFilesAsync(string setId, string? filter, HttpClient http, CancellationToken ct)
+    {
+        try
+        {
+            var json = await http.GetStringAsync($"https://archive.org/metadata/{Uri.EscapeDataString(setId)}", ct);
+            using var doc = JsonDocument.Parse(json);
+            var files = new List<CatalogFile>();
+            if (doc.RootElement.TryGetProperty("files", out var arr) && arr.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var f in arr.EnumerateArray())
+                {
+                    if (!f.TryGetProperty("name", out var nEl) || nEl.ValueKind != JsonValueKind.String) continue;
+                    var name = nEl.GetString()!;
+                    if (IsMetadataFile(name)) continue;
+                    if (!string.IsNullOrWhiteSpace(filter) && name.IndexOf(filter, StringComparison.OrdinalIgnoreCase) < 0) continue;
+
+                    long size = 0;
+                    if (f.TryGetProperty("size", out var sEl))
+                    {
+                        if (sEl.ValueKind == JsonValueKind.String) long.TryParse(sEl.GetString(), out size);
+                        else if (sEl.ValueKind == JsonValueKind.Number) sEl.TryGetInt64(out size);
+                    }
+
+                    var dl = $"https://archive.org/download/{Uri.EscapeDataString(setId)}/{EncodePath(name)}";
+                    files.Add(new CatalogFile(name, size, dl));
+                    if (files.Count >= 200) break; // cap payload; user narrows with the filter
+                }
+            }
+            return Result<IReadOnlyList<CatalogFile>>.Ok(files);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _log.LogWarning("archive.org metadata for {Id} failed: {Error}", setId, ex.Message);
+            return Result<IReadOnlyList<CatalogFile>>.Fail($"archive.org metadata failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>archive.org auto-generated/sidecar files that aren't ROMs.</summary>
+    internal static bool IsMetadataFile(string name)
+    {
+        var l = name.ToLowerInvariant();
+        return l.EndsWith(".xml") || l.EndsWith(".sqlite") || l.EndsWith(".torrent")
+            || l.Contains("__ia_thumb") || l.EndsWith("_meta.txt") || l.EndsWith("_reviews.xml");
+    }
+
+    private static string EncodePath(string name)
+        => string.Join("/", name.Split('/').Select(Uri.EscapeDataString));
+
     /// <summary>Parse an archive.org /download/&lt;identifier&gt;/&lt;file&gt; URL.</summary>
     internal static bool TryParse(string url, out string identifier, out string filename)
     {
         identifier = "";
         filename = "";
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)) return false;
-        if (!uri.Host.EndsWith("archive.org", StringComparison.OrdinalIgnoreCase)) return false;
+        if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps) return false;
+        // Exact archive.org or a subdomain (e.g. dl.archive.org) — not "fooarchive.org".
+        if (!uri.Host.Equals("archive.org", StringComparison.OrdinalIgnoreCase)
+            && !uri.Host.EndsWith(".archive.org", StringComparison.OrdinalIgnoreCase)) return false;
 
         var segs = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
         // Expect: download / <identifier> / <file...>
