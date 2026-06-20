@@ -25,6 +25,19 @@ static class CatalogEndpoints
             var systems = await repo.GetSystemsAsync();
             return new CatalogStatusResponse(state.IsSyncing, systems.Sum(s => s.GameCount), systems);
         });
+
+        // Consoles with counts — for the Library filter.
+        app.MapGet("/api/catalog/consoles", async (CatalogRepository repo) => await repo.GetConsolesAsync());
+
+        // Paged game browse, filtered by console and/or name.
+        app.MapGet("/api/catalog/games", async (string? console, string? q, int? page, int? pageSize,
+            CatalogRepository repo) =>
+        {
+            var ps = Math.Clamp(pageSize ?? 100, 1, 200);
+            var p = Math.Max(0, page ?? 0);
+            var (total, games) = await repo.GetGamesAsync(console, q, p, ps);
+            return new CatalogGamesResponse(total, p, ps, games);
+        });
     }
 }
 

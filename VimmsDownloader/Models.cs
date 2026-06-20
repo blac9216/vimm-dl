@@ -40,6 +40,9 @@ record SettingsResponse(string Platform, string OsDescription, string Hostname, 
 record CatalogSystemStatus(string DatName, string Console, string Source,
     string? DatVersion, int GameCount, string? SyncedAt);
 record CatalogStatusResponse(bool Syncing, int TotalGames, List<CatalogSystemStatus> Systems);
+record CatalogConsole(string Console, int GameCount);
+record CatalogGameDto(int Id, string Name, string Console, string? Region, string? Serial, string? Languages, long Size);
+record CatalogGamesResponse(int Total, int Page, int PageSize, List<CatalogGameDto> Games);
 
 record MetricsResponse(long DiskFreeBytes, long DiskTotalBytes,
     long QueuedTotalBytes, int QueuedCount,
