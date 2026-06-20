@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Module.Core.Testing;
 using Module.Download.Bridge;
+using Module.Download.Sources;
 using Module.Download.Tests.Helpers;
 
 /// <summary>
@@ -19,8 +20,9 @@ public class DownloadServiceStateTests
     {
         _tmp = new TempDirectory("DownloadStateTests");
         _bridge = new FakeDownloadBridge();
+        var registry = new SourceRegistry([new VimmSource()]);
         _service = new DownloadService(_bridge, NullLogger<DownloadService>.Instance,
-            new FakeHttpClientFactory());
+            new FakeHttpClientFactory(), registry);
         _service.Configure(_tmp.Root);
     }
 
