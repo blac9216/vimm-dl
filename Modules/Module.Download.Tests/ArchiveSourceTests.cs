@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
 using Module.Core;
 using Module.Download.Sources;
@@ -94,6 +95,21 @@ public class ArchiveSourceTests
         Assert.AreEqual("archive", s.Id);
         Assert.AreEqual("archive", s.HttpClientName);
         Assert.AreEqual("Internet Archive", s.DisplayName);
+    }
+
+    [TestMethod]
+    public void PlatformCandidates_SubjectAsString_IsYielded()
+    {
+        // #19: archive.org "subject" can be a single JSON string (not only an array) — e.g.
+        // {"subject":"PS2"}. The array form is covered by ResolveAsync_ValidUrl_…; this locks
+        // in the string branch so it can't silently break.
+        using var doc = JsonDocument.Parse("""
+            {"title":"Sony - PlayStation 2 (Redump)","subject":"PS2"}
+            """);
+        var candidates = ArchiveSource.PlatformCandidates(doc.RootElement).ToList();
+
+        CollectionAssert.Contains(candidates, "PS2");           // the string subject is yielded
+        CollectionAssert.Contains(candidates, "PlayStation 2"); // and the title-derived console
     }
 
     // --- ICatalogSource: search sets ---
