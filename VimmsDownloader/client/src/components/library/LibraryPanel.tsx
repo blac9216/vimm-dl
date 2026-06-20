@@ -21,6 +21,7 @@ export function LibraryPanel() {
   const [selectedConsole, setSelectedConsole] = useState('') // '' = all consoles
   const [searchInput, setSearchInput] = useState('')
   const [local, setLocal] = useState('all') // all | owned | remote
+  const [dedupe, setDedupe] = useState(false) // 1G1R
   const [page, setPage] = useState(0)
   const query = useDebounced(searchInput, 350)
 
@@ -34,7 +35,7 @@ export function LibraryPanel() {
   const syncMutation = useSyncCatalog()
   const scanMutation = useScanCatalog()
   const queueGame = useQueueCatalogGame()
-  const { data: gamesResp, isFetching } = useCatalogGames(selectedConsole || null, query, local, page, PAGE_SIZE)
+  const { data: gamesResp, isFetching } = useCatalogGames(selectedConsole || null, query, local, dedupe, page, PAGE_SIZE)
 
   const syncing = status?.syncing ?? false
   const scanning = status?.scanning ?? false
@@ -112,6 +113,12 @@ export function LibraryPanel() {
           <option value="owned">Owned</option>
           <option value="remote">Missing</option>
         </select>
+        <button onClick={() => { setDedupe(d => !d); setPage(0) }} title="One game per title (1G1R) — hide regional/revision duplicates"
+          className={`px-3 py-1 text-xs font-medium rounded border shrink-0 transition-colors ${
+            dedupe ? 'bg-accent/20 text-accent border-accent/40'
+                   : 'bg-surface/80 text-text-3 border-border/60 hover:text-text'}`}>
+          1G1R
+        </button>
         <input type="text" value={searchInput} onChange={e => onSearch(e.target.value)}
           placeholder="Search games by name…"
           className="flex-1 bg-surface/60 border border-border/40 rounded px-3 py-1 text-sm text-text

@@ -54,19 +54,38 @@ class CatalogRepository : ICatalogStore
             await del.ExecuteNonQueryAsync(ct);
         }
 
+        // 1G1R: title key per game + which variant is the parent (preferred) of its group.
+        var titleKeys = new string[games.Count];
+        var isParent = new bool[games.Count];
+        var groups = new Dictionary<string, List<int>>();
+        for (int i = 0; i < games.Count; i++)
+        {
+            var key = Dedup.TitleKey(games[i].Name);
+            titleKeys[i] = key;
+            if (!groups.TryGetValue(key, out var members)) groups[key] = members = [];
+            members.Add(i);
+        }
+        foreach (var members in groups.Values)
+        {
+            var variants = members.Select(idx => (games[idx].Name, games[idx].Region)).ToList();
+            isParent[members[Dedup.SelectParent(variants)]] = true;
+        }
+
         await using (var ig = db.CreateCommand())
         await using (var ir = db.CreateCommand())
         {
             ig.Transaction = tx;
             ig.CommandText = """
-                INSERT INTO catalog_game (system_id, name, region, serial, languages)
-                VALUES ($sid, $name, $region, $serial, $langs) RETURNING id
+                INSERT INTO catalog_game (system_id, name, region, serial, languages, title_key, is_parent)
+                VALUES ($sid, $name, $region, $serial, $langs, $tkey, $parent) RETURNING id
                 """;
             ig.Parameters.AddWithValue("$sid", systemId);
             var gName = ig.Parameters.Add("$name", SqliteType.Text);
             var gRegion = ig.Parameters.Add("$region", SqliteType.Text);
             var gSerial = ig.Parameters.Add("$serial", SqliteType.Text);
             var gLangs = ig.Parameters.Add("$langs", SqliteType.Text);
+            var gTkey = ig.Parameters.Add("$tkey", SqliteType.Text);
+            var gParent = ig.Parameters.Add("$parent", SqliteType.Integer);
 
             ir.Transaction = tx;
             ir.CommandText = """
@@ -80,12 +99,15 @@ class CatalogRepository : ICatalogStore
             var rMd5 = ir.Parameters.Add("$md5", SqliteType.Text);
             var rSha1 = ir.Parameters.Add("$sha1", SqliteType.Text);
 
-            foreach (var g in games)
+            for (int i = 0; i < games.Count; i++)
             {
+                var g = games[i];
                 gName.Value = g.Name;
                 gRegion.Value = (object?)g.Region ?? DBNull.Value;
                 gSerial.Value = (object?)g.Serial ?? DBNull.Value;
                 gLangs.Value = g.Languages.Count > 0 ? string.Join(',', g.Languages) : DBNull.Value;
+                gTkey.Value = titleKeys[i];
+                gParent.Value = isParent[i] ? 1 : 0;
                 var gid = Convert.ToInt64(await ig.ExecuteScalarAsync(ct));
 
                 foreach (var rom in g.Roms)
@@ -203,7 +225,7 @@ class CatalogRepository : ICatalogStore
     /// <c>owned</c> flag from catalog_owned.
     /// </summary>
     public async Task<(int Total, List<CatalogGameDto> Games)> GetGamesAsync(
-        string? console, string? query, string local, int page, int pageSize)
+        string? console, string? query, string local, bool dedupe, int page, int pageSize)
     {
         pageSize = Math.Clamp(pageSize, 1, 200);
         page = Math.Max(0, page);
@@ -216,6 +238,7 @@ class CatalogRepository : ICatalogStore
               AND ($local = 'all'
                    OR ($local = 'owned'  AND     EXISTS(SELECT 1 FROM catalog_owned o WHERE o.game_id = g.id))
                    OR ($local = 'remote' AND NOT EXISTS(SELECT 1 FROM catalog_owned o WHERE o.game_id = g.id)))
+              AND ($dedupe = 0 OR g.is_parent = 1)
             """;
 
         await using var db = await OpenAsync();
@@ -227,6 +250,7 @@ class CatalogRepository : ICatalogStore
             cnt.Parameters.AddWithValue("$console", (object?)console ?? DBNull.Value);
             cnt.Parameters.AddWithValue("$like", (object?)like ?? DBNull.Value);
             cnt.Parameters.AddWithValue("$local", local);
+            cnt.Parameters.AddWithValue("$dedupe", dedupe ? 1 : 0);
             total = Convert.ToInt32(await cnt.ExecuteScalarAsync());
         }
 
@@ -245,6 +269,7 @@ class CatalogRepository : ICatalogStore
             cmd.Parameters.AddWithValue("$console", (object?)console ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$like", (object?)like ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$local", local);
+            cmd.Parameters.AddWithValue("$dedupe", dedupe ? 1 : 0);
             cmd.Parameters.AddWithValue("$limit", pageSize);
             cmd.Parameters.AddWithValue("$offset", page * pageSize);
             await using var r = await cmd.ExecuteReaderAsync();
