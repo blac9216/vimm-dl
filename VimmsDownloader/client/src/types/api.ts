@@ -88,6 +88,7 @@ export interface CatalogGame {
   size: number
   owned: boolean
   compat: string | null
+  verified: boolean | null
 }
 
 export interface CatalogGamesResponse {
@@ -110,6 +111,7 @@ export interface CatalogStatus {
   syncing: boolean
   scanning: boolean
   compatSyncing: boolean
+  verifying: boolean
   totalGames: number
   systems: CatalogSystemStatus[]
 }

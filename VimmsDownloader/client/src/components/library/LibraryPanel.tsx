@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useCatalogConsoles, useCatalogGames, useCatalogStatus, useSyncCatalog, useScanCatalog, useSyncCompat, useQueueCatalogGame } from '../../api/queries'
+import { useCatalogConsoles, useCatalogGames, useCatalogStatus, useSyncCatalog, useScanCatalog, useSyncCompat, useVerifyCatalog, useQueueCatalogGame } from '../../api/queries'
 import { PlatformIcon } from '../shared/PlatformIcon'
 import { SetsDialog } from './SetsDialog'
 import { fmtBytes } from '../../lib/format'
@@ -46,13 +46,15 @@ export function LibraryPanel() {
   const syncMutation = useSyncCatalog()
   const scanMutation = useScanCatalog()
   const compatMutation = useSyncCompat()
+  const verifyMutation = useVerifyCatalog()
   const queueGame = useQueueCatalogGame()
   const { data: gamesResp, isFetching } = useCatalogGames(selectedConsole || null, query, local, dedupe, page, PAGE_SIZE)
 
   const syncing = status?.syncing ?? false
   const scanning = status?.scanning ?? false
   const compatSyncing = status?.compatSyncing ?? false
-  const busy = syncing || scanning || compatSyncing
+  const verifying = status?.verifying ?? false
+  const busy = syncing || scanning || compatSyncing || verifying
   const totalInCatalog = status?.totalGames ?? 0
 
   // When a sync or scan finishes, refresh the catalog views so new games/counts/owned appear.
@@ -147,6 +149,11 @@ export function LibraryPanel() {
             border border-border/30 hover:bg-surface-2/70 hover:text-text disabled:opacity-40 shrink-0">
           {scanning ? 'Scanning…' : 'Scan'}
         </button>
+        <button onClick={() => verifyMutation.mutate()} disabled={busy} title="Verify owned files against catalog hashes (CRC32)"
+          className="px-3 py-1 text-xs font-medium rounded bg-surface-2/40 text-text-3
+            border border-border/30 hover:bg-surface-2/70 hover:text-text disabled:opacity-40 shrink-0">
+          {verifying ? 'Verifying…' : 'Verify'}
+        </button>
         <button onClick={() => compatMutation.mutate()} disabled={busy} title="Sync emulator compatibility (RPCS3)"
           className="px-3 py-1 text-xs font-medium rounded bg-surface-2/40 text-text-3
             border border-border/30 hover:bg-surface-2/70 hover:text-text disabled:opacity-40 shrink-0">
@@ -192,8 +199,16 @@ export function LibraryPanel() {
               <span className="text-[10px] text-text-4 font-mono tabular-nums shrink-0">{fmtBytes(g.size)}</span>
             )}
             {g.owned ? (
-              <span className="text-[9px] px-1.5 py-0.5 rounded bg-ps-triangle/15 text-ps-triangle
-                border border-ps-triangle/25 shrink-0">✓ Owned</span>
+              g.verified === true ? (
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-ps-triangle/15 text-ps-triangle
+                  border border-ps-triangle/25 shrink-0" title="File CRC32 matches the catalog">✓ Verified</span>
+              ) : g.verified === false ? (
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-ps-circle/10 text-[#e06070]
+                  border border-ps-circle/20 shrink-0" title="File CRC32 does not match any catalog hash">✗ Mismatch</span>
+              ) : (
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-ps-triangle/15 text-ps-triangle
+                  border border-ps-triangle/25 shrink-0" title="Owned — run Verify to check the file hash">Owned</span>
+              )
             ) : (
               <button onClick={() => handleQueue(g.id)} disabled={queuedIds.has(g.id) || queueGame.isPending}
                 className="px-2.5 py-1 text-xs font-medium rounded bg-ps-cross/20 text-[#7eb3e0]
