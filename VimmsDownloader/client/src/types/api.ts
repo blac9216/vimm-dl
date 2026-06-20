@@ -112,6 +112,14 @@ export interface CatalogStatus {
   systems: CatalogSystemStatus[]
 }
 
+export interface CatalogSet {
+  id: number
+  console: string
+  source: string
+  identifier: string
+  label: string | null
+}
+
 export interface VersionResponse {
   current: string
   latest: string | null
