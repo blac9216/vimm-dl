@@ -23,6 +23,7 @@ public class CatalogQueryTests
         await ApplyMigration("015_catalog_1g1r.sql");
         await ApplyMigration("016_catalog_compat.sql");
         await ApplyMigration("017_catalog_verified.sql");
+        await ApplyMigration("019_catalog_serial_key.sql");
 
         // Two systems: SNES (no-intro) and PS3 (redump).
         await Exec("INSERT INTO catalog_system (id, dat_name, console, source, game_count) VALUES (1, 'Nintendo - Super Nintendo Entertainment System', 'snes', 'no-intro', 3)");
@@ -139,6 +140,17 @@ public class CatalogQueryTests
     }
 
     [TestMethod]
+    public async Task Games_Compat_JoinsSerialWithNonDashSeparator()
+    {
+        // #48: a serial whose normalized form requires stripping a non-dash char (a space here) must
+        // still join. The old inline UPPER(REPLACE(serial,'-','')) kept the space and missed this.
+        await AddGame(2, "Spacey (USA)", "USA", "BLUS 30443", null, [("s.iso", 10)]);
+        await Exec("INSERT INTO catalog_compat (emulator, serial_key, status) VALUES ('rpcs3', 'BLUS30443', 'Ingame')");
+        var (_, games) = await Games("ps3", "Spacey", 0, 100);
+        Assert.AreEqual("Ingame", games.Single().Compat);
+    }
+
+    [TestMethod]
     public async Task Games_VerifiedFlag_ReflectsCatalogOwned()
     {
         await Exec("UPDATE catalog_owned SET verified = 1 WHERE game_id = 1"); // Super Mario World
@@ -207,7 +219,7 @@ public class CatalogQueryTests
                 SELECT g.id, g.name, s.console, g.region, g.serial, g.languages,
                        (SELECT COALESCE(SUM(r.size), 0) FROM catalog_rom r WHERE r.game_id = g.id) AS size,
                        EXISTS(SELECT 1 FROM catalog_owned o WHERE o.game_id = g.id) AS owned,
-                       (SELECT c.status FROM catalog_compat c WHERE c.serial_key = UPPER(REPLACE(g.serial, '-', '')) LIMIT 1) AS compat,
+                       (SELECT c.status FROM catalog_compat c WHERE c.serial_key = g.serial_key LIMIT 1) AS compat,
                        (SELECT o.verified FROM catalog_owned o WHERE o.game_id = g.id) AS verified
                 FROM catalog_game g JOIN catalog_system s ON s.id = g.system_id
                 {where}
@@ -241,14 +253,17 @@ public class CatalogQueryTests
         long gid;
         await using (var ig = _db.CreateCommand())
         {
+            // Populate serial_key the same way CatalogRepository.ReplaceSystemGamesAsync does, so the
+            // compat join (c.serial_key = g.serial_key) is exercised against realistic data.
             ig.CommandText = """
-                INSERT INTO catalog_game (system_id, name, region, serial, languages)
-                VALUES ($sid, $name, $region, $serial, $langs) RETURNING id
+                INSERT INTO catalog_game (system_id, name, region, serial, serial_key, languages)
+                VALUES ($sid, $name, $region, $serial, $skey, $langs) RETURNING id
                 """;
             ig.Parameters.AddWithValue("$sid", systemId);
             ig.Parameters.AddWithValue("$name", name);
             ig.Parameters.AddWithValue("$region", (object?)region ?? DBNull.Value);
             ig.Parameters.AddWithValue("$serial", (object?)serial ?? DBNull.Value);
+            ig.Parameters.AddWithValue("$skey", string.IsNullOrEmpty(serial) ? DBNull.Value : NormalizeSerial(serial));
             ig.Parameters.AddWithValue("$langs", (object?)langs ?? DBNull.Value);
             gid = Convert.ToInt64(await ig.ExecuteScalarAsync());
         }
@@ -269,6 +284,10 @@ public class CatalogQueryTests
         cmd.CommandText = sql;
         await cmd.ExecuteNonQueryAsync();
     }
+
+    // Mirrors Module.Catalog RpcsCompat.NormalizeSerial: strip non-alphanumerics, uppercase.
+    private static string NormalizeSerial(string serial)
+        => new(serial.Where(char.IsLetterOrDigit).Select(char.ToUpperInvariant).ToArray());
 
     private async Task ApplyMigration(string name)
     {

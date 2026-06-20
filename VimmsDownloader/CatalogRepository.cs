@@ -76,13 +76,14 @@ class CatalogRepository : ICatalogStore
         {
             ig.Transaction = tx;
             ig.CommandText = """
-                INSERT INTO catalog_game (system_id, name, region, serial, languages, title_key, is_parent)
-                VALUES ($sid, $name, $region, $serial, $langs, $tkey, $parent) RETURNING id
+                INSERT INTO catalog_game (system_id, name, region, serial, serial_key, languages, title_key, is_parent)
+                VALUES ($sid, $name, $region, $serial, $skey, $langs, $tkey, $parent) RETURNING id
                 """;
             ig.Parameters.AddWithValue("$sid", systemId);
             var gName = ig.Parameters.Add("$name", SqliteType.Text);
             var gRegion = ig.Parameters.Add("$region", SqliteType.Text);
             var gSerial = ig.Parameters.Add("$serial", SqliteType.Text);
+            var gSkey = ig.Parameters.Add("$skey", SqliteType.Text);
             var gLangs = ig.Parameters.Add("$langs", SqliteType.Text);
             var gTkey = ig.Parameters.Add("$tkey", SqliteType.Text);
             var gParent = ig.Parameters.Add("$parent", SqliteType.Integer);
@@ -105,6 +106,11 @@ class CatalogRepository : ICatalogStore
                 gName.Value = g.Name;
                 gRegion.Value = (object?)g.Region ?? DBNull.Value;
                 gSerial.Value = (object?)g.Serial ?? DBNull.Value;
+                // Normalize with the SAME function the compat table uses (RpcsCompat.NormalizeSerial),
+                // so catalog_game.serial_key and catalog_compat.serial_key join symmetrically (#48).
+                gSkey.Value = string.IsNullOrEmpty(g.Serial)
+                    ? DBNull.Value
+                    : RpcsCompat.NormalizeSerial(g.Serial);
                 gLangs.Value = g.Languages.Count > 0 ? string.Join(',', g.Languages) : DBNull.Value;
                 gTkey.Value = titleKeys[i];
                 gParent.Value = isParent[i] ? 1 : 0;
@@ -335,7 +341,7 @@ class CatalogRepository : ICatalogStore
                 SELECT g.id, g.name, s.console, g.region, g.serial, g.languages,
                        (SELECT COALESCE(SUM(r.size), 0) FROM catalog_rom r WHERE r.game_id = g.id) AS size,
                        EXISTS(SELECT 1 FROM catalog_owned o WHERE o.game_id = g.id) AS owned,
-                       (SELECT c.status FROM catalog_compat c WHERE c.serial_key = UPPER(REPLACE(g.serial, '-', '')) LIMIT 1) AS compat,
+                       (SELECT c.status FROM catalog_compat c WHERE c.serial_key = g.serial_key LIMIT 1) AS compat,
                        (SELECT o.verified FROM catalog_owned o WHERE o.game_id = g.id) AS verified
                 FROM catalog_game g JOIN catalog_system s ON s.id = g.system_id
                 {where}
@@ -369,9 +375,13 @@ class CatalogRepository : ICatalogStore
     {
         await using var db = await OpenAsync();
         await using var cmd = db.CreateCommand();
+        // Upsert: re-adding an existing (console, source, identifier) updates its label and returns
+        // the existing row id instead of creating a cosmetic duplicate (unique index in migration 018).
         cmd.CommandText = """
             INSERT INTO catalog_set (console, source, identifier, label, created_at)
-            VALUES ($c, $s, $i, $l, datetime('now')) RETURNING id
+            VALUES ($c, $s, $i, $l, datetime('now'))
+            ON CONFLICT(console, source, identifier) DO UPDATE SET label = excluded.label
+            RETURNING id
             """;
         cmd.Parameters.AddWithValue("$c", console);
         cmd.Parameters.AddWithValue("$s", source);
