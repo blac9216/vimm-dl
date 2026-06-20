@@ -36,6 +36,11 @@ record SettingsResponse(string Platform, string OsDescription, string Hostname, 
     int Ps3DefaultFormat, bool Ps3PreserveArchive,
     bool FeatureSync, bool FeatureEvents, bool FeatureBrowse);
 
+// Catalog (No-Intro / Redump canonical game list)
+record CatalogSystemStatus(string DatName, string Console, string Source,
+    string? DatVersion, int GameCount, string? SyncedAt);
+record CatalogStatusResponse(bool Syncing, int TotalGames, List<CatalogSystemStatus> Systems);
+
 record MetricsResponse(long DiskFreeBytes, long DiskTotalBytes,
     long QueuedTotalBytes, int QueuedCount,
     long CompletedTotalBytes, int CompletedCount,
