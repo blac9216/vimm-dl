@@ -14,12 +14,9 @@ metal), also runs on Windows for dev.
 
 ## Development Workflow
 
-**Follow this every session, including immediately after a context compaction** (this section is the durable channel for the workflow — chat memory and summaries are not).
+**Follow this every session, including immediately after a context compaction.**
 
-- **Issue-driven** — use the `github-workflow` skill for all issues, branches, commits, and PRs. One issue → one branch (`<issue#>-<desc>`) → one PR (keep it ≤ ~400 net LOC / ≤ 15 files so review stays meaningful). Commits use the `AI:` subject prefix and the standard `Co-Authored-By` / `Claude-Session` trailers. PR bodies include Summary / Risk / Rollback / Suggested Test Steps.
-- **Contextless review** — never self-review in-context. Spawn a subagent that **follows the `github-pr-review` skill** and posts its verdict template as a PR comment (audit trail), files `deferred`-labelled issues for non-blocking findings, then squash-merges. The owner has authorized auto-merge-after-review for the multi-source/ROM-management effort.
-  - This is a **remote sandbox with no `gh` CLI**: the reviewer must map every `gh` command in the skill to the `mcp__github__*` tools, and the formal "approve" API fails ("Can not approve your own pull request") because the MCP token is the PR author — so the posted comment + the squash-merge are what count. (No `deferred` label exists in the repo yet — `enhancement` is the established substitute.)
-- **Design decisions are tracked as issues** — when a design decision is made, open (or update) a GitHub issue whose **body is the living spec**; keep editing it as the target moves. This is what survives compaction — do not rely on memory. (Current design epics: see open `EPIC —` issues, e.g. #78.)
+- **GitHub workflow** — load the `github-workflow` skill at the start of every session, including immediately after a context compaction, and follow it for all GitHub work: issues, epics, branches, commits, PRs, and the contextless PR review (which it hands off to the `github-pr-review` skill). It is the durable home for these conventions — do not rely on chat memory or summaries to carry them.
 - **Toolchain (remote)** — .NET SDK at `/tmp/dotnet`, bun at `/root/.bun/bin`, clang at `/usr/bin/clang`. MSTest 4 emits no results without a TRX logger: `dotnet test <proj> -c Debug --logger "trx;LogFileName=x.trx" --results-directory /tmp/trx`. Frontend build: `bun run build` (runs `tsc -b && vite build`).
 
 ## Architecture
@@ -109,7 +106,7 @@ SQLite, file `queue.db` in `data/` subdirectory (derived from connection string)
 
 ## Catalog, Sources & Vimm Binding
 
-The catalog is the identity layer; sources bind onto it. (Design epic: issue #78; see ROADMAP.md.)
+The catalog is the identity layer; sources bind onto it. (See ROADMAP.md.)
 
 - **Catalog sync** (`POST /api/catalog/sync`) — `CatalogSyncService` fetches the No-Intro/Redump DATs for every console in `CatalogSystems.All` from the libretro-database mirror (`metadat/{no-intro|redump}/{DatName}.dat`), parses via `ClrMameProParser`, and replaces each system's games/roms. Console tags = EmuDeck folders. 1G1R parent selection (`Dedup`) marks one variant per title as `is_parent`.
 - **Owned + verify + compat** — `CatalogScanService` records which games exist under `completed/` (`catalog_owned`); `CatalogVerifyService` checks file CRC32 against `catalog_rom`; `CompatSyncService` imports RPCS3 compatibility joined by `serial_key`.
@@ -287,7 +284,7 @@ Single bind mount: `-v ~/vimm:/vimms`
 - 17 Ps3Pipeline (pipeline state, rename, extract, abort, IPipeline contract)
 - 10 Ps3IsoTools (ParamSfo, FindJbFolder, IsoFilenameFormatter)
 
-Most integration tests use real file I/O via `TempDirectory` or a temp SQLite file. Container tests use `ghcr.io/eduvhc/vimm-dl-tools`. (Note: CI runs only on `v*` tags, not PRs — see issue #51 — so suites are run locally / by the contextless reviewer.)
+Most integration tests use real file I/O via `TempDirectory` or a temp SQLite file. Container tests use `ghcr.io/eduvhc/vimm-dl-tools`.
 
 ## Docker
 
@@ -304,46 +301,9 @@ Most integration tests use real file I/O via `TempDirectory` or a temp SQLite fi
     --name vimm-dl ghcr.io/eduvhc/vimm-dl:latest
   ```
 
-## CI/CD
-
-- `.github/workflows/publish.yml` — Bun build + .NET publish + Docker push on `v*` tags. Passes `VERSION` build arg from tag.
-- `.github/workflows/tools-image.yml` — tools image on Dockerfile.tools changes
-- `.github/workflows/ci.yml` — `dotnet test` on PRs to `main` (currently not firing on the fork — Actions disabled; issue #51).
-
-## Release Flow
-
-One command — creates the git tag, GitHub release with changelog, and triggers CI to build + push the Docker image:
-
-```bash
-gh release create v0.8.0 --title "v0.8.0" --notes "$(cat <<'EOF'
-## What's New
-
-- Feature X
-- Fix Y
-EOF
-)"
-```
-
-To draft first (review before publishing):
-
-```bash
-gh release create v0.8.0 --title "v0.8.0" --draft --notes "..."
-# Review at https://github.com/eduvhc/vimm-dl/releases, then publish from browser
-```
-
-CI extracts version from the tag, passes it as `--build-arg VERSION=0.8.0` to Docker, sets the assembly version via `/p:Version`. No manual csproj edits needed.
-
-After CI completes, update the server:
-
-```bash
-docker stop vimm-dl && docker rm vimm-dl
-docker pull ghcr.io/eduvhc/vimm-dl:latest
-docker run -d -p 5000:5000 -v ~/vimm:/vimms --name vimm-dl ghcr.io/eduvhc/vimm-dl:latest
-```
-
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md). **Shipped:** the No-Intro/Redump catalog (all consoles with a libretro DAT), archive.org sets + settings, and the **Catalog ↔ Vimm hash binding** (scrape → hash-match → bind vault URL + formats → archive-preferred download with Vimm fallback + format picker; design epic #78). **Next (Phase C):** pipeline identity keyed by catalog game + format, hash-based owned dedup, one library row per game across formats/sources, and future console pipelines via `IPipeline`.
+See [ROADMAP.md](ROADMAP.md). **Shipped:** the No-Intro/Redump catalog (all consoles with a libretro DAT), archive.org sets + settings, and the **Catalog ↔ Vimm hash binding** (scrape → hash-match → bind vault URL + formats → archive-preferred download with Vimm fallback + format picker). **Next (Phase C):** pipeline identity keyed by catalog game + format, hash-based owned dedup, one library row per game across formats/sources, and future console pipelines via `IPipeline`.
 
 ## User Preferences
 
