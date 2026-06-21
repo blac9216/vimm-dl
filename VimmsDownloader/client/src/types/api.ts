@@ -99,6 +99,19 @@ export interface CatalogGamesResponse {
   games: CatalogGame[]
 }
 
+// A game's Vimm download options (for the format picker), from GET /api/catalog/games/{id}/vimm.
+export interface CatalogVimmFormat {
+  alt: number
+  label: string
+  sizeBytes: number
+  sizeText: string | null
+}
+
+export interface CatalogVimm {
+  vaultId: number
+  formats: CatalogVimmFormat[]
+}
+
 export interface CatalogSystemStatus {
   datName: string
   console: string

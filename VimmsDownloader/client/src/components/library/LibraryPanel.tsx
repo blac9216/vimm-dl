@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useCatalogConsoles, useCatalogGames, useCatalogStatus, useSyncCatalog, useScanCatalog, useSyncCompat, useVerifyCatalog, useSyncVimm, useQueueCatalogGame } from '../../api/queries'
+import { useCatalogConsoles, useCatalogGames, useCatalogStatus, useSyncCatalog, useScanCatalog, useSyncCompat, useVerifyCatalog, useSyncVimm, useQueueCatalogGame, fetchGameVimm } from '../../api/queries'
+import type { CatalogGame, CatalogVimmFormat } from '../../types/api'
 import { PlatformIcon } from '../shared/PlatformIcon'
 import { SetsDialog } from './SetsDialog'
+import { FormatPickerDialog } from './FormatPickerDialog'
 import { fmtBytes } from '../../lib/format'
 
 // Debounce the search box so we don't query the catalog on every keystroke.
@@ -53,6 +55,7 @@ export function LibraryPanel() {
   const [showSets, setShowSets] = useState(false)
   const [queuedIds, setQueuedIds] = useState<Set<number>>(new Set())
   const [queueError, setQueueError] = useState<string | null>(null)
+  const [picker, setPicker] = useState<{ id: number; name: string; formats: CatalogVimmFormat[] } | null>(null)
 
   const qc = useQueryClient()
   const { data: consoles } = useCatalogConsoles()
@@ -95,11 +98,28 @@ export function LibraryPanel() {
   function onSearch(v: string) { setSearchInput(v); setPage(0) }
   function pickLocal(v: string) { setLocal(v); setPage(0) }
 
-  async function handleQueue(id: number) {
+  // Download: if the game is hash-bound to Vimm with more than one format, let the user choose first;
+  // otherwise queue straight away (archive-preferred, single-format, or no Vimm binding).
+  async function handleQueue(g: CatalogGame) {
+    setQueueError(null)
+    if (g.vimmMatch && g.vimmMatch !== 'none') {
+      try {
+        const vimm = await fetchGameVimm(g.id)
+        if (vimm && vimm.formats.length > 1) {
+          setPicker({ id: g.id, name: g.name, formats: vimm.formats })
+          return
+        }
+      } catch { /* fall through to a plain queue */ }
+    }
+    await doQueue(g.id)
+  }
+
+  async function doQueue(id: number, format?: number) {
     setQueueError(null)
     try {
-      await queueGame.mutateAsync(id)
+      await queueGame.mutateAsync({ id, format })
       setQueuedIds(prev => new Set(prev).add(id))
+      setPicker(null)
     } catch (e) {
       setQueueError(e instanceof Error ? e.message : 'Failed to queue download')
     }
@@ -250,7 +270,7 @@ export function LibraryPanel() {
                   border border-ps-triangle/25 shrink-0" title="Owned — run Verify to check the file hash">Owned</span>
               )
             ) : (
-              <button onClick={() => handleQueue(g.id)} disabled={queuedIds.has(g.id) || queueGame.isPending}
+              <button onClick={() => handleQueue(g)} disabled={queuedIds.has(g.id) || queueGame.isPending}
                 className="px-2.5 py-1 text-xs font-medium rounded bg-ps-cross/20 text-[#7eb3e0]
                   border border-ps-cross/30 hover:bg-ps-cross/30 disabled:opacity-40 shrink-0">
                 {queuedIds.has(g.id) ? 'Queued' : 'Download'}
@@ -281,6 +301,10 @@ export function LibraryPanel() {
       )}
 
       {showSets && <SetsDialog onClose={() => setShowSets(false)} />}
+      {picker && (
+        <FormatPickerDialog gameName={picker.name} formats={picker.formats} busy={queueGame.isPending}
+          onPick={alt => doQueue(picker.id, alt)} onClose={() => setPicker(null)} />
+      )}
     </div>
   )
 }
