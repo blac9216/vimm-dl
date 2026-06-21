@@ -14,4 +14,12 @@ static class SettingsKeys
     public const string FeatureEvents = "feature_events";
     public const string FeatureLibrary = "feature_library";
     public const string DefaultSetsSeeded = "default_sets_seeded";
+
+    // archive.org download tuning (RomGoGetter parity). Parallelism/retries/idle are stored now and
+    // wired into the download engine in a follow-up; the S3 keys are active immediately (see ArchiveAuth).
+    public const string ArchiveParallelism = "archive_parallelism";
+    public const string ArchiveRetries = "archive_retries";
+    public const string ArchiveIdle = "archive_idle";
+    public const string ArchiveS3Access = "archive_s3_access";
+    public const string ArchiveS3Secret = "archive_s3_secret";
 }

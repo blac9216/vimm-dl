@@ -175,6 +175,11 @@ export interface SettingsResponse {
   featureSync: boolean
   featureEvents: boolean
   featureLibrary: boolean
+  archiveParallelism: number
+  archiveRetries: number
+  archiveIdle: number
+  archiveS3Access: string
+  archiveS3Secret: string
 }
 
 export interface CheckPathResponse {

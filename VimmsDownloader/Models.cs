@@ -34,7 +34,9 @@ record SettingsResponse(string Platform, string OsDescription, string Hostname, 
     string Ipv4, string DefaultPath, string ActivePath,
     bool FixThe, bool AddSerial, bool StripRegion, int Ps3Parallelism,
     int Ps3DefaultFormat, bool Ps3PreserveArchive,
-    bool FeatureSync, bool FeatureEvents, bool FeatureLibrary);
+    bool FeatureSync, bool FeatureEvents, bool FeatureLibrary,
+    int ArchiveParallelism, int ArchiveRetries, int ArchiveIdle,
+    string ArchiveS3Access, string ArchiveS3Secret);
 
 // Catalog (No-Intro / Redump canonical game list)
 record CatalogSystemStatus(string DatName, string Console, string Source,
