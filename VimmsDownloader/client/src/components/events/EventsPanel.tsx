@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useEvents } from '../../api/queries'
 import { useSettings } from '../../api/queries'
 import { EventItem } from './EventItem'
@@ -28,17 +28,20 @@ interface EventsPanelProps {
 
 export function EventsPanel({ itemFilter, onClearItemFilter }: EventsPanelProps) {
   const [filter, setFilter] = useState('')
-  const [itemSearch, setItemSearch] = useState('')
+  const [itemSearch, setItemSearch] = useState(itemFilter ?? '')
   const [limit, setLimit] = useState(PAGE_SIZE)
+  const [prevItemFilter, setPrevItemFilter] = useState(itemFilter)
   const { data: settings } = useSettings()
 
-  // Sync external item filter
-  useEffect(() => {
+  // Sync the external item filter into local state when it changes — adjusted during render
+  // (React's "store info from previous renders" pattern) rather than synced through an effect.
+  if (itemFilter !== prevItemFilter) {
+    setPrevItemFilter(itemFilter)
     if (itemFilter) {
       setItemSearch(itemFilter)
       setLimit(PAGE_SIZE)
     }
-  }, [itemFilter])
+  }
 
   const activeItem = itemSearch || undefined
   const { data } = useEvents(filter || undefined, activeItem, limit)
