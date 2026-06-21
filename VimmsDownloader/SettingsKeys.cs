@@ -13,4 +13,5 @@ static class SettingsKeys
     public const string FeatureSync = "feature_sync";
     public const string FeatureEvents = "feature_events";
     public const string FeatureLibrary = "feature_library";
+    public const string DefaultSetsSeeded = "default_sets_seeded";
 }

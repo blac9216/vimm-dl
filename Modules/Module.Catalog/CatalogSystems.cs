@@ -31,5 +31,9 @@ public static class CatalogSystems
         new("Nintendo - Wii", "redump", "wii"),
         new("Sega - Dreamcast", "redump", "dreamcast"),
         new("Sega - Saturn", "redump", "saturn"),
+        new("Microsoft - Xbox", "redump", "xbox"),
+        new("Microsoft - Xbox 360", "redump", "xbox360"),
+        new("Nintendo - Nintendo DS", "no-intro", "nds"),
+        new("Nintendo - Nintendo 3DS", "no-intro", "n3ds"),
     ];
 }
