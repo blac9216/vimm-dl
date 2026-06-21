@@ -95,6 +95,22 @@ public class VimmBindingTests
         Assert.IsNull(await Match(other));                        // other console untouched (still unscraped)
     }
 
+    [TestMethod]
+    public async Task GetGames_SurfacesVimmMatch_ForTheBadge()
+    {
+        var snes = await Seed("snes");
+        var bound = await AddGame(snes, "Bound Game");
+        await AddRom(bound, "Bound Game.sfc", "aa", "bb", "cc");
+        var unbound = await AddGame(snes, "Unbound Game");
+        await AddRom(unbound, "Unbound Game.sfc", "dd", "ee", "ff");
+        await _repo.BindVimmAsync(bound, 100, "sha1", [], default);
+
+        var (_, games) = await _repo.GetGamesAsync("snes", null, "all", false, 0, 100);
+        var byName = games.ToDictionary(g => g.Name);
+        Assert.AreEqual("sha1", byName["Bound Game"].VimmMatch);
+        Assert.IsNull(byName["Unbound Game"].VimmMatch);
+    }
+
     // --- seeding / verification helpers (direct SQL) ---
 
     private async Task<long> Seed(string console) =>
