@@ -29,6 +29,8 @@ builder.Services.AddSingleton<CompatSyncService>();
 builder.Services.AddSingleton<CatalogCompatState>();
 builder.Services.AddSingleton<CatalogVerifyService>();
 builder.Services.AddSingleton<CatalogVerifyState>();
+builder.Services.AddSingleton<VimmSyncService>();
+builder.Services.AddSingleton<CatalogVimmState>();
 builder.Services.AddSingleton<ArchiveAuth>();
 builder.Services.AddTransient<ArchiveAuthHandler>();
 builder.Services.ConfigureHttpJsonOptions(o =>
