@@ -603,6 +603,34 @@ class CatalogRepository : ICatalogStore
         return await r.ReadAsync() ? (r.GetString(0), r.GetString(1)) : null;
     }
 
+    /// <summary>
+    /// The Vimm vault binding for a game — its bound vault id and available download formats — or
+    /// null if the game has no Vimm match. Used for the archive→Vimm download fallback.
+    /// </summary>
+    public async Task<(long VaultId, List<VimmFormatRow> Formats)?> GetVaultBindingAsync(int gameId)
+    {
+        await using var db = await OpenAsync();
+        long vaultId;
+        await using (var g = db.CreateCommand())
+        {
+            g.CommandText = "SELECT vault_id FROM catalog_game WHERE id = $id AND vault_id IS NOT NULL";
+            g.Parameters.AddWithValue("$id", gameId);
+            var v = await g.ExecuteScalarAsync();
+            if (v is null || v == DBNull.Value) return null;
+            vaultId = Convert.ToInt64(v);
+        }
+        var formats = new List<VimmFormatRow>();
+        await using (var f = db.CreateCommand())
+        {
+            f.CommandText = "SELECT alt, label, size_bytes, size_text FROM catalog_vimm_format WHERE game_id = $id ORDER BY alt";
+            f.Parameters.AddWithValue("$id", gameId);
+            await using var r = await f.ExecuteReaderAsync();
+            while (await r.ReadAsync())
+                formats.Add(new VimmFormatRow(r.GetInt32(0), r.GetString(1), r.GetInt64(2), r.IsDBNull(3) ? null : r.GetString(3)));
+        }
+        return (vaultId, formats);
+    }
+
     private static async Task<List<CatalogSetDto>> ReadSetsAsync(SqliteConnection db, string? console)
     {
         var order = new List<(int Id, string Name, string Console)>();

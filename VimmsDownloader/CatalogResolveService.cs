@@ -11,6 +11,27 @@ class CatalogResolveService(
     CatalogRepository catalog, ISourceRegistry sources, IHttpClientFactory httpFactory,
     ILogger<CatalogResolveService> log)
 {
+    /// <summary>
+    /// Resolve a catalog game to a queueable download, preferring archive.org sets and falling back
+    /// to the game's pre-bound Vimm vault URL (hash-matched at sync). Returns the URL, the source it
+    /// came from, and the format to queue (for Vimm, the requested format if offered, else the first
+    /// available). Null when neither archive nor Vimm provides it.
+    /// </summary>
+    public async Task<(string Url, string Source, int Format)?> ResolveForQueueAsync(
+        int gameId, string console, string name, int? requestedFormat, CancellationToken ct)
+    {
+        var archive = await ResolveAsync(console, name, ct);
+        if (archive is not null) return (archive, "archive", 0);
+
+        var binding = await catalog.GetVaultBindingAsync(gameId);
+        if (binding is null) return null;
+
+        var alts = binding.Value.Formats.Select(f => f.Alt).ToList();
+        var format = requestedFormat is int rf && alts.Contains(rf) ? rf
+            : alts.Count > 0 ? alts[0] : 0;
+        return ($"https://vimm.net/vault/{binding.Value.VaultId}", "vimm", format);
+    }
+
     public async Task<string?> ResolveAsync(string console, string name, CancellationToken ct)
     {
         var sets = await catalog.GetSetsByConsoleAsync(console);

@@ -47,7 +47,7 @@ record CatalogGameDto(int Id, string Name, string Console, string? Region, strin
 record CatalogGamesResponse(int Total, int Page, int PageSize, List<CatalogGameDto> Games);
 record CatalogSetDto(int Id, string Name, string Console, List<string> Links);
 record AddSetRequest(string Name, string Console, List<string> Links);
-record CatalogQueueResponse(string Url);
+record CatalogQueueResponse(string Url, string Source);
 
 record MetricsResponse(long DiskFreeBytes, long DiskTotalBytes,
     long QueuedTotalBytes, int QueuedCount,
