@@ -92,22 +92,24 @@ static class CatalogEndpoints
         app.MapDelete("/api/catalog/sets/{id:int}", async (int id, CatalogRepository repo) =>
             await repo.DeleteSetAsync(id) ? Results.Ok() : Results.NotFound());
 
-        // Resolve a catalog game via its console's sets and queue it for download.
-        app.MapPost("/api/catalog/games/{id:int}/queue", async (int id, CatalogRepository repo,
+        // Resolve a catalog game and queue it: prefer archive.org sets, fall back to the game's
+        // pre-bound Vimm vault URL (optional ?format= picks the Vimm download format).
+        app.MapPost("/api/catalog/games/{id:int}/queue", async (int id, int? format, CatalogRepository repo,
             CatalogResolveService resolver, QueueRepository queue, DownloadQueue downloadQueue, CancellationToken ct) =>
         {
             var game = await repo.GetGameByIdAsync(id);
             if (game is null) return Results.NotFound("Unknown catalog game");
 
-            var url = await resolver.ResolveAsync(game.Value.Console, game.Value.Name, ct);
-            if (url is null) return Results.NotFound("No configured set provides this game");
+            var resolved = await resolver.ResolveForQueueAsync(id, game.Value.Console, game.Value.Name, format, ct);
+            if (resolved is null) return Results.NotFound("Not available from configured archive sets or Vimm");
+            var (url, source, fmt) = resolved.Value;
 
             if ((await queue.CheckDuplicatesAsync([url])).Count > 0)
                 return Results.Conflict("Already queued or completed");
 
-            await queue.AddToQueueAsync(url, 0, "archive");
+            await queue.AddToQueueAsync(url, fmt, source);
             if (!downloadQueue.IsRunning) await downloadQueue.StartAsync(null);
-            return Results.Ok(new CatalogQueueResponse(url));
+            return Results.Ok(new CatalogQueueResponse(url, source));
         });
     }
 }
