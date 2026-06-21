@@ -71,7 +71,7 @@ When you notice a real bug, code smell, or improvement opportunity that you are 
 
 **Before filing, scan for duplicates.** A new issue for a problem that is already tracked dilutes the backlog and splits the conversation. Search open issues for the same keywords first (locally `gh issue list --state open --search "<keywords>"`; in the cloud sandbox `search_issues` / `list_issues` filtered by the `deferred` label — see references/github-tools.md). If you find an existing issue, comment there with the new context (which PR or workflow surfaced it again, anything new about the symptom or repro) and link it from your in-progress work. Do not open a duplicate.
 
-**Filing.** Use the Bug or Enhancement template per nature, apply the `deferred` label, and link the discovering PR or work in the Discovery / Motivation section. Then continue with the in-scope work.
+**Filing.** Use the Bug or Enhancement template per nature, apply the `deferred` label plus the `concern:*` that matches the finding (or `documentation` for a docs gap), and link the discovering PR or work in the Discovery / Motivation section. Then continue with the in-scope work.
 
 **Before pushing a PR, run a self-scan.** Grep your own diff and notes for the trigger phrases above. Every match is either an inline fix or a deferred issue — nothing leaves the PR tagged "out of scope" without a record.
 
@@ -95,7 +95,7 @@ Progress updates as you work an issue: [references/templates/progress-comment.md
 
 ## Issue Labels
 
-The **author of the issue** applies labels at creation. The author of the PR mirrors the same labels onto the PR at PR creation. Exactly one of `bug`/`enhancement`/`chore`/`epic` should classify every issue. Severity is required on bugs, optional on enhancements/chores. Priority (`priority:low`/`medium`/`high`, at most one) is optional and used to **sequence** work — most useful on backlog items. The `backlog` label marks issues filed during planning that are not active work yet (see "Plan the work, then file it all"); pair it with a priority so the intended order is captured on the issue itself.
+The **author of the issue** applies labels at creation. The author of the PR mirrors the same labels onto the PR at PR creation. Exactly one of `bug`/`enhancement`/`chore`/`epic` should classify every issue. Severity is required on bugs, optional on enhancements/chores. Priority (`priority:low`/`medium`/`high`, at most one) is optional and used to **sequence** work — most useful on backlog items. The `backlog` label marks issues filed during planning that are not active work yet (see "Plan the work, then file it all"); pair it with a priority so the intended order is captured on the issue itself. `documentation` marks any issue whose work is primarily docs (it coexists with a type). A `concern:*` (at most one) classifies the *kind* of a found, usually-deferred problem — `style`, `lint`, `tests`, `refactor`, `perf`, or `security` — so the review-findings backlog is filterable by dimension.
 
 This is the **canonical label set** — names *and* colors. The colors are part of the contract so a repo that freshly adopts this skill ends up looking like every other repo that uses it; provision them exactly as listed.
 
@@ -105,6 +105,7 @@ This is the **canonical label set** — names *and* colors. The colors are part 
 | `enhancement` | `a2eeef` | New feature or improvement |
 | `chore` | `cfd3d7` | Maintenance — deps, refactor, lint, build, infra |
 | `epic` | `5319e7` | Meta-issue tracking a multi-issue / multi-PR goal |
+| `documentation` | `0075ca` | Docs-only work, or a found docs gap — coexists with a type |
 | `help` | `008672` | Requires human intervention — agent is blocked |
 | `severity:critical` | `b60205` | Breaks runtime, blocks merge, or causes data loss |
 | `severity:major` | `d93f0b` | Affects a core path but has a workaround |
@@ -115,6 +116,12 @@ This is the **canonical label set** — names *and* colors. The colors are part 
 | `regression` | `e99695` | A previously-fixed issue has returned, or a recent change broke something that worked |
 | `backlog` | `bfdadc` | Filed during planning; not active work yet — sequence it with a `priority:*` |
 | `deferred` | `c5def5` | Real but intentionally out of scope for now |
+| `concern:style` | `d4c5f9` | Found-issue dimension — style / formatting / naming drift |
+| `concern:lint` | `d4c5f9` | Found-issue dimension — linter warning not blocked on |
+| `concern:tests` | `d4c5f9` | Found-issue dimension — missing/thin tests or coverage gap |
+| `concern:refactor` | `d4c5f9` | Found-issue dimension — code smell, duplication, dead code |
+| `concern:perf` | `d4c5f9` | Found-issue dimension — performance / inefficiency |
+| `concern:security` | `d4c5f9` | Found-issue dimension — non-blocking or pre-existing security concern |
 
 The `help` label signals that the agent cannot resolve the issue autonomously. Always post a comment explaining what was tried and why it's blocked before adding this label.
 
@@ -122,7 +129,7 @@ The `help` label signals that the agent cannot resolve the issue autonomously. A
 
 Before filing the first issue in a repo — and any time you reach for a label that is missing or whose color has drifted — reconcile the repo's labels against the canonical set above: create any that are missing with the exact name and color, and correct any whose color differs. Locally that's `gh label create <name> --color <hex> --description "<when to use>"` and `gh label edit <name> --color <hex>`. In the cloud sandbox there is **no** GitHub MCP tool to create or edit a label (only `get_label`, to check existence), so you usually cannot self-provision there.
 
-When you cannot create or correct the labels yourself — no tool, no permission, or the API refuses — **stop, ask the user to add or fix them against this canonical list, and refuse to continue until they confirm it is done.** Do not improvise around it: inventing a substitute label, dropping the label, or proceeding unlabeled quietly breaks the parts of the workflow that lean on these exact names (classification, severity and priority triage, the deferred queue and the planning backlog, the review gate). The label set is load-bearing, so this is the right place to halt and wait rather than press on.
+When you cannot create or correct the labels yourself — no tool, no permission, or the API refuses — **stop, ask the user to add or fix them against this canonical list, and refuse to continue until they confirm it is done.** Do not improvise around it: inventing a substitute label, dropping the label, or proceeding unlabeled quietly breaks the parts of the workflow that lean on these exact names (classification, severity/priority/concern triage, the deferred queue and the planning backlog, the review gate). The label set is load-bearing, so this is the right place to halt and wait rather than press on.
 
 ## Branches and Worktrees
 
