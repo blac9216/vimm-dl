@@ -89,6 +89,7 @@ export interface CatalogGame {
   owned: boolean
   compat: string | null
   verified: boolean | null
+  vimmMatch: string | null   // 'sha1' | 'md5' | 'crc' (matched) | 'none' (no match) | null (unscraped)
 }
 
 export interface CatalogGamesResponse {
@@ -112,6 +113,7 @@ export interface CatalogStatus {
   scanning: boolean
   compatSyncing: boolean
   verifying: boolean
+  vimmSyncing: boolean
   totalGames: number
   systems: CatalogSystemStatus[]
 }
