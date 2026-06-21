@@ -49,7 +49,7 @@ An **epic** is a meta-issue that tracks one larger goal delivered across **more 
 
 ## Plan the work, then file it all — before starting
 
-When a discussion lands on a path forward, do not start coding the first piece. First **decompose the entire effort**: break it into an epic (or epics) plus right-sized issues — each scoped to land in a PR the review agent will accept (≤ ~400 net LOC / ≤ 15 files, see the size sanity check in the github-pr-review skill). Then **file all of it** — every epic and every issue — *before* writing any code. Filing first means the plan exists somewhere durable the instant it's agreed, not locked in a context window that may compact mid-build.
+When a discussion lands on a path forward, do not start coding the first piece. First **decompose the entire effort**: break it into an epic (or epics) plus right-sized issues — each scoped to land in a PR the review agent will accept (≤ ~400 net LOC / ≤ 15 files, see the size sanity check in the github-pr-review skill). Then **file all of it** — every epic and every issue — *before* writing any code. Filing first means the plan exists somewhere durable the instant it's agreed, not locked in a context window that may compact mid-build. Tag the issues you won't start right away with `backlog`, and give each a `priority:*` so the sequence you reasoned out lives on the issues themselves rather than in memory.
 
 **Mind the context window.** All the epics and issues for a given discussion must be recorded before that window compacts — otherwise the decomposition you just reasoned through is lost and the next session re-derives it (differently). If a planning discussion is large and you can see the remaining turns getting tight, **say so**: tell the user you're approaching the point where unrecorded plan items are at risk, and file what's decided before continuing. Recording the plan beats polishing it.
 
@@ -95,7 +95,7 @@ Progress updates as you work an issue: [references/templates/progress-comment.md
 
 ## Issue Labels
 
-The **author of the issue** applies labels at creation. The author of the PR mirrors the same labels onto the PR at PR creation. Exactly one of `bug`/`enhancement`/`chore`/`epic` should classify every issue. Severity is required on bugs, optional on enhancements/chores.
+The **author of the issue** applies labels at creation. The author of the PR mirrors the same labels onto the PR at PR creation. Exactly one of `bug`/`enhancement`/`chore`/`epic` should classify every issue. Severity is required on bugs, optional on enhancements/chores. Priority (`priority:low`/`medium`/`high`, at most one) is optional and used to **sequence** work — most useful on backlog items. The `backlog` label marks issues filed during planning that are not active work yet (see "Plan the work, then file it all"); pair it with a priority so the intended order is captured on the issue itself.
 
 This is the **canonical label set** — names *and* colors. The colors are part of the contract so a repo that freshly adopts this skill ends up looking like every other repo that uses it; provision them exactly as listed.
 
@@ -109,7 +109,11 @@ This is the **canonical label set** — names *and* colors. The colors are part 
 | `severity:critical` | `b60205` | Breaks runtime, blocks merge, or causes data loss |
 | `severity:major` | `d93f0b` | Affects a core path but has a workaround |
 | `severity:minor` | `fbca04` | Cosmetic, edge case, or low-frequency |
+| `priority:high` | `cf222e` | Sequencing — pull this ahead of other work |
+| `priority:medium` | `dbab09` | Sequencing — normal ordering |
+| `priority:low` | `0e8a16` | Sequencing — do after higher-priority work |
 | `regression` | `e99695` | A previously-fixed issue has returned, or a recent change broke something that worked |
+| `backlog` | `bfdadc` | Filed during planning; not active work yet — sequence it with a `priority:*` |
 | `deferred` | `c5def5` | Real but intentionally out of scope for now |
 
 The `help` label signals that the agent cannot resolve the issue autonomously. Always post a comment explaining what was tried and why it's blocked before adding this label.
@@ -118,7 +122,7 @@ The `help` label signals that the agent cannot resolve the issue autonomously. A
 
 Before filing the first issue in a repo — and any time you reach for a label that is missing or whose color has drifted — reconcile the repo's labels against the canonical set above: create any that are missing with the exact name and color, and correct any whose color differs. Locally that's `gh label create <name> --color <hex> --description "<when to use>"` and `gh label edit <name> --color <hex>`. In the cloud sandbox there is **no** GitHub MCP tool to create or edit a label (only `get_label`, to check existence), so you usually cannot self-provision there.
 
-When you cannot create or correct the labels yourself — no tool, no permission, or the API refuses — **stop, ask the user to add or fix them against this canonical list, and refuse to continue until they confirm it is done.** Do not improvise around it: inventing a substitute label, dropping the label, or proceeding unlabeled quietly breaks the parts of the workflow that lean on these exact names (classification, severity triage, the deferred backlog, the review gate). The label set is load-bearing, so this is the right place to halt and wait rather than press on.
+When you cannot create or correct the labels yourself — no tool, no permission, or the API refuses — **stop, ask the user to add or fix them against this canonical list, and refuse to continue until they confirm it is done.** Do not improvise around it: inventing a substitute label, dropping the label, or proceeding unlabeled quietly breaks the parts of the workflow that lean on these exact names (classification, severity and priority triage, the deferred queue and the planning backlog, the review gate). The label set is load-bearing, so this is the right place to halt and wait rather than press on.
 
 ## Branches and Worktrees
 
