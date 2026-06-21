@@ -178,7 +178,7 @@ If you wrote the phrase, you owe an issue.
 
 **Before filing, scan for duplicates.** Don't open a second ticket for a problem that already has one — search open issues (`search_issues` / `list_issues` filtered by the `deferred` label, or `gh issue list --state open --search "<keywords>"`). If an open issue covers the same problem, add a comment on it referencing this PR as the rediscovery context and link to it in your review template's Deferred Items section instead of filing a new one.
 
-**Filing.** Use the Bug or Enhancement template from the github-workflow skill ([../github-workflow/references/templates/](../github-workflow/references/templates/)), apply the `deferred` label, and reference the PR (`Found while reviewing PR #N`) in the Discovery / Motivation section. Each filed (or referenced existing) issue goes in the review template's `### Deferred Items` section so the audit trail is on the PR.
+**Filing.** Use the Bug or Enhancement template from the github-workflow skill ([../github-workflow/references/templates/](../github-workflow/references/templates/)), apply the `deferred` label plus the matching `concern:*` (or `documentation`), and reference the PR (`Found while reviewing PR #N`) in the Discovery / Motivation section. Each filed (or referenced existing) issue goes in the review template's `### Deferred Items` section so the audit trail is on the PR.
 
 "Noted, non-blocking" is not a parking place — it either blocks the merge or it has an issue number next to it before the review template is posted.
 
