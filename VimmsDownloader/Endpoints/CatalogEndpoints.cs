@@ -92,6 +92,17 @@ static class CatalogEndpoints
         app.MapDelete("/api/catalog/sets/{id:int}", async (int id, CatalogRepository repo) =>
             await repo.DeleteSetAsync(id) ? Results.Ok() : Results.NotFound());
 
+        // A game's Vimm download options (vault id + available formats) for the download format
+        // picker, or 404 when the game has no Vimm match.
+        app.MapGet("/api/catalog/games/{id:int}/vimm", async (int id, CatalogRepository repo) =>
+        {
+            var binding = await repo.GetVaultBindingAsync(id);
+            return binding is null
+                ? Results.NotFound()
+                : Results.Ok(new CatalogVimmDto(binding.Value.VaultId,
+                    binding.Value.Formats.Select(f => new CatalogVimmFormatDto(f.Alt, f.Label, f.SizeBytes, f.SizeText)).ToList()));
+        });
+
         // Resolve a catalog game and queue it: prefer archive.org sets, fall back to the game's
         // pre-bound Vimm vault URL (optional ?format= picks the Vimm download format).
         app.MapPost("/api/catalog/games/{id:int}/queue", async (int id, int? format, CatalogRepository repo,

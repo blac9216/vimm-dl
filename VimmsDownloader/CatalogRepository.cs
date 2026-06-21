@@ -458,7 +458,8 @@ class CatalogRepository : ICatalogStore
                        (SELECT COALESCE(SUM(r.size), 0) FROM catalog_rom r WHERE r.game_id = g.id) AS size,
                        EXISTS(SELECT 1 FROM catalog_owned o WHERE o.game_id = g.id) AS owned,
                        (SELECT c.status FROM catalog_compat c WHERE c.serial_key = g.serial_key LIMIT 1) AS compat,
-                       (SELECT o.verified FROM catalog_owned o WHERE o.game_id = g.id) AS verified
+                       (SELECT o.verified FROM catalog_owned o WHERE o.game_id = g.id) AS verified,
+                       g.vimm_match AS vimm_match
                 FROM catalog_game g JOIN catalog_system s ON s.id = g.system_id
                 {where}
                 ORDER BY g.name
@@ -480,7 +481,8 @@ class CatalogRepository : ICatalogStore
                     r.GetInt64(6),
                     r.GetInt32(7) != 0,
                     r.IsDBNull(8) ? null : r.GetString(8),
-                    r.IsDBNull(9) ? null : r.GetInt32(9) != 0));
+                    r.IsDBNull(9) ? null : r.GetInt32(9) != 0,
+                    r.IsDBNull(10) ? null : r.GetString(10)));
         }
         return (total, games);
     }
