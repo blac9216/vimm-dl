@@ -2,16 +2,24 @@
 
 ## Project Overview
 
-Vimm's Lair download queue manager with PS3 ISO conversion and sync. Modular architecture under `Modules/`. React + Vite + Tailwind frontend in `VimmsDownloader/client/`. Host project `VimmsDownloader/`. Mock server in `MockServer/` for testing. GitHub user: eduvhc. Target platform: Linux (Docker + bare metal), also runs on Windows for dev.
+ROM management system built around the **No-Intro / Redump catalog** as the authoritative "every game
+that exists" set. Browse the catalog by console / name / owned-vs-remote, see real metadata + emulator
+compatibility, and queue downloads from the best available **source** — **archive.org** (parallel, via
+configured "sets") with an automatic fallback to **Vimm's Lair** (the original single source), bound to
+each catalog game **by hash**. Includes a live **PS3 ISO conversion** pipeline and external-drive
+**sync**. Modular architecture under `Modules/`; React + Vite + Tailwind frontend in
+`VimmsDownloader/client/`; host project `VimmsDownloader/`; mock server in `MockServer/` for testing.
+Upstream GitHub user: eduvhc; work repo: blac9216/vimm-dl. Target platform: Linux (Docker + bare
+metal), also runs on Windows for dev.
 
 ## Development Workflow
 
 **Follow this every session, including immediately after a context compaction** (this section is the durable channel for the workflow — chat memory and summaries are not).
 
-- **Issue-driven** — use the `github-workflow` skill for all issues, branches, commits, and PRs. One issue → one branch (`<issue#>-<desc>`) → one PR (keep it ≤ ~400 net LOC / ≤ 15 files so review stays meaningful). Commits use the `AI:` subject prefix and the standard `Co-Authored-By` / `Claude-Session` trailers.
+- **Issue-driven** — use the `github-workflow` skill for all issues, branches, commits, and PRs. One issue → one branch (`<issue#>-<desc>`) → one PR (keep it ≤ ~400 net LOC / ≤ 15 files so review stays meaningful). Commits use the `AI:` subject prefix and the standard `Co-Authored-By` / `Claude-Session` trailers. PR bodies include Summary / Risk / Rollback / Suggested Test Steps.
 - **Contextless review** — never self-review in-context. Spawn a subagent that **follows the `github-pr-review` skill** and posts its verdict template as a PR comment (audit trail), files `deferred`-labelled issues for non-blocking findings, then squash-merges. The owner has authorized auto-merge-after-review for the multi-source/ROM-management effort.
-  - This is a **remote sandbox with no `gh` CLI**: the reviewer must map every `gh` command in the skill to the `mcp__github__*` tools, and the formal "approve" API fails ("Can not approve your own pull request") because the MCP token is the PR author — so the posted comment + the squash-merge are what count.
-- **Design decisions are tracked as issues** — when a design decision is made, open (or update) a GitHub issue whose **body is the living spec**; keep editing it as the target moves. This is what survives compaction — do not rely on memory. (Current design epics: see open `EPIC —` issues.)
+  - This is a **remote sandbox with no `gh` CLI**: the reviewer must map every `gh` command in the skill to the `mcp__github__*` tools, and the formal "approve" API fails ("Can not approve your own pull request") because the MCP token is the PR author — so the posted comment + the squash-merge are what count. (No `deferred` label exists in the repo yet — `enhancement` is the established substitute.)
+- **Design decisions are tracked as issues** — when a design decision is made, open (or update) a GitHub issue whose **body is the living spec**; keep editing it as the target moves. This is what survives compaction — do not rely on memory. (Current design epics: see open `EPIC —` issues, e.g. #78.)
 - **Toolchain (remote)** — .NET SDK at `/tmp/dotnet`, bun at `/root/.bun/bin`, clang at `/usr/bin/clang`. MSTest 4 emits no results without a TRX logger: `dotnet test <proj> -c Debug --logger "trx;LogFileName=x.trx" --results-directory /tmp/trx`. Frontend build: `bun run build` (runs `tsc -b && vite build`).
 
 ## Architecture
@@ -22,7 +30,8 @@ All modules follow the convention in `Modules/MODULE_GUIDE.md`. Each module is a
 
 - **Module.Core** — `IModuleBridge<TEvent>` interface, `Result<T>` (generic result type + `FileOps` safe I/O helpers), `SharedConstants` (`FileExtensions`, `Platforms`), `ConsoleDirectories` (platform name → EmuDeck folder, e.g. "PlayStation 3" → `ps3`, "GameCube" → `gc`; null for unknown), and `Pipeline/` infrastructure (`IPipeline`, `PipelineState`, `PipelinePhase`, `PipelineStatusEvent`, `PipelineFlowInfo`, `DuplicateCheckResult`). Every module references this.
 - **Module.Core.Testing** — Shared test infrastructure: `FakeBridge<T>`, `TempDirectory`, `ToolsContainer` (Testcontainers with `ghcr.io/eduvhc/vimm-dl-tools`).
-- **Module.Download** — Download service: `DownloadService` (download loop, resume, progress, Result-based error handling), `VaultPageParser` (HTML parsing + format resolution with fallback), `IDownloadItemProvider` (async, host provides queue items). Bridge: `IDownloadBridge` emitting `DownloadStatusEvent`, `DownloadProgressEvent`, `DownloadCompletedEvent`, `DownloadErrorEvent`, `DownloadDoneEvent`.
+- **Module.Download** — Download service + the **source seam**: `DownloadService` (download loop, resume, progress, Result-based error handling, `StreamDownload` with per-source headers), `VaultPageParser` (Vimm HTML parsing + format resolution with fallback). `Sources/` holds `IDownloadSource` (`ResolveAsync` → `ResolvedDownload`), `ISourceRegistry`, `ICatalogSource` (browse/search), and the concrete `VimmSource` (wraps `VaultPageParser`) + `ArchiveSource` (archive.org direct + listing). `IDownloadItemProvider` (async, host provides queue items keyed by `(source, source_id, format)`). Bridge: `IDownloadBridge` emitting `DownloadStatusEvent`, `DownloadProgressEvent`, `DownloadCompletedEvent`, `DownloadErrorEvent`, `DownloadDoneEvent`.
+- **Module.Catalog** — The canonical catalog + Vimm binding (web-free; persists via `ICatalogStore`). `ClrMameProParser` + `CatalogSyncService` (fetch No-Intro/Redump DATs from the libretro-database mirror), `CatalogSystems` (the consoles synced — DAT name + group + EmuDeck folder), `CatalogMatcher` (name normalization / file match), `Dedup` (1G1R title-key + parent selection), `RpcsCompat` (RPCS3 compat JSON, `NormalizeSerial`), `Crc32`, and the Vimm layer: `VimmSystems` (catalog console → Vimm vault code) + `VimmVaultParser` (list rows, inline `media` JSON hashes, `hashes2.php`, `dl_format`).
 - **Module.Extractor** — 7z wrapper (`ZipExtract.QuickCheckAsync`, `ExtractAsync` returning `Result<bool>`). Auto-detects `7z` on PATH or `C:\Program Files\7-Zip\7z.exe` on Windows.
 - **Module.Ps3IsoTools** — Pure PS3 tools, no pipeline: `ParamSfo` (PARAM.SFO binary parser), `Ps3IsoConverter` (makeps3iso + patchps3iso + `FindJbFolder`, returns `Result<string>`), `IsoFilenameFormatter` (serial/The-fix/region rename with `IsoRenameOptions`).
 - **Module.Ps3Pipeline** — PS3 pipeline orchestration, implements `IPipeline`: `Ps3ConversionPipeline` (facade with `BuildFlow`, `CheckDuplicate`, `GetStepDurations`), `Ps3JbFolderPipeline` (extract→convert workers), `Ps3DecIsoPipeline` (rename/extract .dec.iso, optional archive preservation). Uses `PipelineState` from Module.Core. Bridge: `IPs3PipelineBridge : IModuleBridge<PipelineStatusEvent>`.
@@ -31,10 +40,11 @@ All modules follow the convention in `Modules/MODULE_GUIDE.md`. Each module is a
 ### Host (VimmsDownloader/)
 
 - **SRP file structure** — `Program.cs` (startup/DI), `Models.cs` (records + PathHelpers), `AppJsonContext.cs` (JSON source gen), `QueueRepository.cs`, `SettingsKeys.cs`, `DatabaseMigrator.cs` (embedded SQL migrations), `DownloadHub.cs`, `DownloadQueue.cs`, `QueueItemProvider.cs`, `MetadataFetcher.cs`.
-- **Endpoints/** — `FileEndpoints` (merged `/api/data` with pipeline trace), `DownloadEndpoints`, `MetadataEndpoints`, `Ps3Endpoints`, `SyncEndpoints`, `SettingsEndpoints`, `EventEndpoints`, `MetricsEndpoints`. 21 endpoints total.
-- **SignalR bridges** — `SignalRPs3PipelineBridge.cs`, `SignalRSyncBridge.cs`, `SignalRDownloadBridge.cs` route module events to SignalR + append to events table. Pipeline bridge also updates `completed_urls` projection for terminal states.
-- **AOT-ready** — `PublishAot=true`, raw ADO.NET, JSON source generator, all modules `IsAotCompatible`.
-- **QueueRepository** — singleton, all async SQLite operations. Database initialized via `DatabaseMigrator` with embedded SQL files.
+- **Catalog/source host services** — `CatalogRepository.cs` (implements `ICatalogStore`, all catalog SQL incl. the Vimm binding), `CatalogSyncService` (wired in `Program.cs` over the `libretro` client), `CatalogScanService` (owned scan of `completed/`), `CatalogVerifyService` (CRC32 verify), `CompatSyncService` (RPCS3 compat), `CatalogResolveService` (archive→Vimm download resolution), `VimmSyncService` (per-console Vimm hash scrape/binding), `DefaultSets.cs` (seeded RomGoGetter archive sets), `ArchiveAuth.cs` (Internet Archive S3 "LOW" auth via a `DelegatingHandler`). The concrete `SourceRegistry` lives in Module.Download/Sources, built from DI.
+- **Endpoints/** — `FileEndpoints` (merged `/api/data` with pipeline trace), `DownloadEndpoints`, `MetadataEndpoints`, `SourceEndpoints`, `CatalogEndpoints` (+ the `BackgroundJobGate` single-flight base & `Catalog*State` markers), `Ps3Endpoints`, `SyncEndpoints`, `SettingsEndpoints`, `EventEndpoints`, `MetricsEndpoints`. **38 endpoints total.**
+- **SignalR bridges** — `SignalRPs3PipelineBridge.cs`, `SignalRSyncNotifier.cs`, `SignalRDownloadBridge.cs` route module events to SignalR + append to the events table. Pipeline bridge also updates the `completed_urls` projection for terminal states.
+- **AOT-ready** — `PublishAot=true`, raw ADO.NET (Microsoft.Data.Sqlite), JSON source generator (`AppJsonContext`), all modules `IsAotCompatible`. JSON in the catalog parsers uses `JsonDocument` (DOM, no reflection).
+- **QueueRepository / CatalogRepository** — singletons, all async SQLite operations. Database initialized via `DatabaseMigrator` with embedded SQL files; both repositories share `queue.db`.
 - **Settings stored in DB** — `settings` table (key-value). Keys in `SettingsKeys.cs`.
 
 ### Result Pattern
@@ -54,20 +64,31 @@ All modules follow the convention in `Modules/MODULE_GUIDE.md`. Each module is a
 
 ### Database Migrator
 
-- `DatabaseMigrator.cs` — runs embedded SQL files from `Migrations/*.sql` in order
+- `DatabaseMigrator.cs` — runs embedded SQL files from `Migrations/*.sql` in order (auto-discovered by manifest-resource name; currently through **021**)
 - Tracks executed migrations in `schema_migrations` table
 - Each migration is idempotent (catches "duplicate column" / "already exists" errors)
 - Migrations split into individual statements for SQLite compatibility
 
 ## Database
 
-SQLite, file `queue.db` in `data/` subdirectory (derived from connection string). Seven tables:
-- `queued_urls` (id INTEGER PK AUTOINCREMENT, url TEXT, format INTEGER DEFAULT 0) — download queue ordered by id
-- `completed_urls` (id INTEGER PK AUTOINCREMENT, url TEXT, filename TEXT, filepath TEXT, completed_at TEXT, conv_phase TEXT, conv_message TEXT, iso_filename TEXT) — finished downloads with conversion state projection
-- `url_meta` (url TEXT PK, title TEXT, platform TEXT, size TEXT, formats TEXT, serial TEXT) — metadata cache
-- `settings` (key TEXT PK, value TEXT NOT NULL) — user settings
-- `events` (id INTEGER PK AUTOINCREMENT, item_name TEXT, event_type TEXT, phase TEXT, message TEXT, data TEXT, timestamp TEXT, correlation_id TEXT) — append-only event log
-- `schema_migrations` (name TEXT PK, executed_at TEXT) — migration tracking
+SQLite, file `queue.db` in `data/` subdirectory (derived from connection string). Tables:
+
+**Queue / downloads**
+- `queued_urls` (id, url, format, **source**, **source_id**) — download queue ordered by id
+- `completed_urls` (id, url, filename, filepath, completed_at, conv_phase, conv_message, iso_filename, format, **source**, **source_id**) — finished downloads + conversion-state projection
+- `source_meta` (source, source_id, title, platform, size, formats, serial, md5, sha1; PK (source, source_id)) — per-source metadata cache (replaced `url_meta`, which remains as a one-release read fallback)
+- `settings` (key PK, value) — user settings
+- `events` (id, item_name, event_type, phase, message, data, timestamp, correlation_id) — append-only event log
+- `schema_migrations` (name PK, executed_at) — migration tracking
+
+**Catalog (No-Intro / Redump + bindings)**
+- `catalog_system` (id, dat_name UNIQUE, console, source, dat_version, game_count, synced_at) — one row per console DAT
+- `catalog_game` (id, system_id, name, region, serial, serial_key, languages, title_key, is_parent, **vault_id**, **vimm_match**) — one entry per title/region/revision
+- `catalog_rom` (id, game_id, name, size, crc, md5, sha1) — file(s) per game (disc titles carry several; indexed on sha1)
+- `catalog_owned` (game_id, filepath, verified) — which catalog games are present on disk
+- `catalog_set` (id, name, console, …) + `catalog_set_link` (id, set_id, url, position) — per-console archive.org download sets
+- `catalog_compat` (serial_key, status, …) — emulator (RPCS3) compatibility, joined by serial_key
+- `catalog_vimm_format` (id, game_id, alt, label, size_bytes, size_text) — Vimm download formats for a bound game
 
 ### Settings Keys
 - `rename_fix_the` = "true" — fix "Godfather, The" → "The Godfather"
@@ -77,20 +98,37 @@ SQLite, file `queue.db` in `data/` subdirectory (derived from connection string)
 - `ps3_default_format` = "1" — default download format (0=JB Folder, 1=.dec.iso)
 - `ps3_preserve_archive` = "true" — keep .7z after conversion
 - `sync_path` = "" — external drive path
+- `archive_parallelism` = "4" — concurrent archive.org downloads (RomGoGetter parity; stored, engine wiring is a follow-up)
+- `archive_retries` = "3" — retry attempts on a failed archive download
+- `archive_idle` = "60" — stall-watchdog seconds (no byte progress)
+- `archive_s3_access` / `archive_s3_secret` = "" — Internet Archive S3 keys; sent as `Authorization: LOW access:secret` on archive.org requests when **both** are set (active immediately via `ArchiveAuth` + a `DelegatingHandler`)
+- `default_sets_seeded` = "true" — one-time guard for seeding the default archive sets
+- `feature_library` = "false" — beta: Library tab
 - `feature_sync` = "false" — beta: Sync tab
 - `feature_events` = "false" — developer: Events tab
 
+## Catalog, Sources & Vimm Binding
+
+The catalog is the identity layer; sources bind onto it. (Design epic: issue #78; see ROADMAP.md.)
+
+- **Catalog sync** (`POST /api/catalog/sync`) — `CatalogSyncService` fetches the No-Intro/Redump DATs for every console in `CatalogSystems.All` from the libretro-database mirror (`metadat/{no-intro|redump}/{DatName}.dat`), parses via `ClrMameProParser`, and replaces each system's games/roms. Console tags = EmuDeck folders. 1G1R parent selection (`Dedup`) marks one variant per title as `is_parent`.
+- **Owned + verify + compat** — `CatalogScanService` records which games exist under `completed/` (`catalog_owned`); `CatalogVerifyService` checks file CRC32 against `catalog_rom`; `CompatSyncService` imports RPCS3 compatibility joined by `serial_key`.
+- **Download sets** — a "set" is a named, per-console list of archive.org links (`catalog_set` + `catalog_set_link`). Defaults are seeded once from `DefaultSets` (ported from RomGoGetter). Managed via `/api/catalog/sets` CRUD (and the Library "Sources" dialog / Settings → Archive).
+- **Vimm hash binding** (`POST /api/catalog/vimm-sync?console=`) — `VimmSyncService` scrapes Vimm per console (list sections A–Z+number → each vault page), reads the Redump/No-Intro hash triple (inline `GoodHash`/`GoodMd5`/`GoodSha1`, or `vault/ajax/hashes2.php` for multi-disc), and **matches by hash SHA1→MD5→CRC** against `catalog_rom`. On a match it binds `catalog_game.vault_id` + the available `catalog_vimm_format` rows; unmatched games on a scraped console are flagged `vimm_match='none'` (the "no Vimm match" badge). Throttled, per-console, cancellable (`CatalogVimmState : BackgroundJobGate`).
+- **Download resolution** (`CatalogResolveService.ResolveForQueueAsync`, used by `POST /api/catalog/games/{id}/queue?format=`) — prefer archive.org sets (match a game's file across the console's set links); if none, fall back to the bound Vimm vault URL (`https://vimm.net/vault/{vault_id}`) with the requested format if Vimm offers it, else the first available. Queues `(url, format, source)`; archive uses format 0. Returns 404 when neither source has it.
+- **Background jobs** are single-flight via `BackgroundJobGate` (202 Accepted / 409 Conflict); `GET /api/catalog/status` reports `syncing`/`scanning`/`compatSyncing`/`verifying`/`vimmSyncing` so the UI polls while any runs.
+
 ## Download Flow (Module.Download)
 
-1. `DownloadService.Run()` loops `while (!cancelled)`, gets next item via `IDownloadItemProvider` (async)
-2. `VaultPageParser.Parse()` extracts `mediaId`, title, download server, resolves format with fallback (preferred → JB Folder → first available)
-3. `StreamDownload` returns `Result<(string, string)>` — no exceptions for HTTP errors
-4. Streams with 80KB buffer, reports progress every 2s with speed (MB/s)
-5. Crash recovery: detects partial files, resumes via Range headers
-6. On completion: file is moved into an EmuDeck-style per-console folder — `completed/{ConsoleDirectories.Resolve(platform)}/` (e.g. `completed/ps3/`); unknown/empty platforms stay in `completed/` root. Then `provider.CompleteAsync()` (host handles DB, stores full `filepath`), emits `DownloadCompletedEvent`
-7. `OnPostDownload` callback for PS3 pipeline routing
-8. Auto-resumes on backend startup if queue has items
-9. Background metadata fetch sends `MetaReady` SignalR event for instant UI refresh
+1. `DownloadService.Run()` loops `while (!cancelled)`, gets next item via `IDownloadItemProvider` (async). Each item is keyed by `(source, source_id, format)`.
+2. `registry.Get(item.Source).ResolveAsync(...)` resolves the concrete download. **VimmSource** wraps `VaultPageParser.Parse` (extracts mediaId/title/server, resolves format with fallback) and supplies Vimm's anti-bot headers; **ArchiveSource** resolves an archive.org file URL directly.
+3. `StreamDownload` returns `Result<(string, string)>` (no exceptions for HTTP errors), with per-source `extraHeaders`.
+4. Streams with an 80KB buffer, reports progress every 2s with speed (MB/s).
+5. Crash recovery: detects partial files, resumes via Range headers.
+6. On completion: file is moved into an EmuDeck-style per-console folder — `completed/{ConsoleDirectories.Resolve(platform)}/` (e.g. `completed/ps3/`); unknown/empty platforms stay in `completed/` root. Then `provider.CompleteAsync()` (host handles DB, stores full `filepath`), emits `DownloadCompletedEvent`.
+7. `OnPostDownload` callback for PS3 pipeline routing.
+8. Auto-resumes on backend startup if the queue has items.
+9. Background metadata fetch sends `MetaReady` SignalR event for instant UI refresh.
 
 ## PS3 Pipelines (Module.Ps3Pipeline)
 
@@ -134,13 +172,12 @@ Two scoped pipelines sharing `PipelineState` from Module.Core:
 ## Duplicate Detection
 
 - `POST /api/queue` checks for duplicates before adding URLs
-- `QueueRepository.CheckDuplicatesAsync()` — DB query across `queued_urls` and `completed_urls` (case-insensitive URL match, includes platform from `url_meta`)
+- `QueueRepository.CheckDuplicatesAsync()` — DB query across `queued_urls` and `completed_urls` (case-insensitive URL match, includes platform from metadata)
 - Pipeline-owned: `IPipeline.CheckDuplicate()` — each console defines its own filesystem/phase rules
 - PS3 rules: active conversions always block, terminal states check disk (archive + ISO existence)
 - No files on disk → not a duplicate (user can re-download freely)
 - `AddRequest.Force` flag to override duplicate check
 - Frontend `DuplicateDialog` shows per-file status with force-add option
-- 38 tests covering DB query, filesystem validation, JB Folder, Dec ISO, cross-pipeline, generic fallback
 
 ## Frontend (React + Vite + Tailwind)
 
@@ -149,7 +186,8 @@ Two scoped pipelines sharing `PipelineState` from Module.Core:
 - PS3 XMB-inspired dark theme with blue glow accents, PS3 controller button colors (X=blue, O=red, △=green, □=purple)
 - **Responsive** — mobile-friendly with `sm:` breakpoint, touch actions always visible, horizontal scroll tabs
 - qBittorrent-style layout: Header → Toolbar → ControlBar → TabBar → Content → StatusBar
-- Tabs: Active, Completed, Metrics (always visible), Events (developer flag), Sync (beta flag), Settings
+- Tabs: Active, Completed, Metrics (always visible), Library (beta flag), Sync (beta flag), Events (developer flag), Settings
+- **Library tab** (`components/library/`) — browse the catalog with console / availability / 1G1R / name filters (persisted to `localStorage` across navigation); per-row badges for emulator compat, Owned/Verified, and **Vimm match / no Vimm**; toolbar Sync/Scan/Verify/Compat/**Vimm** buttons; `SetsDialog` (manage archive.org sets, also reachable from Settings → Archive); `FormatPickerDialog` (choose the Vimm download format when a bound game offers more than one).
 - State: React Query for REST data, `DownloadContext` (useReducer) for SignalR live state
 - `useSignalR` hook with auto-reconnect, invalidates React Query on data events + `MetaReady` for instant metadata refresh
 - Drag-and-drop queue reordering (HTML5 native, bulk reorder via `POST /api/queue/reorder`)
@@ -162,30 +200,47 @@ Two scoped pipelines sharing `PipelineState` from Module.Core:
 ### Feature Flags
 - Stored in `settings` table, exposed in `GET /api/settings` response
 - Frontend `TabBar` accepts `hiddenTabs` set, `App.tsx` gates tabs on flags
-- Settings UI has Feature Flags section with toggles
-- Two tiers: Beta (Sync) and Developer (Events)
+- Settings UI has a Feature Flags section with toggles
+- Two tiers: Beta (Library, Sync) and Developer (Events)
 - Metrics tab is always visible — not behind a flag
 
-## API Endpoints (21 total)
+## API Endpoints (38 total)
 
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/api/data` | Queue + history with pipeline trace + download status |
-| GET | `/api/settings` | System info (hostname, IPv4, platform) + user settings |
-| POST | `/api/settings` | Save setting by key |
+| GET | `/api/settings` | System info + user settings (incl. archive settings) |
+| POST | `/api/settings` | Save setting by key (refreshes S3 auth on `archive_s3_*`) |
 | POST | `/api/settings/check-path` | Validate directory path |
 | GET | `/api/version` | Update check (hourly polling) |
-| GET | `/api/meta` | Vault page metadata cache |
+| GET | `/api/meta` | Source metadata cache (`?source=&sourceId=`) |
 | GET | `/api/metrics` | Disk usage, queue/completed/orphaned/downloading sizes |
 | GET | `/api/events` | Paginated event log with type/item filters |
-| POST | `/api/queue` | Add URLs (duplicate check, force flag, default format) |
+| POST | `/api/queue` | Add URLs (duplicate check, force flag, default format, source) |
 | PATCH | `/api/queue/{id}` | Move or set format |
 | DELETE | `/api/queue/{id}` | Remove from queue |
 | DELETE | `/api/queue` | Clear queue |
 | POST | `/api/queue/reorder` | Bulk drag-and-drop reorder |
 | GET | `/api/queue/export` | Export queue JSON |
 | POST | `/api/queue/import` | Import queue JSON (triggers background metadata fetch) |
-| DELETE | `/api/completed/{id}` | Remove history entry (optional `?deleteFiles=true` to delete archive + ISO) |
+| DELETE | `/api/completed/{id}` | Remove history entry (`?deleteFiles=true` deletes archive + ISO) |
+| GET | `/api/sources` | Registered download sources (for the picker) |
+| GET | `/api/sources/{source}/sets` | Browse a source's sets/collections |
+| GET | `/api/sources/{source}/files` | List files in a source set |
+| GET | `/api/catalog/status` | Per-console counts/versions + running background jobs |
+| GET | `/api/catalog/consoles` | Consoles with counts (Library filter) |
+| GET | `/api/catalog/games` | Paged/filtered game browse (carries `vimmMatch`) |
+| GET | `/api/catalog/games/{id}/vimm` | A game's Vimm vault id + formats (picker) |
+| POST | `/api/catalog/games/{id}/queue` | Resolve + queue (archive → Vimm fallback, `?format=`) |
+| POST | `/api/catalog/sync` | Sync No-Intro/Redump DATs (background) |
+| POST | `/api/catalog/scan` | Scan `completed/` for owned games (background) |
+| POST | `/api/catalog/verify` | Verify owned files' CRC32 (background) |
+| POST | `/api/catalog/compat/sync` | Sync RPCS3 compatibility (background) |
+| POST | `/api/catalog/vimm-sync` | Hash-bind catalog ↔ Vimm (`?console=`, background) |
+| GET | `/api/catalog/sets` | List download sets |
+| POST | `/api/catalog/sets` | Add a set (name + console + links) |
+| PUT | `/api/catalog/sets/{id}` | Update a set |
+| DELETE | `/api/catalog/sets/{id}` | Delete a set |
 | POST | `/api/ps3/convert` | Convert all or single |
 | POST | `/api/ps3/action` | Mark-done or abort |
 | POST | `/api/sync/compare` | Set path + compare |
@@ -199,7 +254,7 @@ Single bind mount: `-v ~/vimm:/vimms`
 ```
 /vimms/
 ├── data/
-│   └── queue.db          ← SQLite database
+│   └── queue.db          ← SQLite database (queue + catalog)
 └── downloads/
     ├── downloading/      ← Partial files (auto-resume)
     ├── completed/        ← Archives + ISOs, sorted into EmuDeck per-console folders
@@ -216,22 +271,23 @@ Single bind mount: `-v ~/vimm:/vimms`
 
 ### Completed-file organization (EmuDeck layout)
 
-- Completed downloads are sorted into `completed/{console}/` using `ConsoleDirectories.Resolve(platform)` — folder names match EmuDeck / EmulationStation (`ps3`, `gc`, `snes`, `psx`, …). Platform comes from the vault page (`VaultPageParser.ExtractPlatform`).
+- Completed downloads are sorted into `completed/{console}/` using `ConsoleDirectories.Resolve(platform)` — folder names match EmuDeck / EmulationStation (`ps3`, `gc`, `snes`, `psx`, …). Platform comes from the source (e.g. `VaultPageParser.ExtractPlatform`).
 - Unknown/empty platforms stay in `completed/` root (no wrong-folder guessing). Only **new** downloads are sorted — pre-existing flat files are left where they are.
 - PS3 conversion output (ISO / extracted files) lands in the **same** console folder as its archive.
-- All readers recurse into the subfolders: `/api/data`, `/api/metrics`, PS3 convert-all, orphan cleanup, and Sync (which also mirrors the per-console folder onto the sync target). Duplicate detection / delete resolve the item's folder from the stored `filepath`, so both new (nested) and legacy (flat) layouts work.
+- All readers recurse into the subfolders: `/api/data`, `/api/metrics`, catalog scan, PS3 convert-all, orphan cleanup, and Sync (which also mirrors the per-console folder onto the sync target). Duplicate detection / delete resolve the item's folder from the stored `filepath`, so both new (nested) and legacy (flat) layouts work.
 
 ## Testing
 
-276 tests across 6 projects:
+416 tests across 7 projects:
+- 128 Download (state management, file recovery, vault parser, source seam, platform extraction, EmuDeck console-folder mapping, format resolution, duplicate detection, edge cases)
 - 87 Sync (real file I/O, disk simulation, edge cases)
-- 99 Download (state management, file recovery, vault parser, platform extraction, EmuDeck console-folder mapping, format resolution, edge cases)
-- 38 Duplicate detection (DB query, filesystem, JB Folder, Dec ISO, pipeline delegation, generic fallback)
-- 25 Extractor (7z integration via Testcontainers)
-- 10 Ps3IsoTools (ParamSfo, FindJbFolder, IsoFilenameFormatter)
+- 87 Host `VimmsDownloader.Tests` (real `DatabaseMigrator`/repositories, catalog query, sets, resolve + archive→Vimm fallback, `ArchiveAuth`, Vimm binding/scrape, source identity)
+- 62 Catalog (ClrMamePro parser, sync service, matcher, dedup, RpcsCompat, Crc32, `CatalogSystems`, `VimmSystems`, `VimmVaultParser`)
+- 25 Extractor (7z via Testcontainers — container tests skip when Docker is unavailable)
 - 17 Ps3Pipeline (pipeline state, rename, extract, abort, IPipeline contract)
+- 10 Ps3IsoTools (ParamSfo, FindJbFolder, IsoFilenameFormatter)
 
-All integration tests use real file I/O via `TempDirectory`. Container tests use `ghcr.io/eduvhc/vimm-dl-tools`.
+Most integration tests use real file I/O via `TempDirectory` or a temp SQLite file. Container tests use `ghcr.io/eduvhc/vimm-dl-tools`. (Note: CI runs only on `v*` tags, not PRs — see issue #51 — so suites are run locally / by the contextless reviewer.)
 
 ## Docker
 
@@ -252,6 +308,7 @@ All integration tests use real file I/O via `TempDirectory`. Container tests use
 
 - `.github/workflows/publish.yml` — Bun build + .NET publish + Docker push on `v*` tags. Passes `VERSION` build arg from tag.
 - `.github/workflows/tools-image.yml` — tools image on Dockerfile.tools changes
+- `.github/workflows/ci.yml` — `dotnet test` on PRs to `main` (currently not firing on the fork — Actions disabled; issue #51).
 
 ## Release Flow
 
@@ -286,9 +343,7 @@ docker run -d -p 5000:5000 -v ~/vimm:/vimms --name vimm-dl ghcr.io/eduvhc/vimm-d
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md) for planned features:
-- **Pipeline Identity** (next) — vault URL + format as item identity, replacing filename. Fixes cross-format duplicate detection and event correlation.
-- **Future Console Support** — architecture ready via `IPipeline`, waiting for demand.
+See [ROADMAP.md](ROADMAP.md). **Shipped:** the No-Intro/Redump catalog (all consoles with a libretro DAT), archive.org sets + settings, and the **Catalog ↔ Vimm hash binding** (scrape → hash-match → bind vault URL + formats → archive-preferred download with Vimm fallback + format picker; design epic #78). **Next (Phase C):** pipeline identity keyed by catalog game + format, hash-based owned dedup, one library row per game across formats/sources, and future console pipelines via `IPipeline`.
 
 ## User Preferences
 
@@ -300,6 +355,7 @@ See [ROADMAP.md](ROADMAP.md) for planned features:
 - No redundant status info. Errors only when they happen.
 - Linux is the target platform. Windows dev supported (7z auto-detection).
 - Bun for frontend builds (not npm).
-- Per-platform settings convention: `ps3_*` prefix (e.g. `ps3_default_format`, `ps3_parallelism`).
+- Per-platform settings convention: `ps3_*` prefix; per-source convention: `archive_*` prefix.
+- Identity by hash: Vimm bound to the catalog by CRC32/MD5/SHA1, not by name.
 - MockServer on 5111, main app on 5031 (dev) / 5000 (Docker).
 - Future console support: add Module.{Console}Tools + Module.{Console}Pipeline, implement IPipeline.

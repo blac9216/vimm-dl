@@ -11,7 +11,9 @@ catalog entry is the **identity**; download sources (archive.org, Vimm) bind ont
 
 ## Catalog ↔ Vimm Hash Binding (one entry per game, many formats)
 
-**Status:** Next up (Phase B) — the marquee feature.
+**Status:** ✅ Shipped (Phase B) — built across PRs #72–#92 under epic #78. The design below is retained
+as the as-built reference. One divergence from the sketch: the console→Vimm-code map shipped as a
+**code registry** (`Module.Catalog/VimmSystems`), not a `catalog_vimm_system` table.
 
 ### Vision
 
@@ -63,9 +65,9 @@ These match directly against the existing `catalog_rom` table (`crc`/`md5`/`sha1
   `none`/`null`-unscraped) for the badge.
 - New `catalog_vimm_format(id, game_id, alt INTEGER, label TEXT, size_bytes INTEGER, size_text TEXT)`
   — one row per (game, downloadable format). This is what makes "one entry, many formats" real.
-- New `catalog_vimm_system(console, vimm_code)` mapping (e.g. `psx`→`PS1`, `gc`→`GameCube`,
-  `pcengine`→`TG16`). Vimm carries ~32 of the catalog's consoles; the rest are simply "no Vimm
-  match" by construction (the badge is expected there, not an error).
+- The console→Vimm-code map (e.g. `psx`→`PS1`, `gc`→`GameCube`, `pcengine`→`TG16`) shipped as the
+  `VimmSystems` code registry (33 consoles), not a DB table. Consoles Vimm doesn't carry are simply
+  "no Vimm match" by construction (the badge is expected there, not an error).
 
 ### The scrape (throttled, incremental, cached)
 
@@ -105,7 +107,7 @@ incremental" choice:
 
 ## Pipeline Identity: Vault URL + Format
 
-**Status:** Builds on the hash binding above (Phase C).
+**Status:** Next up (Phase C) — builds on the now-shipped hash binding above.
 
 ### Problem
 
@@ -168,14 +170,15 @@ sources, not Vimm-only.
 
 ## Phasing overview
 
-- **Phase A — Archive sets & settings (mostly shipped).** Sets modeled as name + console + links[]
-  (with migration), RomGoGetter archive defaults seeded, archive settings incl. Internet Archive S3
-  keys, Library filter persistence, and full No-Intro/Redump console coverage in the catalog.
-  *Remaining:* source-aware download parallelism (archive parallel, Vimm serial).
-- **Phase B — Vimm hash-identity binding (next).** The schema, the throttled per-console scrape +
+- **Phase A — Archive sets & settings — ✅ shipped.** Sets modeled as name + console + links[] (with
+  migration), RomGoGetter archive defaults seeded, archive settings incl. Internet Archive S3 keys,
+  Library filter persistence, and full No-Intro/Redump console coverage in the catalog.
+  *Still open:* source-aware download parallelism (archive parallel, Vimm serial) — the
+  `archive_parallelism`/`retries`/`idle` settings are stored but not yet wired into the engine.
+- **Phase B — Vimm hash-identity binding — ✅ shipped.** The schema, the throttled per-console scrape +
   hash match, format capture, the "no Vimm match" badge, and source-aware download resolution
   (archive preferred, bound vault URL fallback + format choice).
-- **Phase C — Identity/dedup deepening.** Pipeline identity keyed by catalog game + format,
+- **Phase C — Identity/dedup deepening (next).** Pipeline identity keyed by catalog game + format,
   hash-based owned dedup, one library row per game across formats and sources.
 
 ---
