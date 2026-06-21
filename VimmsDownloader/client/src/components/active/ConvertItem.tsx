@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react'
 import { usePs3Action } from '../../api/queries'
 import { useDownload } from '../../hooks/useDownloadState'
 import { Badge } from '../shared/Badge'
@@ -13,7 +14,14 @@ export function ConvertItem({ status }: ConvertItemProps) {
   const actionMutation = usePs3Action()
   const { state } = useDownload()
   const startTime = state.convStartTimes[status.itemName]
-  const elapsed = startTime ? Date.now() - startTime : null
+
+  // Tick once a second so elapsed advances over time without calling Date.now() during render.
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(id)
+  }, [])
+  const elapsed = startTime ? now - startTime : null
 
   const pctMatch = status.message.match(/(\d+)%/)
   const pct = pctMatch ? parseInt(pctMatch[1]) : null

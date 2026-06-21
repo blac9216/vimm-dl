@@ -84,10 +84,9 @@ function AppContent() {
     return hidden
   }, [settings?.featureSync, settings?.featureEvents, settings?.featureLibrary])
 
-  // If the active tab gets hidden, fall back to 'active'
-  useEffect(() => {
-    if (hiddenTabs.has(activeTab)) setActiveTab('active')
-  }, [hiddenTabs, activeTab])
+  // If the active tab is hidden (its feature flag is off), fall back to 'active'. Derived during
+  // render instead of synced through an effect, so the visible tab is always consistent in one pass.
+  const effectiveTab = hiddenTabs.has(activeTab) ? 'active' : activeTab
 
   const handleViewEvents = useCallback((itemName: string) => {
     setEventsItemFilter(itemName)
@@ -104,25 +103,25 @@ function AppContent() {
         <Toolbar />
         <ControlBar />
         <ErrorBanner />
-        <TabBar activeTab={activeTab} onTabChange={setActiveTab} counts={counts} hiddenTabs={hiddenTabs} />
+        <TabBar activeTab={effectiveTab} onTabChange={setActiveTab} counts={counts} hiddenTabs={hiddenTabs} />
         <main className="flex-1 overflow-hidden">
-          {activeTab === 'active' && <ActivePanel />}
-          {activeTab === 'completed' && (
+          {effectiveTab === 'active' && <ActivePanel />}
+          {effectiveTab === 'completed' && (
             <CompletedPanel
               showEventsLink={eventsEnabled}
               onViewEvents={handleViewEvents}
             />
           )}
-          {activeTab === 'library' && <LibraryPanel />}
-          {activeTab === 'metrics' && <MetricsPanel />}
-          {activeTab === 'events' && (
+          {effectiveTab === 'library' && <LibraryPanel />}
+          {effectiveTab === 'metrics' && <MetricsPanel />}
+          {effectiveTab === 'events' && (
             <EventsPanel
               itemFilter={eventsItemFilter}
               onClearItemFilter={() => setEventsItemFilter(null)}
             />
           )}
-          {activeTab === 'sync' && <SyncPanel />}
-          {activeTab === 'settings' && <SettingsPanel />}
+          {effectiveTab === 'sync' && <SyncPanel />}
+          {effectiveTab === 'settings' && <SettingsPanel />}
         </main>
         <StatusBar />
       </div>

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Filler, Tooltip } from 'chart.js'
 import { Line } from 'react-chartjs-2'
 import { useSettings, useMetrics } from '../../api/queries'
@@ -22,25 +22,23 @@ export function MetricsPanel() {
   const { state } = useDownload()
 
   const [speedHistory, setSpeedHistory] = useState<number[]>([])
-  const prevSpeed = useRef<string | null>(null)
+  const [prevSpeed, setPrevSpeed] = useState<string | null>(null)
+  const [prevRunning, setPrevRunning] = useState(state.running)
 
-  // Push speed data from SignalR progress
-  useEffect(() => {
-    const raw = state.activeDlInfo?.speed ?? null
-    if (raw === prevSpeed.current) return
-    prevSpeed.current = raw
-
-    const speed = parseSpeed(raw)
+  // Accumulate the SignalR speed series, and reset it when a download stops. Both are adjusted
+  // during render (React's "store info from previous renders" pattern) rather than via effects.
+  const rawSpeed = state.activeDlInfo?.speed ?? null
+  if (rawSpeed !== prevSpeed) {
+    setPrevSpeed(rawSpeed)
     setSpeedHistory(h => {
-      const next = [...h, speed]
+      const next = [...h, parseSpeed(rawSpeed)]
       return next.length > MAX_POINTS ? next.slice(-MAX_POINTS) : next
     })
-  }, [state.activeDlInfo?.speed])
-
-  // Reset on download stop
-  useEffect(() => {
+  }
+  if (state.running !== prevRunning) {
+    setPrevRunning(state.running)
     if (!state.running) setSpeedHistory([])
-  }, [state.running])
+  }
 
   const currentSpeed = speedHistory.at(-1) ?? 0
   const avgSpeed = speedHistory.length > 0
