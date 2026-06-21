@@ -1,6 +1,6 @@
 ---
 name: github-pr-review
-description: Independent, contextless review of a pull request created via the github-workflow skill. Use when reviewing a PR — verify the linked issue is solved, run all tests, check coverage, walk the suggested test steps, then request changes or merge.
+description: Independent, contextless review of a pull request created via the github-workflow skill, in both the cloud sandbox (GitHub MCP tools) and locally (gh CLI). Use when reviewing a PR — verify the linked issue is solved, run all tests, check coverage, walk the suggested test steps, then request changes or squash-merge. You are the only party that lands the PR; the authoring conversation never merges its own work.
 argument-hint: pr-number
 ---
 
@@ -13,7 +13,30 @@ An independent review of a pull request created through the [github-workflow](..
 - You are a fresh reviewer. You did **not** write this PR and have no knowledge of the author's intent.
 - The PR description, the linked issue, the diff, and the existing PR/issue comments are your **only** source of truth.
 - Do not assume the author's choices were correct — verify them.
+- **You are the only party that lands this PR.** The conversation that wrote the code does not approve or merge its own work — that separation is the rule that keeps everyone honest, and it holds because you and the author both follow it, not because of any tooling limitation. You record your verdict by posting the `## PR Review — …` comment and, on a clean review, performing the squash-merge yourself. The comment plus the merge are the approval of record; there is no separate formal "approve" step.
 - **Never merge a PR that still has unresolved findings.** Merge only after a clean review.
+
+## Environment: cloud sandbox vs. local
+
+This skill runs in one of two environments and the operations below are written as actions, not raw commands:
+
+- **Cloud sandbox** (default for this project's automated review — Claude Code on the web, CI): **no `gh` binary**; use the GitHub MCP tools (`mcp__github__*`) with explicit `owner`/`repo`.
+- **Local**: the `gh` CLI.
+
+Read the full mapping and its caveats once at the start: **[../github-workflow/references/github-tools.md](../github-workflow/references/github-tools.md)**. The operations this review needs:
+
+| Operation | Local — `gh` | Cloud — GitHub MCP |
+| --------- | ------------ | ------------------ |
+| Read PR (title/body/refs) | `gh pr view <N> --json …` | `pull_request_read` `get` |
+| Read PR diff | `gh pr diff <N>` | `pull_request_read` `get_diff` |
+| PR CI / checks | `gh pr checks <N>` | `pull_request_read` `get_check_runs` |
+| Read CI logs | `gh run view <id> --log` | `get_job_logs` (`failed_only`) |
+| Read issue + comments | `gh issue view <N> --comments` | `issue_read` `get` / `get_comments` |
+| Search issues (dup scan) | `gh issue list --search` | `search_issues` / `list_issues` |
+| Comment on the PR | `gh pr comment <N>` | `add_issue_comment` (PR number) |
+| Label the PR / issue | `gh pr edit --add-label` | `issue_write` `update` on the number |
+| Secret scan | _(local scanner, e.g. gitleaks)_ | `run_secret_scanning` |
+| Squash-merge | `gh pr merge <N> --squash` | `merge_pull_request` (`merge_method: squash`) |
 
 ## Time-Box
 
@@ -23,19 +46,14 @@ A single review round should not exceed ~10 minutes of wall-clock work. If you a
 
 Read everything before forming an opinion:
 
-```bash
-gh pr view <N> --json title,body,headRefName,baseRefName,comments
-gh pr diff <N>
-```
-
-- Extract the linked issue from the PR body (`Closes #X`) and read it in full, including every comment: `gh issue view X --comments`.
-- Read **all** PR comments. Prior review rounds and the author's "Fixes Applied" responses are the context this review builds on.
+- Read the PR's title, body, head/base refs, and **all** comments (`pull_request_read` `get` + `get_comments`, or `gh pr view <N> --json title,body,headRefName,baseRefName,comments`). Prior review rounds and the author's "Fixes Applied" responses are the context this review builds on.
+- Extract the linked issue from the PR body (`Closes #X`) and read it in full, including every comment (`issue_read`, or `gh issue view X --comments`). **If the issue links a parent epic (`Part of #<epic>`), read the epic too** — its Goal and Design tell you what the larger work is for, which is how you judge whether this slice actually fits.
 - **Determine the review round.** Count existing `## PR Review — Changes Requested` and `## PR Review — Decomposition Requested` comments. This review is round `count + 1`. A round counts only when one of those comments was posted — pushes to the branch without a review comment do not increment the round.
 - If 3 review rounds already exist, do not start a 4th — go straight to **Escalation** below.
 
 ## Step 2 — Check Out the PR
 
-Work in a dedicated worktree so the author's worktree is never disturbed:
+Work in a dedicated worktree so the author's worktree is never disturbed (`git` is the same in both environments):
 
 ```bash
 git fetch origin
@@ -47,19 +65,15 @@ Remove it when the review is done: `git worktree remove /tmp/review-pr<N>`.
 
 ## Step 2.5 — Check CI Status First
 
-Before running anything locally, check the PR's CI status:
+Before running anything locally, check the PR's CI status (`pull_request_read` `get_check_runs`, or `gh pr checks <N>`):
 
-```bash
-gh pr checks <N>
-```
-
-- If CI is **failing**, read the failure logs first (`gh run view <run-id>` or the PR's Checks tab). A real, reproducible CI failure is itself a blocker finding — don't waste time running locally before recording it.
+- If CI is **failing**, read the failure logs first (`get_job_logs` with `failed_only: true`, or `gh run view <run-id> --log`). A real, reproducible CI failure is itself a blocker finding — don't waste time running locally before recording it.
 - If CI is **green**, still run the suggested test steps locally — CI may not cover everything (especially network-gated or platform-specific paths).
 - If CI is **missing** for a change that should have it (the project has a CI workflow and this PR did not trigger it), that itself is a finding.
 
 ## Step 3 — Review the Diff
 
-Read every changed file. Check for:
+Read every changed file (`pull_request_read` `get_diff`, or `gh pr diff <N>`). Check for:
 
 - **Correctness** — does the code do what the issue requires, with no logic errors?
 - **Security** — no injection, secret leakage, or unsafe input handling.
@@ -69,7 +83,7 @@ Read every changed file. Check for:
 
 ### Size Sanity
 
-If the diff is **> ~400 net LOC changed** or **touches > 15 files**, do not perform a full review. Post the `## PR Review — Decomposition Requested` template (below) and stop. The author should split the work into smaller issues/PRs.
+If the diff is **> ~400 net LOC changed** or **touches > 15 files**, do not perform a full review. Post the `## PR Review — Decomposition Requested` template and stop. The author should split the work into smaller issues/PRs (and, if they haven't, open an epic to track them — see the github-workflow skill).
 
 Exceptions where size is acceptable: pure renames, generated-file regenerations, lockfile updates, mechanical formatting passes. The diff in those cases is mechanically simple and review value lies in spot-checking, not line-by-line review.
 
@@ -86,7 +100,7 @@ If `style-guide/` exists but no file matches the PR's language(s), that's not a 
 
 ### Secret Scanning
 
-Run secret scanning against the PR's head ref using the `mcp__github__run_secret_scanning` tool. Any hit is a **blocker** finding. Beyond posting it in the review, the finding must require all three of:
+Scan the PR's changed content for secrets. In the cloud sandbox, pass the diff hunks / changed-file contents to the `run_secret_scanning` MCP tool (it scans content you provide, not a ref). Locally, run a secret scanner such as gitleaks over the diff. Any hit is a **blocker** finding. Beyond posting it in the review, the finding must require all three of:
 
 1. **Remove the secret from the diff** (sanitize the file).
 2. **Rewrite git history** to purge every commit that ever contained the secret — sanitizing the latest commit does NOT expunge the secret from history. Use `git filter-repo` (preferred) or interactive rebase, then force-push the rewritten branch (`git push --force-with-lease`). Every commit SHA on the branch will change; that's expected.
@@ -162,22 +176,26 @@ What qualifies:
 
 If you wrote the phrase, you owe an issue.
 
-**Before filing, scan for duplicates.** Don't open a second ticket for a problem that already has one:
+**Before filing, scan for duplicates.** Don't open a second ticket for a problem that already has one — search open issues (`search_issues` / `list_issues` filtered by the `deferred` label, or `gh issue list --state open --search "<keywords>"`). If an open issue covers the same problem, add a comment on it referencing this PR as the rediscovery context and link to it in your review template's Deferred Items section instead of filing a new one.
 
-```bash
-gh issue list --state open --search "<keywords>"
-gh issue list --state open --label deferred --search "<keywords>"
-```
-
-If an open issue covers the same problem, add a comment on the existing issue referencing this PR as the rediscovery context and link to it in your review template's Deferred Items section instead of filing a new one.
-
-**Filing.** Use the Bug or Enhancement template, apply the `deferred` label, and reference the PR (`Found while reviewing PR #N`) in the Discovery / Motivation section. Each filed (or referenced existing) issue goes in the review template's `### Deferred Items` section so the audit trail is on the PR.
+**Filing.** Use the Bug or Enhancement template from the github-workflow skill ([../github-workflow/references/templates/](../github-workflow/references/templates/)), apply the `deferred` label, and reference the PR (`Found while reviewing PR #N`) in the Discovery / Motivation section. Each filed (or referenced existing) issue goes in the review template's `### Deferred Items` section so the audit trail is on the PR.
 
 "Noted, non-blocking" is not a parking place — it either blocks the merge or it has an issue number next to it before the review template is posted.
 
+## Verdict Templates
+
+Post one of these as a comment on the PR. Only load the one matching your verdict:
+
+| Verdict | Template |
+| ------- | -------- |
+| Changes Requested | [references/templates/changes-requested.md](references/templates/changes-requested.md) |
+| Decomposition Requested | [references/templates/decomposition-requested.md](references/templates/decomposition-requested.md) |
+| Approved | [references/templates/approved.md](references/templates/approved.md) |
+| Escalation (cap reached) | [references/templates/escalation.md](references/templates/escalation.md) |
+
 ## If Changes Requested
 
-1. Post the **Review Findings** template (below) as a comment on the PR.
+1. Post the **Changes Requested** template as a comment on the PR.
 2. Do **not** merge. Hand control back to the parent agent — the parent owns fixing the findings.
 3. Remove your review worktree.
 
@@ -185,155 +203,40 @@ The parent will fix the findings, post a `## Fixes Applied` comment, and spawn a
 
 ## If Decomposition Requested
 
-1. Post the **Decomposition Requested** template (below).
+1. Post the **Decomposition Requested** template.
 2. Do **not** merge. The parent must split the work into smaller issues/PRs.
 3. This counts as a round (Step 1's round count includes it).
 4. Remove your review worktree.
 
 ## If Approved
 
-1. **Run the merge from a neutral cwd** (not the review worktree, not the author's worktree). `gh pr merge --delete-branch` performs a post-merge local-checkout step that fails when the current directory is inside a worktree of the repo and the base branch is checked out elsewhere — a common condition in the multi-worktree workflow this skill mandates. The failure can short-circuit `gh`'s remote-delete step before it runs. `cd` to a directory outside the repo first and pass `--repo` explicitly so `gh` doesn't need a working tree:
-   ```bash
-   cd /tmp
-   gh pr merge <N> --repo <owner>/<repo> --merge --delete-branch
-   ```
-   - If the merge is blocked by conflicts, merge the base branch into the PR branch, resolve the conflicts, push, then retry.
-   - If a required check is failing, investigate and fix the cause — never bypass it.
-2. **Verify the remote branch was actually deleted.** `--delete-branch` is best-effort; some `gh` code paths and versions skip the remote DELETE call when local cleanup errors first. Run this idempotent verify-and-purge after every merge, regardless of `gh`'s exit code:
-   ```bash
-   BRANCH=<headRefName>     # the value you read in Step 1 from gh pr view
-   if gh api "repos/<owner>/<repo>/branches/$BRANCH" >/dev/null 2>&1; then
-       gh api -X DELETE "repos/<owner>/<repo>/git/refs/heads/$BRANCH"
-   fi
-   ```
-   A `404` from the first `gh api` call means the branch is already gone — that's the success case, and the `if` skips the DELETE.
-3. Post the **Review Approved** template as a comment.
-4. Remove your review worktree and hand back to the parent for cleanup (local worktree/branch removal).
+Squash-merge the PR yourself — this is the approval of record.
+
+- **Cloud sandbox:** `merge_pull_request` with `merge_method: "squash"`. There is no MCP tool to delete the head branch and `merge_pull_request` has no delete-branch option, so rely on the repo's "automatically delete head branches" setting or leave the branch for cleanup — do not block the merge on branch deletion.
+- **Local:** run the merge from a **neutral cwd** outside the repo (not the review worktree, not the author's worktree) and pass `--repo` explicitly, because `gh pr merge --delete-branch` runs a post-merge local-checkout step that fails when the cwd is inside a worktree whose base branch is checked out elsewhere:
+  ```bash
+  cd /tmp
+  gh pr merge <N> --repo <owner>/<repo> --squash --delete-branch
+  ```
+  Then verify the remote branch is actually gone (`--delete-branch` is best-effort):
+  ```bash
+  BRANCH=<headRefName>
+  if gh api "repos/<owner>/<repo>/branches/$BRANCH" >/dev/null 2>&1; then
+      gh api -X DELETE "repos/<owner>/<repo>/git/refs/heads/$BRANCH"
+  fi
+  ```
+  A `404` from the first call means the branch is already gone — that's the success case.
+
+In both environments:
+- If the merge is blocked by conflicts, merge the base branch into the PR branch, resolve, push, then retry.
+- If a required check is failing, investigate and fix the cause — never bypass it.
+
+After merging: post the **Approved** template as a comment, remove your review worktree, and hand back to the parent for cleanup (local worktree/branch removal).
 
 ## Escalation (cycle cap reached)
 
 If 3 review rounds already exist and the PR is still not clean, do not loop further:
 
 1. Post the **Escalation** template.
-2. Apply the `help` label: `gh issue edit X --add-label help` and `gh pr edit <N> --add-label help`.
+2. Apply the `help` label to both the issue and the PR (locally `gh issue edit X --add-label help` / `gh pr edit <N> --add-label help`; in the cloud, `issue_write` `update` with `labels` on each number).
 3. Hand back to the parent — a human must take over.
-
-## Templates
-
-### Review Findings (Changes Requested)
-
-```markdown
-## PR Review — Changes Requested
-
-**Round**: <N>
-**Reviewer**: contextless review agent (github-pr-review skill)
-**Verdict**: Changes requested
-
-### Summary
-One paragraph: what was reviewed and the overall state.
-
-### Issue Coverage
-| Requirement (from #X) | Status | Notes |
-| --------------------- | ------ | ----- |
-| <criterion> | met / unmet | ... |
-
-### Findings
-| # | Severity | Location | Problem | Required change |
-| - | -------- | -------- | ------- | --------------- |
-| 1 | blocker / major / minor | `path:line` | ... | ... |
-
-### Test Results
-- CI: <status>
-- Unit tests: <pass/fail — counts>
-- Integration tests: <pass/fail — counts>
-- Lint: <clean / regressed — details>
-- Coverage: <N>% (base <M>%) — <regression? meets 80%? waiver?>
-- Secret scan: <clean / hits>
-- Suggested test steps: <X of Y passed>
-
-### Required Before Merge
-- [ ] <finding 1>
-- [ ] <finding 2>
-
-### Deferred Items
-- #<n>: <short title> — filed during this review
-- *(none)* if nothing was deferred
-```
-
-### Decomposition Requested
-
-```markdown
-## PR Review — Decomposition Requested
-
-**Round**: <N>
-**Reviewer**: contextless review agent (github-pr-review skill)
-**Verdict**: Decomposition requested — PR too large for meaningful review
-
-### Size
-- Files changed: <count> (threshold: ~15)
-- Net LOC changed: <count> (threshold: ~400)
-
-### Why this matters
-Reviews on PRs this size become rubber-stamps. Smaller PRs improve review
-quality, blast radius, and revertability.
-
-### How to decompose
-Suggested split (the author is free to choose a different decomposition):
-- PR A: <slice>
-- PR B: <slice>
-- PR C: <slice>
-
-Close this PR (or leave it open as draft) and open the smaller PRs as separate
-issues per the github-workflow skill.
-
-### Deferred Items
-- #<n>: <short title> — filed during this review
-- *(none)* if nothing was deferred
-```
-
-### Review Approved
-
-```markdown
-## PR Review — Approved
-
-**Round**: <N>
-**Reviewer**: contextless review agent (github-pr-review skill)
-**Verdict**: Approved — merged
-
-### Issue Coverage
-All requirements from #X verified resolved.
-
-### Test Results
-- CI: green
-- Unit tests: pass — <counts>
-- Integration tests: pass — <counts>
-- Lint: clean
-- Coverage: <N>% (base <M>%) — no regression, at or above 80%
-- Secret scan: clean
-- Suggested test steps: all <Y> passed
-
-### Deferred Items
-- #<n>: <short title> — filed during this review
-- *(none)* if nothing was deferred
-
-Merged via `gh pr merge --merge --delete-branch`; remote branch deletion verified via `gh api`. Handing back to parent for cleanup.
-```
-
-### Escalation
-
-```markdown
-## PR Review — Escalated
-
-**Round**: 4 (cycle cap reached)
-**Verdict**: Blocked — human review needed
-
-After 3 review cycles the PR still has unresolved findings. `help` label applied.
-
-### Outstanding Findings
-- <finding>
-
-### What was tried across rounds
-- Round 1: <summary>
-- Round 2: <summary>
-- Round 3: <summary>
-```

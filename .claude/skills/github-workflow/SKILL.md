@@ -1,18 +1,61 @@
 ---
 name: github-workflow
-description: GitHub issue-driven workflow for tracking all work. Use when creating issues, branches, commits, or PRs.
+description: GitHub issue-driven workflow for tracking all work — issues, epics, branches, commits, and PRs — across both the cloud sandbox (GitHub MCP tools) and local development (gh CLI). Use whenever creating or updating issues or epics, planning a multi-issue feature, branching, committing, opening a PR, handing a PR off for review, or picking work back up in a fresh session. Consult it before writing any code so the work is tracked from the very start.
 argument-hint: issue
 ---
 
 # GitHub Issue Workflow
 
-This defines how Claude Code agents should track work using GitHub issues. All work follows an issue-first workflow.
+This defines how Claude Code agents track work using GitHub issues. All work follows an issue-first workflow, and any work too large for a single review-sized PR is tracked under an **epic** so the larger goal survives across sessions and context compaction.
+
+## Environment: cloud sandbox vs. local
+
+Every GitHub operation in this skill is written as an *action* ("create the issue", "label the PR"), not as a raw command, because the command depends on where you are running:
+
+- **Cloud sandbox** (the default for this project's automated work — Claude Code on the web, CI): **no `gh` binary**. Use the GitHub MCP tools (`mcp__github__*`), passing `owner`/`repo` explicitly on every call.
+- **Local**: the `gh` CLI, which infers `owner/repo` from the checkout.
+
+The full command ↔ tool mapping, plus three caveats that bite in the cloud (PR labels go through the issues API, no MCP tool deletes a branch, and there is no formal "approve" step), lives in **[references/github-tools.md](references/github-tools.md)**. Read it once at the start of GitHub work in a new environment. The essentials:
+
+| Operation | Local — `gh` | Cloud — GitHub MCP |
+| --------- | ------------ | ------------------ |
+| Create / update an issue | `gh issue create` / `gh issue edit` | `issue_write` (`create` / `update`) |
+| Comment on an issue or PR | `gh issue comment` / `gh pr comment` | `add_issue_comment` |
+| Search issues (dup scan) | `gh issue list --search` | `search_issues` / `list_issues` |
+| Create a PR | `gh pr create` | `create_pull_request` |
+| Label a PR | `gh pr edit --add-label` | `issue_write` `update` on the PR number |
+| Squash-merge a PR | `gh pr merge --squash` | `merge_pull_request` (`merge_method: squash`) |
+
+(`git` itself — branches, commits, worktrees, push — is identical in both environments. Only GitHub API operations differ.)
 
 ## Issue-First Rule
 
 Create a GitHub issue **immediately before writing any code**. No code changes without a corresponding issue. This applies to both bugs discovered during testing and enhancements/features requested by the user.
 
-**Assignment.** As soon as you start work on an issue, assign it to yourself (or to the agent's unique identifier — e.g., the session/branch name). Always check the assignee before starting an new issue: if it's already assigned and the assignee is active, pick a different issue. This is how concurrent agents avoid duplicating work.
+**Assignment.** As soon as you start work on an issue, assign it to yourself (or to the agent's unique identifier — e.g., the session/branch name). Always check the assignee before starting a new issue: if it's already assigned and the assignee is active, pick a different issue. This is how concurrent agents avoid duplicating work.
+
+## Epics
+
+An **epic** is a meta-issue that tracks one larger goal delivered across **more than one** issue and PR. It exists for a specific failure mode: long features outlive a single context window, and when the window compacts the *details* survive in the diff but the *larger intent* — why we're doing this, what's done, what's left, how the plan has drifted — evaporates. The epic is the durable home for that intent. Chat memory and summaries are not; the epic issue is.
+
+**When to open one.** The moment a feature is too big to land in one review-sized PR (≤ ~400 net LOC / ≤ 15 files), it needs an epic. If you're about to file a second issue that only makes sense as part of the same larger goal, that goal is an epic — open it first. An epic always has more than one sub-issue; a "one sub-issue epic" is just an issue.
+
+**Shape.** Use [references/templates/issue-epic.md](references/templates/issue-epic.md) and apply the `epic` label. The body is a **living spec**: a Goal, the Design/Approach (edited in place as decisions change), a **Sub-Issues checklist** (one checkbox per child issue, each carrying its PR number once opened), a **Trajectory Log**, and a one-line Status. Treat the first draft as a starting point, not a contract.
+
+**Keep it current — this is the part that matters.** An epic that isn't maintained is worse than none, because it lies to the next session. Two mandatory update points:
+
+- **Before** you start work on any sub-issue: re-read the epic in full, confirm the sub-issue still fits the goal, and update Status to show it's in flight.
+- **After** a sub-issue closes: tick its checkbox, record its PR number, and append a Trajectory Log entry — which issue/PR landed and **what changed from the original design**, if anything. Then **re-evaluate the whole epic's trajectory**: does the remaining plan still make sense given what just shipped? If not, edit the Design section and update any still-open sub-issues whose scope or approach the change affects (comment on them, or revise their bodies). Catching drift here is the entire point — a stale open sub-issue is how a session three windows from now builds the wrong thing.
+
+## Plan the work, then file it all — before starting
+
+When a discussion lands on a path forward, do not start coding the first piece. First **decompose the entire effort**: break it into an epic (or epics) plus right-sized issues — each scoped to land in a PR the review agent will accept (≤ ~400 net LOC / ≤ 15 files, see the size sanity check in the github-pr-review skill). Then **file all of it** — every epic and every issue — *before* writing any code. Filing first means the plan exists somewhere durable the instant it's agreed, not locked in a context window that may compact mid-build.
+
+**Mind the context window.** All the epics and issues for a given discussion must be recorded before that window compacts — otherwise the decomposition you just reasoned through is lost and the next session re-derives it (differently). If a planning discussion is large and you can see the remaining turns getting tight, **say so**: tell the user you're approaching the point where unrecorded plan items are at risk, and file what's decided before continuing. Recording the plan beats polishing it.
+
+## Starting a session / picking up after compaction
+
+When this skill loads in a fresh context window and the work is part of an epic, **familiarize yourself with the entire epic and all its associated sub-issues before doing anything else** — read the epic body (Goal, Design, Trajectory Log, Status) and read each open sub-issue. This is the durable channel the previous session left for you; reconstruct the larger picture from it rather than inferring intent from the diff. Only once you hold the whole epic in view should you start (or resume) a sub-issue — and per the rule above, update the epic's Status before you do.
 
 ## Deferred Items Rule
 
@@ -26,14 +69,7 @@ When you notice a real bug, code smell, or improvement opportunity that you are 
 - "worked around" / "minor"
 - "we can address later" / "won't fix here"
 
-**Before filing, scan for duplicates.** A new issue for a problem that is already tracked dilutes the backlog and splits the conversation. Search open issues for the same keywords first:
-
-```bash
-gh issue list --state open --search "<keywords describing the problem>"
-gh issue list --state open --label deferred --search "<keywords>"
-```
-
-If you find an existing issue, post a comment there with the new context (which PR or workflow surfaced it again, anything new about the symptom or repro) and link it from your in-progress work. Do not open a duplicate.
+**Before filing, scan for duplicates.** A new issue for a problem that is already tracked dilutes the backlog and splits the conversation. Search open issues for the same keywords first (locally `gh issue list --state open --search "<keywords>"`; in the cloud sandbox `search_issues` / `list_issues` filtered by the `deferred` label — see references/github-tools.md). If you find an existing issue, comment there with the new context (which PR or workflow surfaced it again, anything new about the symptom or repro) and link it from your in-progress work. Do not open a duplicate.
 
 **Filing.** Use the Bug or Enhancement template per nature, apply the `deferred` label, and link the discovering PR or work in the Discovery / Motivation section. Then continue with the in-scope work.
 
@@ -44,138 +80,45 @@ If you find an existing issue, post a comment there with the new context (which 
 git diff main...HEAD | grep -iE 'out.of.scope|pre.existing|noted|worked.around|address.later|won.t fix'
 ```
 
-## Bug Template
+## Issue Templates
 
-Use this template when something is broken or not working as expected:
+One template per issue kind, kept as separate files so only the one you need is loaded:
 
-```markdown
-## Description
-What is broken and how it manifests. Include exact error messages or log output.
+| Kind | Template | When |
+| ---- | -------- | ---- |
+| Bug | [references/templates/issue-bug.md](references/templates/issue-bug.md) | Something is broken or misbehaving |
+| Enhancement | [references/templates/issue-enhancement.md](references/templates/issue-enhancement.md) | New feature, improvement, or refactor |
+| Chore | [references/templates/issue-chore.md](references/templates/issue-chore.md) | Deps, infra, no-behavior refactor, formatting |
+| Epic | [references/templates/issue-epic.md](references/templates/issue-epic.md) | Multi-issue / multi-PR goal (see Epics above) |
 
-## Discovery
-How and when this was discovered. What operation or test triggered it.
-Include the sequence of events that led to finding the problem.
-
-## Root Cause (if known)
-Technical explanation of why it happens. If unknown, state what has been investigated so far.
-
-## Affected Files
-| File | Relevance |
-| ---- | --------- |
-| `path/to/file` | Why this file is involved |
-
-## Impact
-What is affected (features, output, user experience, other components).
-
-## Possible Fixes
-- Option A: Description of approach and trade-offs
-- Option B: Alternative approach if applicable
-```
-
-## Enhancement Template
-
-Use this template for new features, improvements, or refactoring requested by the user:
-
-```markdown
-## Summary
-What is being added or changed and why.
-
-## Motivation
-Why this enhancement is needed. What problem it solves or what capability it adds.
-Include user request context if applicable.
-
-## Current Behavior
-How things work today (if applicable). What is missing or insufficient.
-
-## Proposed Changes
-- Change 1: Description and rationale
-- Change 2: Description and rationale
-
-## Affected Files
-| File | Relevance |
-| ---- | --------- |
-| `path/to/file` | Why this file is involved |
-
-## Acceptance Criteria
-- [ ] Criterion 1
-- [ ] Criterion 2
-
-(Each acceptance criterion should map 1:1 to a Suggested Test Step in the PR
-body — keep the wording aligned so reviewers can verify them directly.)
-
-## Risks / Considerations
-Anything that could go wrong, break existing behavior, or needs special attention.
-```
-
-## Chore Template
-
-Use this template for dependency bumps, infrastructure changes, no-behavior-change refactors, formatting passes, and other maintenance work:
-
-```markdown
-## Summary
-What is being changed and why. Keep this short — chores should be small.
-
-## Type
-- [ ] Dependency update
-- [ ] Refactor (no behavior change)
-- [ ] Build / CI / tooling
-- [ ] Formatting / lint
-- [ ] Documentation
-- [ ] Other (specify)
-
-## Affected Files
-| File | Relevance |
-| ---- | --------- |
-| `path/to/file` | Why this file is involved |
-
-## Verification
-How to confirm the chore changed only what was intended (e.g., behavior tests
-still pass, dependency lockfile diff matches expected upgrade, formatter output
-is clean).
-```
+Progress updates as you work an issue: [references/templates/progress-comment.md](references/templates/progress-comment.md).
 
 ## Issue Labels
 
-The **author of the issue** applies labels at creation. The author of the PR mirrors the same labels onto the PR at PR creation. Exactly one of `bug`/`enhancement`/`chore` should be applied to every issue. Severity is required on bugs, optional on enhancements/chores.
+The **author of the issue** applies labels at creation. The author of the PR mirrors the same labels onto the PR at PR creation. Exactly one of `bug`/`enhancement`/`chore`/`epic` should classify every issue. Severity is required on bugs, optional on enhancements/chores.
 
-| Label | When to use |
-| ----- | ----------- |
-| `bug` | Something isn't working |
-| `enhancement` | New feature or improvement |
-| `chore` | Maintenance — deps, refactor, lint, build, infra |
-| `help` | Requires human intervention — agent is blocked |
-| `severity:critical` | Breaks runtime, blocks merge, or causes data loss |
-| `severity:major` | Affects a core path but has a workaround |
-| `severity:minor` | Cosmetic, edge case, or low-frequency |
-| `regression` | A previously-fixed issue has returned, or a recent change broke something that worked |
-| `deferred` | Real but intentionally out of scope for now |
+This is the **canonical label set** — names *and* colors. The colors are part of the contract so a repo that freshly adopts this skill ends up looking like every other repo that uses it; provision them exactly as listed.
+
+| Label | Color | When to use |
+| ----- | ----- | ----------- |
+| `bug` | `d73a4a` | Something isn't working |
+| `enhancement` | `a2eeef` | New feature or improvement |
+| `chore` | `cfd3d7` | Maintenance — deps, refactor, lint, build, infra |
+| `epic` | `5319e7` | Meta-issue tracking a multi-issue / multi-PR goal |
+| `help` | `008672` | Requires human intervention — agent is blocked |
+| `severity:critical` | `b60205` | Breaks runtime, blocks merge, or causes data loss |
+| `severity:major` | `d93f0b` | Affects a core path but has a workaround |
+| `severity:minor` | `fbca04` | Cosmetic, edge case, or low-frequency |
+| `regression` | `e99695` | A previously-fixed issue has returned, or a recent change broke something that worked |
+| `deferred` | `c5def5` | Real but intentionally out of scope for now |
 
 The `help` label signals that the agent cannot resolve the issue autonomously. Always post a comment explaining what was tried and why it's blocked before adding this label.
 
-## Progress Comments
+### Provisioning the labels is a hard gate
 
-As you work an issue, add structured comments so that a human or another agent can pick up where you left off:
+Before filing the first issue in a repo — and any time you reach for a label that is missing or whose color has drifted — reconcile the repo's labels against the canonical set above: create any that are missing with the exact name and color, and correct any whose color differs. Locally that's `gh label create <name> --color <hex> --description "<when to use>"` and `gh label edit <name> --color <hex>`. In the cloud sandbox there is **no** GitHub MCP tool to create or edit a label (only `get_label`, to check existence), so you usually cannot self-provision there.
 
-```markdown
-## Progress Update
-
-**Status**: investigating | in-progress | testing | blocked
-
-### What was done
-- Step-by-step list of actions taken
-
-### Findings
-- What was learned from each step
-
-### Current state
-- Where things stand right now
-
-### Next steps
-- What remains to be done
-
-### Blockers (if any)
-- What is preventing progress and what help is needed
-```
+When you cannot create or correct the labels yourself — no tool, no permission, or the API refuses — **stop, ask the user to add or fix them against this canonical list, and refuse to continue until they confirm it is done.** Do not improvise around it: inventing a substitute label, dropping the label, or proceeding unlabeled quietly breaks the parts of the workflow that lean on these exact names (classification, severity triage, the deferred backlog, the review gate). The label set is load-bearing, so this is the right place to halt and wait rather than press on.
 
 ## Branches and Worktrees
 
@@ -197,11 +140,7 @@ git branch -D 10-short-description
 
 The local branch is removed with `-D` because a squash merge leaves it unmerged in local history.
 
-**When to use worktrees vs. work in place:** worktrees are required when:
-- Another agent or human is actively working in the main checkout, or
-- Multiple issues are being worked on in parallel.
-
-For solo serial work, committing directly on the issue branch in the main checkout is fine. The rest of the workflow (issue-first, `AI:` prefix, PR with full body, contextless review) still applies either way.
+**When to use worktrees vs. work in place:** worktrees are required when another agent or human is actively working in the main checkout, or when multiple issues are being worked on in parallel. For solo serial work, committing directly on the issue branch in the main checkout is fine. The rest of the workflow (issue-first, `AI:` prefix, PR with full body, contextless review) still applies either way.
 
 ## Commits
 
@@ -230,7 +169,7 @@ Process for trivial changes:
 1. Still open an issue (or reuse an existing one) so there's a record.
 2. Single commit with `AI:` prefix.
 3. Push directly to a small-scoped PR with `[trivial]` in the title.
-4. The PR may be self-merged after CI passes — no review subagent required.
+4. The PR may be self-merged after CI passes — **this is the only path on which the authoring conversation may merge its own work.** Everything else goes through the contextless reviewer (see PR Review Handoff).
 
 If you're unsure whether a change qualifies, treat it as non-trivial and use the full workflow.
 
@@ -247,7 +186,7 @@ Before opening a PR:
 
   Discover the actual command from the project's lint config files, `CLAUDE.md`, or `package.json` / `pyproject.toml` / etc. If the project has a linter installed but no canonical invocation is documented, that's worth surfacing to the human.
 
-When everything passes, push the branch and create the pull request. The PR body must follow the template below — the **Suggested Test Steps**, **Risk**, and **Rollback** sections are required.
+When everything passes, push the branch and create the pull request (`gh pr create` locally, `create_pull_request` in the cloud). The PR body must follow [references/templates/pr-body.md](references/templates/pr-body.md) — the **Suggested Test Steps**, **Risk**, and **Rollback** sections are required.
 
 ### PR Title Convention
 
@@ -261,89 +200,34 @@ Format: `<type>(<scope>): <description>`
 
 The commit prefix is still `AI:` — the type-scope convention applies to the PR title (and any generated changelog), not the commit body.
 
-### PR Body Template
-
-```markdown
-Closes #<issue>
-
-## Summary
-What changed and why.
-
-## Risk
-What could regress, what areas are touched indirectly, blast radius.
-Be honest — "no risk" is rarely true.
-
-## Rollback
-How to revert if this introduces a regression. Usually `git revert <sha>`,
-but flag any state migrations, schema changes, or destructive operations that
-complicate a clean revert.
-
-## Suggested Test Steps
-Concrete, change-specific steps a fresh reviewer can follow to validate this PR.
-Each step must be reproducible and state its expected result. For enhancements,
-align these 1:1 with the issue's Acceptance Criteria.
-
-1. <step> — expected: <result>
-2. <step> — expected: <result>
-```
-
-Create the PR with the body passed via `--body-file`. Use a temp path so the body file is not left in the repo:
-
-```bash
-BODY=$(mktemp)
-cat > "$BODY" <<'PR_BODY'
-Closes #10
-
-## Summary
-...
-PR_BODY
-git push -u origin 10-short-description
-gh pr create \
-  --title "fix(parallelism): drain queued jobs on one-shot exit" \
-  --body-file "$BODY"
-rm "$BODY"
-```
-
-After the PR is created, the **PR author** applies the same labels as the linked issue:
-
-```bash
-gh pr edit <N> --add-label bug,severity:major
-```
+After the PR is created, the **PR author** applies the same labels as the linked issue (locally `gh pr edit <N> --add-label …`; in the cloud, label the PR number via `issue_write` `update` — `update_pull_request` has no labels field, see references/github-tools.md).
 
 ### Draft PRs
 
-If the work is incomplete or you want CI feedback without spawning a review subagent yet, open the PR as a draft:
-
-```bash
-gh pr create --draft --title "..." --body-file "$BODY"
-```
-
-When the PR is fully ready (tests pass, coverage holds, lint clean, body complete), mark it ready for review:
-
-```bash
-gh pr ready <N>
-```
+If the work is incomplete or you want CI feedback without spawning a review subagent yet, open the PR as a draft (`gh pr create --draft` / `create_pull_request` with `draft: true`). When it's fully ready (tests pass, coverage holds, lint clean, body complete), mark it ready (`gh pr ready <N>` / `update_pull_request` with `draft: false`).
 
 **Do not spawn the review subagent until the PR is out of Draft.** The review costs context and tokens; running it on incomplete work is wasted effort.
 
 ## PR Review Handoff
 
-A PR is **never merged by the agent that wrote it**. After creating the PR (and marking it ready for review if it was a draft), hand it off for an independent review using the [github-pr-review](../github-pr-review/SKILL.md) skill.
+A PR is **never merged by the agent that wrote it.** This is the rule that keeps everyone honest: the conversation that wrote the code cannot also be the one that signs off on it. The only exception is the trivial/doc fast path above. Every other PR is approved and merged by an independent, contextless reviewer running the [github-pr-review](../github-pr-review/SKILL.md) skill — and that separation is enforced by *us following it*, not by any tooling limitation.
+
+To hand off, spawn a **subagent with no prior context** using the consistent kickoff prompt in [references/templates/review-handoff.md](references/templates/review-handoff.md). It tells the reviewer the PR number, the environment (so it picks the right tools), the round, the contextless boundary, and that it alone records the verdict and performs the squash-merge.
 
 ### Review Loop
 
 1. Parent creates the PR with Suggested Test Steps in the body.
-2. Parent spawns a **subagent with no prior context** and instructs it to run the `github-pr-review` skill against the PR number. The review agent reviews the PR fresh, runs all tests, and either requests changes or merges.
-3. If the review agent posts **`## PR Review — Changes Requested`**, the parent:
+2. Parent spawns a contextless review subagent via the review-handoff template. The reviewer reviews fresh, runs all tests, and either requests changes or merges.
+3. If the reviewer posts **`## PR Review — Changes Requested`**, the parent:
    - Fixes every finding in the issue's worktree.
    - Commits with the `AI:` prefix.
    - Re-runs unit + integration tests + lint.
-   - Posts a **Fixes Applied** comment (template below).
+   - Posts a **Fixes Applied** comment ([references/templates/fixes-applied.md](references/templates/fixes-applied.md)).
 4. Parent spawns a **new** contextless subagent for the next round. Every round is a fresh agent — it gets context only from the PR and its comments, never from the parent.
-5. The cycle repeats until the review agent posts **`## PR Review — Approved`** and merges the PR.
+5. The cycle repeats until the reviewer posts **`## PR Review — Approved`** and merges the PR.
 6. After merge, the parent does final cleanup (worktree + local branch).
 
-The review agent caps the loop at **3 cycles**. A "round" is counted by the number of `## PR Review — Changes Requested` (or `Decomposition Requested`) comments already on the PR — not by the number of pushes. If the PR is still not clean after 3 rounds, the review agent applies the `help` label and posts an escalation comment — the parent must then stop and surface the blocker to a human.
+The reviewer caps the loop at **3 cycles**. A "round" is counted by the number of `## PR Review — Changes Requested` (or `Decomposition Requested`) comments already on the PR — not by the number of pushes. If the PR is still not clean after 3 rounds, the reviewer applies the `help` label and posts an escalation comment — the parent must then stop and surface the blocker to a human.
 
 ### Session Resume
 
@@ -353,30 +237,7 @@ If the parent session terminates mid-loop, the next session must re-derive state
 - The latest `## Fixes Applied` comment shows what the previous parent did last.
 - Pick up at the next step (either fixing newly-requested findings or spawning the next review).
 
-Never spawn a review subagent until you have reconciled state from PR comments.
-
-### Fixes Applied Template
-
-Post this on the PR after addressing a round of review findings:
-
-```markdown
-## Fixes Applied — Round <N>
-
-Responding to the round <N> review findings above.
-
-### Changes Made
-| Finding # | Resolution | Commit |
-| --------- | ---------- | ------ |
-| 1 | What was changed | `abc1234` |
-
-### Verification
-- Unit tests: pass — <counts>
-- Integration tests: pass — <counts>
-- Lint: clean
-- Coverage: <N>%
-
-Ready for re-review.
-```
+Never spawn a review subagent until you have reconciled state from PR comments. (If the work belongs to an epic, also re-read the epic first — see "Starting a session" above.)
 
 ## Regressions
 
