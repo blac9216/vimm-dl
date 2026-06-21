@@ -41,7 +41,7 @@ record SettingsResponse(string Platform, string OsDescription, string Hostname, 
 // Catalog (No-Intro / Redump canonical game list)
 record CatalogSystemStatus(string DatName, string Console, string Source,
     string? DatVersion, int GameCount, string? SyncedAt);
-record CatalogStatusResponse(bool Syncing, bool Scanning, bool CompatSyncing, bool Verifying, int TotalGames, List<CatalogSystemStatus> Systems);
+record CatalogStatusResponse(bool Syncing, bool Scanning, bool CompatSyncing, bool Verifying, bool VimmSyncing, int TotalGames, List<CatalogSystemStatus> Systems);
 record CatalogConsole(string Console, int GameCount, int OwnedCount);
 record CatalogGameDto(int Id, string Name, string Console, string? Region, string? Serial, string? Languages, long Size, bool Owned, string? Compat, bool? Verified);
 record CatalogGamesResponse(int Total, int Page, int PageSize, List<CatalogGameDto> Games);
