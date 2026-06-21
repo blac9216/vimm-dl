@@ -299,6 +299,122 @@ class CatalogRepository : ICatalogStore
         await tx.CommitAsync(ct);
     }
 
+    // --- Vimm binding (catalog <-> Vimm by hash; migration 021) ---
+
+    /// <summary>Per-console hash -> game_id maps from catalog_rom (lowercased) for in-memory Vimm matching.</summary>
+    public sealed record VimmHashIndex(
+        Dictionary<string, long> BySha1,
+        Dictionary<string, long> ByMd5,
+        Dictionary<string, long> ByCrc);
+
+    /// <summary>One Vimm download format to persist for a bound game.</summary>
+    public sealed record VimmFormatRow(int Alt, string Label, long SizeBytes, string? SizeText);
+
+    /// <summary>
+    /// Load the console's catalog ROM hashes as hash -> game_id lookups (CRC32/MD5/SHA1, lowercased)
+    /// so the scrape can match a Vimm entry's hashes in memory without a query per title. On a hash
+    /// shared by multiple ROMs the first wins (acceptable — ROM hashes are effectively unique).
+    /// </summary>
+    public async Task<VimmHashIndex> GetVimmHashIndexAsync(string console, CancellationToken ct)
+    {
+        await using var db = await OpenAsync();
+        await using var cmd = db.CreateCommand();
+        cmd.CommandText = """
+            SELECT r.crc, r.md5, r.sha1, r.game_id
+            FROM catalog_rom r
+            JOIN catalog_game g ON g.id = r.game_id
+            JOIN catalog_system s ON s.id = g.system_id
+            WHERE s.console = $console
+            """;
+        cmd.Parameters.AddWithValue("$console", console);
+        var bySha1 = new Dictionary<string, long>();
+        var byMd5 = new Dictionary<string, long>();
+        var byCrc = new Dictionary<string, long>();
+        await using var rd = await cmd.ExecuteReaderAsync(ct);
+        while (await rd.ReadAsync(ct))
+        {
+            var gid = rd.GetInt64(3);
+            AddHash(byCrc, rd, 0, gid);
+            AddHash(byMd5, rd, 1, gid);
+            AddHash(bySha1, rd, 2, gid);
+        }
+        return new VimmHashIndex(bySha1, byMd5, byCrc);
+
+        static void AddHash(Dictionary<string, long> map, System.Data.Common.DbDataReader rd, int col, long gid)
+        {
+            if (rd.IsDBNull(col)) return;
+            var h = rd.GetString(col).Trim().ToLowerInvariant();
+            if (h.Length > 0) map.TryAdd(h, gid);
+        }
+    }
+
+    /// <summary>
+    /// Bind a catalog game to a Vimm vault entry: set <c>vault_id</c> + the match kind
+    /// (sha1/md5/crc) and replace its available formats. Idempotent — re-binding replaces the prior
+    /// formats so a re-scrape stays clean.
+    /// </summary>
+    public async Task BindVimmAsync(long gameId, long vaultId, string matchKind,
+        IReadOnlyList<VimmFormatRow> formats, CancellationToken ct)
+    {
+        await using var db = await OpenAsync();
+        await using var tx = (SqliteTransaction)await db.BeginTransactionAsync(ct);
+        await using (var upd = db.CreateCommand())
+        {
+            upd.Transaction = tx;
+            upd.CommandText = "UPDATE catalog_game SET vault_id = $v, vimm_match = $m WHERE id = $g";
+            upd.Parameters.AddWithValue("$v", vaultId);
+            upd.Parameters.AddWithValue("$m", matchKind);
+            upd.Parameters.AddWithValue("$g", gameId);
+            await upd.ExecuteNonQueryAsync(ct);
+        }
+        await using (var del = db.CreateCommand())
+        {
+            del.Transaction = tx;
+            del.CommandText = "DELETE FROM catalog_vimm_format WHERE game_id = $g";
+            del.Parameters.AddWithValue("$g", gameId);
+            await del.ExecuteNonQueryAsync(ct);
+        }
+        if (formats.Count > 0)
+        {
+            await using var ins = db.CreateCommand();
+            ins.Transaction = tx;
+            ins.CommandText = "INSERT INTO catalog_vimm_format (game_id, alt, label, size_bytes, size_text) VALUES ($g,$a,$l,$b,$t)";
+            var pg = ins.Parameters.Add("$g", SqliteType.Integer);
+            var pa = ins.Parameters.Add("$a", SqliteType.Integer);
+            var pl = ins.Parameters.Add("$l", SqliteType.Text);
+            var pb = ins.Parameters.Add("$b", SqliteType.Integer);
+            var pt = ins.Parameters.Add("$t", SqliteType.Text);
+            foreach (var f in formats)
+            {
+                pg.Value = gameId;
+                pa.Value = f.Alt;
+                pl.Value = f.Label;
+                pb.Value = f.SizeBytes;
+                pt.Value = (object?)f.SizeText ?? DBNull.Value;
+                await ins.ExecuteNonQueryAsync(ct);
+            }
+        }
+        await tx.CommitAsync(ct);
+    }
+
+    /// <summary>
+    /// After scraping a console, flag its still-unbound games (vault_id IS NULL, vimm_match IS NULL)
+    /// as <c>'none'</c> so the UI can badge "no Vimm match". Returns how many were flagged.
+    /// </summary>
+    public async Task<int> MarkVimmUnmatchedAsync(string console, CancellationToken ct)
+    {
+        await using var db = await OpenAsync();
+        await using var cmd = db.CreateCommand();
+        cmd.CommandText = """
+            UPDATE catalog_game SET vimm_match = 'none'
+            WHERE vault_id IS NULL AND vimm_match IS NULL AND system_id IN (
+                SELECT id FROM catalog_system WHERE console = $console
+            )
+            """;
+        cmd.Parameters.AddWithValue("$console", console);
+        return await cmd.ExecuteNonQueryAsync(ct);
+    }
+
     /// <summary>
     /// Paged game list, filtered by console and/or a case-insensitive name substring, and by
     /// local availability (<paramref name="local"/> = all | owned | remote). Each row carries an
