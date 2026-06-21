@@ -28,12 +28,26 @@ function compatClass(status: string): string {
 
 const PAGE_SIZE = 100
 
+// Persist Library filters so they survive tab navigation (the panel unmounts on tab change).
+const FILTERS_KEY = 'vimm:library-filters'
+interface LibraryFilters { console: string; search: string; local: string; dedupe: boolean; page: number }
+const DEFAULT_FILTERS: LibraryFilters = { console: '', search: '', local: 'all', dedupe: false, page: 0 }
+function loadFilters(): LibraryFilters {
+  try {
+    const raw = localStorage.getItem(FILTERS_KEY)
+    return raw ? { ...DEFAULT_FILTERS, ...(JSON.parse(raw) as Partial<LibraryFilters>) } : DEFAULT_FILTERS
+  } catch {
+    return DEFAULT_FILTERS
+  }
+}
+
 export function LibraryPanel() {
-  const [selectedConsole, setSelectedConsole] = useState('') // '' = all consoles
-  const [searchInput, setSearchInput] = useState('')
-  const [local, setLocal] = useState('all') // all | owned | remote
-  const [dedupe, setDedupe] = useState(false) // 1G1R
-  const [page, setPage] = useState(0)
+  const [persisted] = useState(loadFilters) // read saved filters once on mount
+  const [selectedConsole, setSelectedConsole] = useState(persisted.console) // '' = all consoles
+  const [searchInput, setSearchInput] = useState(persisted.search)
+  const [local, setLocal] = useState(persisted.local) // all | owned | remote
+  const [dedupe, setDedupe] = useState(persisted.dedupe) // 1G1R
+  const [page, setPage] = useState(persisted.page)
   const query = useDebounced(searchInput, 350)
 
   const [showSets, setShowSets] = useState(false)
@@ -66,6 +80,14 @@ export function LibraryPanel() {
     }
     wasBusy.current = busy
   }, [busy, qc])
+
+  // Remember the active filters across tab navigation (panel unmounts when you leave the tab).
+  useEffect(() => {
+    try {
+      localStorage.setItem(FILTERS_KEY, JSON.stringify(
+        { console: selectedConsole, search: searchInput, local, dedupe, page }))
+    } catch { /* ignore storage write errors */ }
+  }, [selectedConsole, searchInput, local, dedupe, page])
 
   function pickConsole(c: string) { setSelectedConsole(c); setPage(0) }
   function onSearch(v: string) { setSearchInput(v); setPage(0) }
