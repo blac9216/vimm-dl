@@ -4,6 +4,16 @@
 
 Vimm's Lair download queue manager with PS3 ISO conversion and sync. Modular architecture under `Modules/`. React + Vite + Tailwind frontend in `VimmsDownloader/client/`. Host project `VimmsDownloader/`. Mock server in `MockServer/` for testing. GitHub user: eduvhc. Target platform: Linux (Docker + bare metal), also runs on Windows for dev.
 
+## Development Workflow
+
+**Follow this every session, including immediately after a context compaction** (this section is the durable channel for the workflow — chat memory and summaries are not).
+
+- **Issue-driven** — use the `github-workflow` skill for all issues, branches, commits, and PRs. One issue → one branch (`<issue#>-<desc>`) → one PR (keep it ≤ ~400 net LOC / ≤ 15 files so review stays meaningful). Commits use the `AI:` subject prefix and the standard `Co-Authored-By` / `Claude-Session` trailers.
+- **Contextless review** — never self-review in-context. Spawn a subagent that **follows the `github-pr-review` skill** and posts its verdict template as a PR comment (audit trail), files `deferred`-labelled issues for non-blocking findings, then squash-merges. The owner has authorized auto-merge-after-review for the multi-source/ROM-management effort.
+  - This is a **remote sandbox with no `gh` CLI**: the reviewer must map every `gh` command in the skill to the `mcp__github__*` tools, and the formal "approve" API fails ("Can not approve your own pull request") because the MCP token is the PR author — so the posted comment + the squash-merge are what count.
+- **Design decisions are tracked as issues** — when a design decision is made, open (or update) a GitHub issue whose **body is the living spec**; keep editing it as the target moves. This is what survives compaction — do not rely on memory. (Current design epics: see open `EPIC —` issues.)
+- **Toolchain (remote)** — .NET SDK at `/tmp/dotnet`, bun at `/root/.bun/bin`, clang at `/usr/bin/clang`. MSTest 4 emits no results without a TRX logger: `dotnet test <proj> -c Debug --logger "trx;LogFileName=x.trx" --results-directory /tmp/trx`. Frontend build: `bun run build` (runs `tsc -b && vite build`).
+
 ## Architecture
 
 ### Modules (under `Modules/`)
