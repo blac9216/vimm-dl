@@ -2,11 +2,110 @@
 
 Planned features and architectural improvements. Each item describes the problem, the solution, and what it unblocks.
 
+The north star: **a browsable catalog of every game on every console** — driven by the No-Intro/Redump
+DATs as the authoritative "all games that exist" set — that you can filter by console, by name, and by
+remote-vs-local, see real metadata for, and queue to download from the best available source. The
+catalog entry is the **identity**; download sources (archive.org, Vimm) bind onto it.
+
+---
+
+## Catalog ↔ Vimm Hash Binding (one entry per game, many formats)
+
+**Status:** Next up (Phase B) — the marquee feature.
+
+### Vision
+
+Every library row is **one game**, identified by its No-Intro/Redump catalog entry (name + per-ROM
+CRC32/MD5/SHA1 + size). Onto that entry we bind, at sync time:
+
+- a **Vimm vault URL** (so every catalog game that Vimm carries has a download fallback), and
+- **all of Vimm's available download formats** for that game (e.g. PS3 JB Folder *and* `.dec.iso`),
+  with per-format sizes.
+
+So a single library row can offer multiple formats and multiple sources, while still being **one
+entry** — no duplicate rows for the same game in a different format. Games that exist on Vimm but
+fail to match get a **"no Vimm match" badge** so they can be reconciled manually.
+
+### Why hash-based (not name-based)
+
+Names drift across regions/revisions and between No-Intro/Redump and Vimm's own titling, so name
+matching is fuzzy and wrong often enough to matter. **Vimm exposes the full Redump/No-Intro hash
+triple (CRC32 + MD5 + SHA1)**, so the binding is *authoritative*: a Vimm entry matches a catalog
+game iff their hashes agree. Name/size are at most weak secondary signals.
+
+Verified on live vault pages:
+
+- **Single-file systems** (NES/SNES/GB/GBA/Genesis/PS2/…): the vault page embeds a `media` JSON
+  array carrying `GoodHash` (CRC32), `GoodMd5`, `GoodSha1`, plus `Serial` and `GoodTitle` (base64 of
+  the canonical `Name (Region).ext`). Hashes are inline — free with the page fetch.
+- **Multi-file / multi-disc systems** (PS1/Saturn/Sega CD/…): the page carries no inline `GoodHash`;
+  instead the AJAX endpoint `vault/ajax/hashes2.php?id=<mediaId>` returns an HTML fragment titled
+  **"Redump File Hashes"** with per-file (`.bin`/`.cue`) Crc/Md5/Sha1. One extra request per title.
+
+These match directly against the existing `catalog_rom` table (`crc`/`md5`/`sha1`, already indexed on
+`sha1`). Match priority: SHA1 → MD5 → CRC32.
+
+### Formats & sizes (captured during the same scrape)
+
+- Download **format** = a `<select id="dl_format">` whose option `value` is the `alt` index and
+  `title` is the human label (`JB Folder`, `.dec.iso`, …). Single-file systems have no select → one
+  implicit format 0. This is exactly the `format` the downloader already understands.
+- Per-format **sizes** come from the `media` JSON: `Zipped`/`ZippedText` (alt 0),
+  `AltZipped`/`AltZippedText` (alt 1), `AltZipped2`/`AltZipped2Text` (alt 2). These are the
+  *compressed download* sizes (use the hash, not size, for identity).
+- The **download trigger** is a POST to `//dl3.vimm.net/` with `mediaId` + `alt` (the JS enables and
+  sets `alt` to the chosen format index). `VaultPageParser` already resolves this.
+
+### Schema (additive)
+
+- `catalog_game` gains `vault_id INTEGER` (nullable; the bound Vimm media/vault id — URL is
+  `https://vimm.net/vault/{vault_id}`) and a match marker (e.g. `vimm_match` = `sha1`/`md5`/`crc`/
+  `none`/`null`-unscraped) for the badge.
+- New `catalog_vimm_format(id, game_id, alt INTEGER, label TEXT, size_bytes INTEGER, size_text TEXT)`
+  — one row per (game, downloadable format). This is what makes "one entry, many formats" real.
+- New `catalog_vimm_system(console, vimm_code)` mapping (e.g. `psx`→`PS1`, `gc`→`GameCube`,
+  `pcengine`→`TG16`). Vimm carries ~32 of the catalog's consoles; the rest are simply "no Vimm
+  match" by construction (the badge is expected there, not an error).
+
+### The scrape (throttled, incremental, cached)
+
+Hashes/formats are **not** in the list view — each must be read from the title's vault page (+1
+request for multi-disc `hashes2.php`). A full multi-console match is *tens of thousands of requests
+over hours*. So the binding runs as a **polite background job**, per the user's "per-console,
+incremental" choice:
+
+1. **Enumerate** a console's titles from the list view — `vault/?p=list&system=<CODE>&section=<A..Z,number>`
+   (~27 requests/console) — capturing `vault_id`, title, and region flag. Robust row regex:
+   `href\s*=\s*"/vault/(\d+)"\s*>([^<]+)</a>` (HTML-decode the title; skip the placeholder
+   `/vault/999999` anchor in each row; note the literal space in `href= "`).
+2. **Resolve hashes** per title (inline `GoodHash`/… or `hashes2.php`), throttled, with progress and
+   resumable cursor so a run can stop/continue. Vimm runs plain nginx (no rate-limit headers seen),
+   but we stay polite (small concurrency, backoff on 429).
+3. **Match & bind** against `catalog_rom`; set `catalog_game.vault_id` + `vimm_match`, upsert
+   `catalog_vimm_format` rows. Cache by `vault_id` so re-runs only fetch new/changed entries.
+
+### Download resolution (the fallback you noticed missing)
+
+`CatalogResolveService` becomes source-aware:
+
+1. **Prefer archive.org** sets (parallel) — current behavior.
+2. **Fall back to the pre-bound Vimm vault URL + chosen format** (serial via `VimmSource`) when no
+   archive set provides the game. No live guessing — it uses the binding captured at sync time.
+3. If neither resolves → a clear "not available from configured sources" state (and, if Vimm should
+   have it, the "no Vimm match" badge points the user at manual reconciliation).
+
+### What it unblocks
+
+- The user-reported bug: catalog downloads now fall back to Vimm instead of 404-ing.
+- One library row per game with selectable format + source.
+- Hash-accurate **owned** detection and cross-format dedup (next section).
+- A complete, source-agnostic identity for the pipeline-identity work below.
+
 ---
 
 ## Pipeline Identity: Vault URL + Format
 
-**Status:** Next up
+**Status:** Builds on the hash binding above (Phase C).
 
 ### Problem
 
@@ -29,9 +128,12 @@ This breaks in several real scenarios:
 
 ### Solution
 
-Replace filename with **vault URL + format** as the pipeline's item identity.
+Replace filename with the **catalog game identity** — and where the download came from Vimm, its
+**vault URL + format** — as the pipeline's item key. With the hash binding in place, *every* item
+(archive.org or Vimm) can resolve back to a single catalog game, so identity is unified across
+sources, not Vimm-only.
 
-- The vault URL (`https://vimm.net/vault/12345`) uniquely identifies the game
+- The catalog game (or vault URL `https://vimm.net/vault/12345`) uniquely identifies the game
 - The format (0, 1, ...) identifies which pipeline path it takes
 - Together they form a composite key: one game can have multiple pipeline runs (one per format)
 - The filename remains for display and filesystem operations — it just stops being the identity key
@@ -40,25 +142,41 @@ Replace filename with **vault URL + format** as the pipeline's item identity.
 
 | Area | Current | After |
 |------|---------|-------|
-| `PipelineState.Statuses` key | filename | vault URL or vault ID + format |
-| `PipelineStatusEvent.ItemName` | filename | vault URL or composite key |
-| `events.item_name` | filename | vault URL or composite key |
-| `completed_urls` tracking | matched by filename | matched by URL + format |
-| Duplicate detection | URL match only | URL match + cross-format awareness |
-| Frontend event grouping | filter by filename | filter by vault item, distinguish formats |
+| `PipelineState.Statuses` key | filename | catalog game id / vault id + format |
+| `PipelineStatusEvent.ItemName` | filename | composite item key |
+| `events.item_name` | filename | composite item key |
+| `completed_urls` tracking | matched by filename | matched by game/URL + format |
+| Duplicate detection | URL match only | hash/game match + cross-format awareness |
+| Frontend event grouping | filter by filename | filter by game, distinguish formats |
 
 ### What it unblocks
 
 - Cross-format duplicate detection ("you already have this as JB Folder")
-- Accurate event timeline per vault item per format
-- Foundation for multi-format download support (download both formats of the same game)
-- Cleaner correlation ID grouping (correlation per vault item + format + run)
+- **Hash-based owned dedup** — a game is "owned" if a local file's hash matches its `catalog_rom`,
+  regardless of which format/source produced it; the library shows one row, "owned", with the formats
+  on hand.
+- Accurate event timeline per game per format
+- Cleaner correlation ID grouping (correlation per game + format + run)
 
 ### Migration
 
-- Add `vault_url` and `format` columns to `events` table (or use a composite `item_key`)
+- Add `vault_url`/`game_id` and `format` columns to `events` (or a composite `item_key`)
 - Backfill from `completed_urls.url` where possible
-- Old events with filename-only `item_name` remain queryable but lack vault grouping
+- Old events with filename-only `item_name` remain queryable but lack grouping
+
+---
+
+## Phasing overview
+
+- **Phase A — Archive sets & settings (mostly shipped).** Sets modeled as name + console + links[]
+  (with migration), RomGoGetter archive defaults seeded, archive settings incl. Internet Archive S3
+  keys, Library filter persistence, and full No-Intro/Redump console coverage in the catalog.
+  *Remaining:* source-aware download parallelism (archive parallel, Vimm serial).
+- **Phase B — Vimm hash-identity binding (next).** The schema, the throttled per-console scrape +
+  hash match, format capture, the "no Vimm match" badge, and source-aware download resolution
+  (archive preferred, bound vault URL fallback + format choice).
+- **Phase C — Identity/dedup deepening.** Pipeline identity keyed by catalog game + format,
+  hash-based owned dedup, one library row per game across formats and sources.
 
 ---
 
@@ -81,3 +199,4 @@ The pipeline-owned flow system means no endpoint changes needed — the host del
 - **PSP** — ISO handling, CSO compression
 - **Wii** — WBFS format handling
 - **GameCube** — ISO/GCZ handling
+- **Wii U** — clean-room NUS download + AES title-key decryption (MIT-preserving; never copy the GPLv3 Go)
