@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useCatalogConsoles, useCatalogGames, useCatalogStatus, useSyncCatalog, useScanCatalog, useSyncCompat, useVerifyCatalog, useQueueCatalogGame } from '../../api/queries'
+import { useCatalogConsoles, useCatalogGames, useCatalogStatus, useSyncCatalog, useScanCatalog, useSyncCompat, useVerifyCatalog, useSyncVimm, useQueueCatalogGame } from '../../api/queries'
 import { PlatformIcon } from '../shared/PlatformIcon'
 import { SetsDialog } from './SetsDialog'
 import { fmtBytes } from '../../lib/format'
@@ -61,6 +61,7 @@ export function LibraryPanel() {
   const scanMutation = useScanCatalog()
   const compatMutation = useSyncCompat()
   const verifyMutation = useVerifyCatalog()
+  const vimmMutation = useSyncVimm()
   const queueGame = useQueueCatalogGame()
   const { data: gamesResp, isFetching } = useCatalogGames(selectedConsole || null, query, local, dedupe, page, PAGE_SIZE)
 
@@ -68,7 +69,8 @@ export function LibraryPanel() {
   const scanning = status?.scanning ?? false
   const compatSyncing = status?.compatSyncing ?? false
   const verifying = status?.verifying ?? false
-  const busy = syncing || scanning || compatSyncing || verifying
+  const vimmSyncing = status?.vimmSyncing ?? false
+  const busy = syncing || scanning || compatSyncing || verifying || vimmSyncing
   const totalInCatalog = status?.totalGames ?? 0
 
   // When a sync or scan finishes, refresh the catalog views so new games/counts/owned appear.
@@ -181,6 +183,14 @@ export function LibraryPanel() {
             border border-border/30 hover:bg-surface-2/70 hover:text-text disabled:opacity-40 shrink-0">
           {compatSyncing ? 'Compat…' : 'Compat'}
         </button>
+        <button onClick={() => vimmMutation.mutate(selectedConsole || undefined)} disabled={busy}
+          title={selectedConsole
+            ? `Match ${selectedConsole} against Vimm's Lair by hash, binding a vault URL + formats`
+            : "Match the catalog against Vimm's Lair by hash (pick a console to scope; otherwise all Vimm consoles)"}
+          className="px-3 py-1 text-xs font-medium rounded bg-surface-2/40 text-text-3
+            border border-border/30 hover:bg-surface-2/70 hover:text-text disabled:opacity-40 shrink-0">
+          {vimmSyncing ? 'Vimm…' : 'Vimm'}
+        </button>
         <button onClick={() => syncMutation.mutate()} disabled={busy} title="Re-sync from No-Intro / Redump"
           className="px-3 py-1 text-xs font-medium rounded bg-surface-2/40 text-text-3
             border border-border/30 hover:bg-surface-2/70 hover:text-text disabled:opacity-40 shrink-0">
@@ -216,6 +226,14 @@ export function LibraryPanel() {
             {g.compat && (
               <span className={`text-[9px] px-1.5 py-0.5 rounded border shrink-0 ${compatClass(g.compat)}`}
                 title={`RPCS3: ${g.compat}`}>{g.compat}</span>
+            )}
+            {g.vimmMatch && g.vimmMatch !== 'none' && (
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-ps-cross/10 text-[#7eb3e0]
+                border border-ps-cross/25 shrink-0" title={`Matched to a Vimm vault entry by ${g.vimmMatch.toUpperCase()}`}>Vimm</span>
+            )}
+            {g.vimmMatch === 'none' && (
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-surface-3/40 text-text-4
+                border border-border/30 shrink-0" title="No Vimm match found — rectify manually">no Vimm</span>
             )}
             {g.size > 0 && (
               <span className="text-[10px] text-text-4 font-mono tabular-nums shrink-0">{fmtBytes(g.size)}</span>
