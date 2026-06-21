@@ -97,20 +97,28 @@ Progress updates as you work an issue: [references/templates/progress-comment.md
 
 The **author of the issue** applies labels at creation. The author of the PR mirrors the same labels onto the PR at PR creation. Exactly one of `bug`/`enhancement`/`chore`/`epic` should classify every issue. Severity is required on bugs, optional on enhancements/chores.
 
-| Label | When to use |
-| ----- | ----------- |
-| `bug` | Something isn't working |
-| `enhancement` | New feature or improvement |
-| `chore` | Maintenance — deps, refactor, lint, build, infra |
-| `epic` | Meta-issue tracking a multi-issue / multi-PR goal |
-| `help` | Requires human intervention — agent is blocked |
-| `severity:critical` | Breaks runtime, blocks merge, or causes data loss |
-| `severity:major` | Affects a core path but has a workaround |
-| `severity:minor` | Cosmetic, edge case, or low-frequency |
-| `regression` | A previously-fixed issue has returned, or a recent change broke something that worked |
-| `deferred` | Real but intentionally out of scope for now |
+This is the **canonical label set** — names *and* colors. The colors are part of the contract so a repo that freshly adopts this skill ends up looking like every other repo that uses it; provision them exactly as listed.
+
+| Label | Color | When to use |
+| ----- | ----- | ----------- |
+| `bug` | `d73a4a` | Something isn't working |
+| `enhancement` | `a2eeef` | New feature or improvement |
+| `chore` | `cfd3d7` | Maintenance — deps, refactor, lint, build, infra |
+| `epic` | `5319e7` | Meta-issue tracking a multi-issue / multi-PR goal |
+| `help` | `008672` | Requires human intervention — agent is blocked |
+| `severity:critical` | `b60205` | Breaks runtime, blocks merge, or causes data loss |
+| `severity:major` | `d93f0b` | Affects a core path but has a workaround |
+| `severity:minor` | `fbca04` | Cosmetic, edge case, or low-frequency |
+| `regression` | `e99695` | A previously-fixed issue has returned, or a recent change broke something that worked |
+| `deferred` | `c5def5` | Real but intentionally out of scope for now |
 
 The `help` label signals that the agent cannot resolve the issue autonomously. Always post a comment explaining what was tried and why it's blocked before adding this label.
+
+### Provisioning the labels is a hard gate
+
+Before filing the first issue in a repo — and any time you reach for a label that is missing or whose color has drifted — reconcile the repo's labels against the canonical set above: create any that are missing with the exact name and color, and correct any whose color differs. Locally that's `gh label create <name> --color <hex> --description "<when to use>"` and `gh label edit <name> --color <hex>`. In the cloud sandbox there is **no** GitHub MCP tool to create or edit a label (only `get_label`, to check existence), so you usually cannot self-provision there.
+
+When you cannot create or correct the labels yourself — no tool, no permission, or the API refuses — **stop, ask the user to add or fix them against this canonical list, and refuse to continue until they confirm it is done.** Do not improvise around it: inventing a substitute label, dropping the label, or proceeding unlabeled quietly breaks the parts of the workflow that lean on these exact names (classification, severity triage, the deferred backlog, the review gate). The label set is load-bearing, so this is the right place to halt and wait rather than press on.
 
 ## Branches and Worktrees
 

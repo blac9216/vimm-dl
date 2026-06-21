@@ -65,3 +65,11 @@ default for this project's automated work.
    flow shells out to `gh api`, find the specific MCP tool for that operation (the
    table above covers the ones this workflow needs). If none exists, treat it as a
    local-only step and note it.
+
+5. **No MCP tool creates or edits a label.** `get_label` only checks whether a
+   label exists; there is no cloud tool to create one or change its color.
+   Provisioning the canonical label set (github-workflow → "Provisioning the
+   labels is a hard gate") is therefore local-only (`gh label create` / `gh label
+   edit`) or a human action in the cloud sandbox. If a required label is missing
+   or mis-colored and you cannot fix it, stop and ask the user — do not proceed
+   with a substitute or no label.
