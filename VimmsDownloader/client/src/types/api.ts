@@ -118,10 +118,9 @@ export interface CatalogStatus {
 
 export interface CatalogSet {
   id: number
+  name: string
   console: string
-  source: string
-  identifier: string
-  label: string | null
+  links: string[]
 }
 
 export interface VersionResponse {

@@ -371,49 +371,109 @@ class CatalogRepository : ICatalogStore
 
     // --- download sets ---
 
-    public async Task<long> AddSetAsync(string console, string source, string identifier, string? label)
+    public async Task<long> AddSetAsync(string name, string console, IReadOnlyList<string> links)
     {
         await using var db = await OpenAsync();
+        await using var tx = (SqliteTransaction)await db.BeginTransactionAsync();
+        long id;
+        await using (var cmd = db.CreateCommand())
+        {
+            cmd.Transaction = tx;
+            // The legacy source/identifier columns are NOT NULL but unused by the link model — fill
+            // them with placeholders (migration 020 leaves them vestigial; links live in catalog_set_link).
+            cmd.CommandText = """
+                INSERT INTO catalog_set (name, console, source, identifier, created_at)
+                VALUES ($n, $c, 'archive', '', datetime('now')) RETURNING id
+                """;
+            cmd.Parameters.AddWithValue("$n", name);
+            cmd.Parameters.AddWithValue("$c", console);
+            id = Convert.ToInt64(await cmd.ExecuteScalarAsync());
+        }
+        await InsertLinksAsync(db, tx, id, links);
+        await tx.CommitAsync();
+        return id;
+    }
+
+    /// <summary>Replace a set's name/console/links wholesale. Returns false if the id is unknown.</summary>
+    public async Task<bool> UpdateSetAsync(int id, string name, string console, IReadOnlyList<string> links)
+    {
+        await using var db = await OpenAsync();
+        await using var tx = (SqliteTransaction)await db.BeginTransactionAsync();
+        int rows;
+        await using (var cmd = db.CreateCommand())
+        {
+            cmd.Transaction = tx;
+            cmd.CommandText = "UPDATE catalog_set SET name = $n, console = $c WHERE id = $id";
+            cmd.Parameters.AddWithValue("$n", name);
+            cmd.Parameters.AddWithValue("$c", console);
+            cmd.Parameters.AddWithValue("$id", id);
+            rows = await cmd.ExecuteNonQueryAsync();
+        }
+        if (rows == 0) { await tx.RollbackAsync(); return false; }
+        await using (var del = db.CreateCommand())
+        {
+            del.Transaction = tx;
+            del.CommandText = "DELETE FROM catalog_set_link WHERE set_id = $id";
+            del.Parameters.AddWithValue("$id", id);
+            await del.ExecuteNonQueryAsync();
+        }
+        await InsertLinksAsync(db, tx, id, links);
+        await tx.CommitAsync();
+        return true;
+    }
+
+    private static async Task InsertLinksAsync(SqliteConnection db, SqliteTransaction tx, long setId, IReadOnlyList<string> links)
+    {
         await using var cmd = db.CreateCommand();
-        // Upsert: re-adding an existing (console, source, identifier) updates its label and returns
-        // the existing row id instead of creating a cosmetic duplicate (unique index in migration 018).
-        cmd.CommandText = """
-            INSERT INTO catalog_set (console, source, identifier, label, created_at)
-            VALUES ($c, $s, $i, $l, datetime('now'))
-            ON CONFLICT(console, source, identifier) DO UPDATE SET label = excluded.label
-            RETURNING id
-            """;
-        cmd.Parameters.AddWithValue("$c", console);
-        cmd.Parameters.AddWithValue("$s", source);
-        cmd.Parameters.AddWithValue("$i", identifier);
-        cmd.Parameters.AddWithValue("$l", (object?)label ?? DBNull.Value);
-        return Convert.ToInt64(await cmd.ExecuteScalarAsync());
+        cmd.Transaction = tx;
+        cmd.CommandText = "INSERT INTO catalog_set_link (set_id, url, position) VALUES ($s, $u, $p)";
+        cmd.Parameters.AddWithValue("$s", setId);
+        var pu = cmd.Parameters.Add("$u", SqliteType.Text);
+        var pp = cmd.Parameters.Add("$p", SqliteType.Integer);
+        int pos = 0;
+        foreach (var raw in links)
+        {
+            var u = raw.Trim();
+            if (u.Length == 0) continue;
+            pu.Value = u;
+            pp.Value = pos++;
+            await cmd.ExecuteNonQueryAsync();
+        }
     }
 
     public async Task<List<CatalogSetDto>> GetSetsAsync()
     {
         await using var db = await OpenAsync();
-        await using var cmd = db.CreateCommand();
-        cmd.CommandText = "SELECT id, console, source, identifier, label FROM catalog_set ORDER BY console, id";
-        return await ReadSetsAsync(cmd);
+        return await ReadSetsAsync(db, null);
     }
 
     public async Task<List<CatalogSetDto>> GetSetsByConsoleAsync(string console)
     {
         await using var db = await OpenAsync();
-        await using var cmd = db.CreateCommand();
-        cmd.CommandText = "SELECT id, console, source, identifier, label FROM catalog_set WHERE console = $c ORDER BY id";
-        cmd.Parameters.AddWithValue("$c", console);
-        return await ReadSetsAsync(cmd);
+        return await ReadSetsAsync(db, console);
     }
 
     public async Task<bool> DeleteSetAsync(int id)
     {
         await using var db = await OpenAsync();
-        await using var cmd = db.CreateCommand();
-        cmd.CommandText = "DELETE FROM catalog_set WHERE id = $id";
-        cmd.Parameters.AddWithValue("$id", id);
-        return await cmd.ExecuteNonQueryAsync() > 0;
+        await using var tx = (SqliteTransaction)await db.BeginTransactionAsync();
+        await using (var dl = db.CreateCommand())
+        {
+            dl.Transaction = tx;
+            dl.CommandText = "DELETE FROM catalog_set_link WHERE set_id = $id";
+            dl.Parameters.AddWithValue("$id", id);
+            await dl.ExecuteNonQueryAsync();
+        }
+        int rows;
+        await using (var ds = db.CreateCommand())
+        {
+            ds.Transaction = tx;
+            ds.CommandText = "DELETE FROM catalog_set WHERE id = $id";
+            ds.Parameters.AddWithValue("$id", id);
+            rows = await ds.ExecuteNonQueryAsync();
+        }
+        await tx.CommitAsync();
+        return rows > 0;
     }
 
     /// <summary>(console, name) for a catalog game, or null if the id is unknown.</summary>
@@ -427,13 +487,34 @@ class CatalogRepository : ICatalogStore
         return await r.ReadAsync() ? (r.GetString(0), r.GetString(1)) : null;
     }
 
-    private static async Task<List<CatalogSetDto>> ReadSetsAsync(SqliteCommand cmd)
+    private static async Task<List<CatalogSetDto>> ReadSetsAsync(SqliteConnection db, string? console)
     {
-        await using var r = await cmd.ExecuteReaderAsync();
-        var list = new List<CatalogSetDto>();
-        while (await r.ReadAsync())
-            list.Add(new CatalogSetDto(r.GetInt32(0), r.GetString(1), r.GetString(2), r.GetString(3),
-                r.IsDBNull(4) ? null : r.GetString(4)));
-        return list;
+        var order = new List<(int Id, string Name, string Console)>();
+        await using (var cmd = db.CreateCommand())
+        {
+            cmd.CommandText = console is null
+                ? "SELECT id, name, console FROM catalog_set ORDER BY console, name, id"
+                : "SELECT id, name, console FROM catalog_set WHERE console = $c ORDER BY name, id";
+            if (console is not null) cmd.Parameters.AddWithValue("$c", console);
+            await using var r = await cmd.ExecuteReaderAsync();
+            while (await r.ReadAsync())
+                order.Add((r.GetInt32(0), r.IsDBNull(1) ? "" : r.GetString(1), r.GetString(2)));
+        }
+
+        var linksBySet = new Dictionary<int, List<string>>();
+        await using (var cmd = db.CreateCommand())
+        {
+            cmd.CommandText = "SELECT set_id, url FROM catalog_set_link ORDER BY set_id, position, id";
+            await using var r = await cmd.ExecuteReaderAsync();
+            while (await r.ReadAsync())
+            {
+                var sid = r.GetInt32(0);
+                if (!linksBySet.TryGetValue(sid, out var l)) linksBySet[sid] = l = [];
+                l.Add(r.GetString(1));
+            }
+        }
+
+        return order.Select(s => new CatalogSetDto(s.Id, s.Name, s.Console,
+            linksBySet.TryGetValue(s.Id, out var l) ? l : [])).ToList();
     }
 }

@@ -37,6 +37,17 @@ async function patch(url: string, body: unknown): Promise<void> {
   if (!res.ok) throw new Error(await res.text())
 }
 
+async function putJson<T>(url: string, body: unknown): Promise<T> {
+  const res = await fetch(url, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(await res.text())
+  const text = await res.text()
+  return text ? JSON.parse(text) : (undefined as T)
+}
+
 // --- Data (merged: queue + history + status) ---
 
 export function useData() {
@@ -177,8 +188,17 @@ export function useCatalogSets() {
 export function useAddSet() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (data: { console: string; identifier: string; label?: string }) =>
+    mutationFn: (data: { name: string; console: string; links: string[] }) =>
       postJson<CatalogSet>('/api/catalog/sets', data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['catalog-sets'] }),
+  })
+}
+
+export function useUpdateSet() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, ...data }: { id: number; name: string; console: string; links: string[] }) =>
+      putJson<CatalogSet>(`/api/catalog/sets/${id}`, data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['catalog-sets'] }),
   })
 }

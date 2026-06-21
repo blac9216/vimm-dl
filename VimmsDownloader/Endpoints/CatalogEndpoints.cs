@@ -47,20 +47,40 @@ static class CatalogEndpoints
             return new CatalogGamesResponse(total, p, ps, games);
         });
 
-        // --- download sets (per-console source locations) ---
+        // --- download sets (per-console arrays of archive.org links) ---
+        // Validate + clean an add/update request → (name, console, links) or an error message.
+        static (string Name, string Console, List<string> Links, string? Error) NormalizeSet(AddSetRequest req)
+        {
+            var name = req.Name?.Trim() ?? "";
+            var console = req.Console?.Trim() ?? "";
+            var links = (req.Links ?? [])
+                .Select(l => l?.Trim() ?? "")
+                .Where(l => l.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (name.Length == 0) return (name, console, links, "name is required");
+            if (console.Length == 0) return (name, console, links, "console is required");
+            if (links.Count == 0) return (name, console, links, "at least one link is required");
+            return (name, console, links, null);
+        }
+
         app.MapGet("/api/catalog/sets", async (CatalogRepository repo) => await repo.GetSetsAsync());
 
         app.MapPost("/api/catalog/sets", async (AddSetRequest req, CatalogRepository repo) =>
         {
-            if (string.IsNullOrWhiteSpace(req.Console) || string.IsNullOrWhiteSpace(req.Identifier))
-                return Results.BadRequest("console and identifier are required");
-            // Normalize source to lower-case so it matches the resolver's lookup and the unique
-            // (console, source, identifier) constraint treats "Archive"/"archive" as one set.
-            var source = string.IsNullOrWhiteSpace(req.Source) ? "archive" : req.Source!.Trim().ToLowerInvariant();
-            var console = req.Console.Trim();
-            var identifier = req.Identifier.Trim();
-            var id = await repo.AddSetAsync(console, source, identifier, req.Label);
-            return Results.Ok(new CatalogSetDto((int)id, console, source, identifier, req.Label));
+            var (name, console, links, error) = NormalizeSet(req);
+            if (error != null) return Results.BadRequest(error);
+            var id = await repo.AddSetAsync(name, console, links);
+            return Results.Ok(new CatalogSetDto((int)id, name, console, links));
+        });
+
+        app.MapPut("/api/catalog/sets/{id:int}", async (int id, AddSetRequest req, CatalogRepository repo) =>
+        {
+            var (name, console, links, error) = NormalizeSet(req);
+            if (error != null) return Results.BadRequest(error);
+            return await repo.UpdateSetAsync(id, name, console, links)
+                ? Results.Ok(new CatalogSetDto(id, name, console, links))
+                : Results.NotFound();
         });
 
         app.MapDelete("/api/catalog/sets/{id:int}", async (int id, CatalogRepository repo) =>
