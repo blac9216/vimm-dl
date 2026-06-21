@@ -103,7 +103,17 @@ await repo.InitAsync(app.Configuration.GetConnectionString("Default"),
     app.Services.GetRequiredService<ILogger<QueueRepository>>());
 
 // Catalog shares queue.db (tables created by migration 012, run above).
-app.Services.GetRequiredService<CatalogRepository>().Configure(app.Configuration.GetConnectionString("Default"));
+var catalogRepo = app.Services.GetRequiredService<CatalogRepository>();
+catalogRepo.Configure(app.Configuration.GetConnectionString("Default"));
+
+// Seed the default archive.org download sets once (ported from RomGoGetter). Guarded by a flag so
+// deleting a default set doesn't bring it back; users can edit/delete them freely.
+if (await repo.GetSettingAsync(SettingsKeys.DefaultSetsSeeded) != "true")
+{
+    foreach (var (setName, console, items) in DefaultSets.All)
+        await catalogRepo.AddSetAsync(setName, console, DefaultSets.Links(items));
+    await repo.SaveSettingAsync(SettingsKeys.DefaultSetsSeeded, "true");
+}
 
 // Prune old events (7-day retention, 50k max rows)
 await repo.PruneEventsAsync();
