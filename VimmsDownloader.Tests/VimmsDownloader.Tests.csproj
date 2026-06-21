@@ -16,4 +16,11 @@
   <ItemGroup>
     <Using Include="Microsoft.VisualStudio.TestTools.UnitTesting" />
   </ItemGroup>
+
+  <!-- Reference the host so tests can drive its internals (QueueRepository, DatabaseMigrator).
+       The host is a Web SDK app, so pull in the ASP.NET shared framework for it to load. -->
+  <ItemGroup>
+    <ProjectReference Include="..\VimmsDownloader\VimmsDownloader.csproj" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
 </Project>

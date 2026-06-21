@@ -21,6 +21,11 @@
     <EmbeddedResource Include="Migrations\*.sql" />
   </ItemGroup>
 
+  <!-- Let the test project exercise the real QueueRepository / DatabaseMigrator (internal) directly. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="VimmsDownloader.Tests" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\Modules\Module.Extractor\Module.Extractor.csproj" />
     <ProjectReference Include="..\Modules\Module.Ps3Pipeline\Module.Ps3Pipeline.csproj" />
