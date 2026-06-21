@@ -31,13 +31,25 @@ static class SettingsEndpoints
                 Ps3PreserveArchive: s.GetValueOrDefault(SettingsKeys.Ps3PreserveArchive, "true") == "true",
                 FeatureSync: s.GetValueOrDefault(SettingsKeys.FeatureSync, "false") == "true",
                 FeatureEvents: s.GetValueOrDefault(SettingsKeys.FeatureEvents, "false") == "true",
-                FeatureLibrary: s.GetValueOrDefault(SettingsKeys.FeatureLibrary, "false") == "true"
+                FeatureLibrary: s.GetValueOrDefault(SettingsKeys.FeatureLibrary, "false") == "true",
+                ArchiveParallelism: int.TryParse(s.GetValueOrDefault(SettingsKeys.ArchiveParallelism, "4"), out var ap) ? ap : 4,
+                ArchiveRetries: int.TryParse(s.GetValueOrDefault(SettingsKeys.ArchiveRetries, "3"), out var ar) ? ar : 3,
+                ArchiveIdle: int.TryParse(s.GetValueOrDefault(SettingsKeys.ArchiveIdle, "60"), out var ai) ? ai : 60,
+                ArchiveS3Access: s.GetValueOrDefault(SettingsKeys.ArchiveS3Access, ""),
+                ArchiveS3Secret: s.GetValueOrDefault(SettingsKeys.ArchiveS3Secret, "")
             );
         });
 
-        app.MapPost("/api/settings", async (SettingRequest req, QueueRepository repo) =>
+        app.MapPost("/api/settings", async (SettingRequest req, QueueRepository repo, ArchiveAuth auth) =>
         {
             await repo.SaveSettingAsync(req.Key, req.Value);
+            // Refresh the live archive.org auth header when either S3 credential changes.
+            if (req.Key is SettingsKeys.ArchiveS3Access or SettingsKeys.ArchiveS3Secret)
+            {
+                var all = await repo.GetAllSettingsAsync();
+                auth.Set(all.GetValueOrDefault(SettingsKeys.ArchiveS3Access),
+                         all.GetValueOrDefault(SettingsKeys.ArchiveS3Secret));
+            }
             return Results.Ok();
         });
 

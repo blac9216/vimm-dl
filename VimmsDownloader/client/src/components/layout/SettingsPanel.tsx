@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import { useSettings, useSaveSetting } from '../../api/queries'
+import { SetsDialog } from '../library/SetsDialog'
 
 interface ToggleProps {
   label: string
@@ -30,9 +32,39 @@ function Toggle({ label, description, checked, onChange }: ToggleProps) {
   )
 }
 
+interface StepperProps {
+  label: string
+  description: string
+  value: number
+  min: number
+  max: number
+  step?: number
+  onChange: (value: number) => void
+}
+
+function Stepper({ label, description, value, min, max, step = 1, onChange }: StepperProps) {
+  const clamp = (v: number) => Math.max(min, Math.min(max, v))
+  const btn = `w-6 h-6 flex items-center justify-center rounded bg-surface-3/50 text-text-3
+    hover:bg-surface-3 hover:text-text disabled:opacity-30 text-xs`
+  return (
+    <div className="flex items-center justify-between">
+      <div>
+        <div className="text-xs text-text">{label}</div>
+        <div className="text-[10px] text-text-4">{description}</div>
+      </div>
+      <div className="flex items-center gap-2">
+        <button onClick={() => onChange(clamp(value - step))} disabled={value <= min} className={btn}>-</button>
+        <span className="text-sm font-mono text-accent w-10 text-center tabular-nums">{value}</span>
+        <button onClick={() => onChange(clamp(value + step))} disabled={value >= max} className={btn}>+</button>
+      </div>
+    </div>
+  )
+}
+
 export function SettingsPanel() {
   const { data: settings } = useSettings()
   const saveMutation = useSaveSetting()
+  const [showSets, setShowSets] = useState(false)
 
   if (!settings) return null
 
@@ -40,10 +72,17 @@ export function SettingsPanel() {
     saveMutation.mutate({ key, value: (!current).toString() })
   }
 
-  function setParallelism(value: number) {
-    const clamped = Math.max(1, Math.min(8, value))
-    saveMutation.mutate({ key: 'ps3_parallelism', value: clamped.toString() })
+  function saveNum(key: string, value: number) {
+    saveMutation.mutate({ key, value: value.toString() })
   }
+
+  // Persist a text setting only when it actually changed (called on blur).
+  function saveText(key: string, value: string, current: string) {
+    if (value !== current) saveMutation.mutate({ key, value })
+  }
+
+  const inputCls = `w-full bg-surface-2/60 border border-border/40 text-text-3 text-xs rounded
+    px-2 py-1 font-mono focus:outline-none focus:border-accent/30`
 
   return (
     <div className="flex flex-col h-full">
@@ -79,31 +118,14 @@ export function SettingsPanel() {
                 checked={settings.ps3PreserveArchive}
                 onChange={() => toggle('ps3_preserve_archive', settings.ps3PreserveArchive)}
               />
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-xs text-text">Max parallelism</div>
-                  <div className="text-[10px] text-text-4">Workers per phase (extract + convert)</div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setParallelism(settings.ps3Parallelism - 1)}
-                    disabled={settings.ps3Parallelism <= 1}
-                    className="w-6 h-6 flex items-center justify-center rounded
-                      bg-surface-3/50 text-text-3 hover:bg-surface-3 hover:text-text
-                      disabled:opacity-30 text-xs"
-                  >-</button>
-                  <span className="text-sm font-mono text-accent w-4 text-center tabular-nums">
-                    {settings.ps3Parallelism}
-                  </span>
-                  <button
-                    onClick={() => setParallelism(settings.ps3Parallelism + 1)}
-                    disabled={settings.ps3Parallelism >= 8}
-                    className="w-6 h-6 flex items-center justify-center rounded
-                      bg-surface-3/50 text-text-3 hover:bg-surface-3 hover:text-text
-                      disabled:opacity-30 text-xs"
-                  >+</button>
-                </div>
-              </div>
+              <Stepper
+                label="Max parallelism"
+                description="Workers per phase (extract + convert)"
+                value={settings.ps3Parallelism}
+                min={1}
+                max={8}
+                onChange={v => saveNum('ps3_parallelism', v)}
+              />
 
               {/* ISO Rename — subsection */}
               <div className="pt-2 border-t border-border/10">
@@ -143,6 +165,88 @@ export function SettingsPanel() {
             </div>
           </div>
 
+          {/* Archive */}
+          <div>
+            <div className="text-[10px] text-text-3 tracking-wide uppercase mb-3">
+              Archive
+            </div>
+            <div className="space-y-3 border border-border/20 rounded p-3 bg-card/30">
+              <Stepper
+                label="Parallelism"
+                description="Concurrent archive.org downloads"
+                value={settings.archiveParallelism}
+                min={1}
+                max={16}
+                onChange={v => saveNum('archive_parallelism', v)}
+              />
+              <Stepper
+                label="Retries"
+                description="Retry attempts on a failed download"
+                value={settings.archiveRetries}
+                min={0}
+                max={10}
+                onChange={v => saveNum('archive_retries', v)}
+              />
+              <Stepper
+                label="Idle timeout"
+                description="Seconds with no progress before a stall is retried"
+                value={settings.archiveIdle}
+                min={10}
+                max={600}
+                step={10}
+                onChange={v => saveNum('archive_idle', v)}
+              />
+
+              {/* Internet Archive S3 keys — subsection */}
+              <div className="pt-2 border-t border-border/10 space-y-2">
+                <div className="text-[10px] text-text-3 tracking-wide uppercase">Internet Archive S3 keys</div>
+                <div className="text-[10px] text-text-4">
+                  Optional. Set both to authenticate archive.org requests. Get keys at
+                  {' '}<span className="text-accent/70">archive.org/account/s3.php</span>.
+                </div>
+                <div>
+                  <div className="text-[10px] text-text-4 mb-1">Access key</div>
+                  <input
+                    type="text"
+                    autoComplete="off"
+                    spellCheck={false}
+                    defaultValue={settings.archiveS3Access}
+                    onBlur={e => saveText('archive_s3_access', e.target.value, settings.archiveS3Access)}
+                    className={inputCls}
+                  />
+                </div>
+                <div>
+                  <div className="text-[10px] text-text-4 mb-1">Secret key</div>
+                  <input
+                    type="password"
+                    autoComplete="off"
+                    spellCheck={false}
+                    defaultValue={settings.archiveS3Secret}
+                    onBlur={e => saveText('archive_s3_secret', e.target.value, settings.archiveS3Secret)}
+                    className={inputCls}
+                  />
+                </div>
+              </div>
+
+              {/* Download sources */}
+              <div className="pt-2 border-t border-border/10">
+                <button
+                  onClick={() => setShowSets(true)}
+                  className="w-full px-2 py-1.5 rounded text-xs text-text-3 border border-border/40
+                    bg-surface-2/40 hover:bg-surface-2/80 hover:text-text transition-colors"
+                >
+                  Manage download sources
+                </button>
+                <div className="mt-1 text-[10px] text-text-4">
+                  Edit the archive.org sets each console resolves against.
+                </div>
+              </div>
+            </div>
+            <div className="mt-2 text-[10px] text-text-4">
+              Parallelism / retries / idle apply to upcoming archive.org downloads.
+            </div>
+          </div>
+
           {/* Feature Flags */}
           <div>
             <div className="text-[10px] text-text-3 tracking-wide uppercase mb-3">
@@ -171,6 +275,8 @@ export function SettingsPanel() {
           </div>
         </div>
       </div>
+
+      {showSets && <SetsDialog onClose={() => setShowSets(false)} />}
     </div>
   )
 }

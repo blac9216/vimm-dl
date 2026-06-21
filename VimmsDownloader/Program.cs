@@ -29,6 +29,8 @@ builder.Services.AddSingleton<CompatSyncService>();
 builder.Services.AddSingleton<CatalogCompatState>();
 builder.Services.AddSingleton<CatalogVerifyService>();
 builder.Services.AddSingleton<CatalogVerifyState>();
+builder.Services.AddSingleton<ArchiveAuth>();
+builder.Services.AddTransient<ArchiveAuthHandler>();
 builder.Services.ConfigureHttpJsonOptions(o =>
     o.SerializerOptions.TypeInfoResolverChain.Insert(0, AppJsonContext.Default));
 builder.Services.AddHttpClient("vimms")
@@ -63,7 +65,8 @@ builder.Services.AddHttpClient("vimms")
         c.DefaultRequestHeaders.Referrer = new Uri("https://vimm.net/");
     });
 
-// Internet Archive serves plain HTTPS files + a public metadata API — no auth needed.
+// Internet Archive serves plain HTTPS files + a public metadata API anonymously; the
+// ArchiveAuthHandler adds the S3 "LOW" auth header only when the user configures both keys.
 builder.Services.AddHttpClient("archive")
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
     {
@@ -76,7 +79,8 @@ builder.Services.AddHttpClient("archive")
         c.Timeout = TimeSpan.FromMinutes(60);
         c.DefaultRequestHeaders.Add("User-Agent",
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
-    });
+    })
+    .AddHttpMessageHandler<ArchiveAuthHandler>();
 
 // libretro-database raw files (the No-Intro/Redump mirror) — plain HTTPS, no auth.
 builder.Services.AddHttpClient("libretro")
@@ -113,6 +117,15 @@ if (await repo.GetSettingAsync(SettingsKeys.DefaultSetsSeeded) != "true")
     foreach (var (setName, console, items) in DefaultSets.All)
         await catalogRepo.AddSetAsync(setName, console, DefaultSets.Links(items));
     await repo.SaveSettingAsync(SettingsKeys.DefaultSetsSeeded, "true");
+}
+
+// Load Internet Archive S3 credentials (if the user has set them) so archive.org requests are
+// authenticated from the first download; refreshed on save via the settings endpoint.
+{
+    var all = await repo.GetAllSettingsAsync();
+    app.Services.GetRequiredService<ArchiveAuth>().Set(
+        all.GetValueOrDefault(SettingsKeys.ArchiveS3Access),
+        all.GetValueOrDefault(SettingsKeys.ArchiveS3Secret));
 }
 
 // Prune old events (7-day retention, 50k max rows)
