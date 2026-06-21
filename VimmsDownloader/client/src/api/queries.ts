@@ -3,7 +3,7 @@ import type {
   DataResponse, VersionResponse, SettingsResponse, MetaResponse,
   QueueImportResponse, Ps3ConvertResponse, SyncCompareResponse, QueueExportItem,
   EventsResponse, MetricsResponse, AddResponse, SourceInfo,
-  CatalogConsole, CatalogGamesResponse, CatalogStatus, CatalogSet,
+  CatalogConsole, CatalogGamesResponse, CatalogStatus, CatalogSet, CatalogVimm,
 } from '../types/api'
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -221,10 +221,20 @@ export function useDeleteSet() {
   })
 }
 
+// A game's Vimm download options, or null when it has no Vimm binding (404).
+export async function fetchGameVimm(id: number): Promise<CatalogVimm | null> {
+  const res = await fetch(`/api/catalog/games/${id}/vimm`)
+  if (res.status === 404) return null
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+  return res.json()
+}
+
 export function useQueueCatalogGame() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (id: number) => postJson<{ url: string }>(`/api/catalog/games/${id}/queue`),
+    mutationFn: ({ id, format }: { id: number; format?: number }) =>
+      postJson<{ url: string; source: string }>(
+        `/api/catalog/games/${id}/queue${format != null ? `?format=${format}` : ''}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['data'] }),
   })
 }
