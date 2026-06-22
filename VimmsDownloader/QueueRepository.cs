@@ -353,16 +353,22 @@ class QueueRepository
                 }
             }
 
+            // Resolve the catalog game identity from (source, source_id) so the completion carries a
+            // source-agnostic game_id (Phase C / C1). Vimm items map by vault URL → catalog_game.vault_id;
+            // archive (and unmatched) items leave game_id NULL and fall back to filename downstream.
+            var gameId = await ResolveGameIdAsync(db, (SqliteTransaction)tx, source, sourceId);
+
             await ExecTxAsync(db, (SqliteTransaction)tx, "DELETE FROM queued_urls WHERE id = $id", ("$id", id));
             await using var ins = db.CreateCommand();
             ins.Transaction = (SqliteTransaction)tx;
-            ins.CommandText = "INSERT INTO completed_urls (url, filename, filepath, completed_at, format, source, source_id) VALUES ($url, $filename, $filepath, datetime('now'), $format, $source, $sourceId)";
+            ins.CommandText = "INSERT INTO completed_urls (url, filename, filepath, completed_at, format, source, source_id, game_id) VALUES ($url, $filename, $filepath, datetime('now'), $format, $source, $sourceId, $gameId)";
             ins.Parameters.AddWithValue("$url", url);
             ins.Parameters.AddWithValue("$filename", filename);
             ins.Parameters.AddWithValue("$filepath", filepath);
             ins.Parameters.AddWithValue("$format", format);
             ins.Parameters.AddWithValue("$source", source);
             ins.Parameters.AddWithValue("$sourceId", sourceId);
+            ins.Parameters.AddWithValue("$gameId", (object?)gameId ?? DBNull.Value);
             await ins.ExecuteNonQueryAsync();
             await tx.CommitAsync();
         }
@@ -371,6 +377,26 @@ class QueueRepository
             await tx.RollbackAsync();
             throw;
         }
+    }
+
+    /// <summary>
+    /// Resolve a completed item's catalog game_id from its (source, source_id), or null when it can't
+    /// be resolved (archive items have no inline hash here; unmatched/legacy items stay filename-keyed).
+    /// Vimm items carry source_id = the vault URL, which maps onto catalog_game.vault_id. Mirrors the
+    /// best-effort backfill in migration 022 so new completions and historical rows resolve identically.
+    /// </summary>
+    private static async Task<long?> ResolveGameIdAsync(SqliteConnection db, SqliteTransaction tx, string source, string sourceId)
+    {
+        if (!string.Equals(source, "vimm", StringComparison.OrdinalIgnoreCase)) return null;
+        const string prefix = "https://vimm.net/vault/";
+        if (!sourceId.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return null;
+
+        await using var cmd = db.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = "SELECT id FROM catalog_game WHERE vault_id IS NOT NULL AND $sid = 'https://vimm.net/vault/' || vault_id LIMIT 1";
+        cmd.Parameters.AddWithValue("$sid", sourceId);
+        var v = await cmd.ExecuteScalarAsync();
+        return v is null || v == DBNull.Value ? null : Convert.ToInt64(v);
     }
 
     public async Task MoveToFrontAsync(int queueId)
@@ -521,13 +547,14 @@ class QueueRepository
         }
     }
 
-    public async Task AppendEventAsync(string itemName, string eventType, string? phase, string? message, string? data, string? correlationId = null)
+    public async Task AppendEventAsync(string itemName, string eventType, string? phase, string? message, string? data, string? correlationId = null,
+        long? gameId = null, int? format = null, string? source = null)
     {
         await using var db = await OpenAsync();
         await using var cmd = db.CreateCommand();
         cmd.CommandText = """
-            INSERT INTO events (item_name, event_type, phase, message, data, timestamp, correlation_id)
-            VALUES ($item, $type, $phase, $msg, $data, datetime('now'), $cid)
+            INSERT INTO events (item_name, event_type, phase, message, data, timestamp, correlation_id, game_id, format, source)
+            VALUES ($item, $type, $phase, $msg, $data, datetime('now'), $cid, $gameId, $format, $source)
         """;
         cmd.Parameters.AddWithValue("$item", itemName);
         cmd.Parameters.AddWithValue("$type", eventType);
@@ -535,6 +562,11 @@ class QueueRepository
         cmd.Parameters.AddWithValue("$msg", (object?)message ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$data", (object?)data ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$cid", (object?)correlationId ?? DBNull.Value);
+        // game_id/format/source carry the source-agnostic catalog identity (Phase C / C1). Callers
+        // pass them once the pipeline + bridges are cut over to item_key in C2; null until then.
+        cmd.Parameters.AddWithValue("$gameId", (object?)gameId ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$format", (object?)format ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$source", (object?)source ?? DBNull.Value);
         await cmd.ExecuteNonQueryAsync();
     }
 
