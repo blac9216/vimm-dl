@@ -28,6 +28,12 @@ function compatClass(status: string): string {
   }
 }
 
+// Short label for a DAT-source origin (D2b-2): the provenance of the catalog entry, distinct from the
+// download source. 'daily-bundle' → 'bundle'; anything else shown as-is (e.g. 'libretro').
+function originLabel(origin: string): string {
+  return origin === 'daily-bundle' ? 'bundle' : origin
+}
+
 // Human label for a download format alt (PS3 conventions; mirrors the backend FormatLabel).
 function fmtLabel(alt: number): string {
   switch (alt) {
@@ -286,6 +292,13 @@ export function LibraryPanel() {
             {g.vimmMatch === 'none' && (
               <span className="text-[9px] px-1.5 py-0.5 rounded bg-surface-3/40 text-text-4
                 border border-border/30 shrink-0" title="No Vimm match found — rectify manually">no Vimm</span>
+            )}
+            {g.origins.length > 0 && (
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-surface-3/30 text-text-4
+                border border-border/25 shrink-0 hidden sm:inline"
+                title={`Catalog DAT source: ${g.origins.map(originLabel).join(', ')}`}>
+                {g.origins.map(originLabel).join('+')}
+              </span>
             )}
             {g.size > 0 && (
               <span className="text-[10px] text-text-4 font-mono tabular-nums shrink-0">{fmtBytes(g.size)}</span>

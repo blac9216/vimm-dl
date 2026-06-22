@@ -110,6 +110,7 @@ export interface CatalogGame {
   availableFormats: number[] // Vimm download format alts offered for this game
   ownedFormats: number[]     // download formats already on disk for this game
   ownedSources: string[]     // sources the on-disk copies came from (e.g. 'vimm', 'archive')
+  origins: string[]          // D2b-2: DAT-source origin(s) backing this catalog entry ('libretro', 'daily-bundle')
 }
 
 export interface CatalogGamesResponse {

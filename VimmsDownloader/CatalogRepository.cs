@@ -559,7 +559,9 @@ class CatalogRepository : ICatalogStore
                        -- Phase C (C5): consolidate this game's formats/sources into the one row.
                        (SELECT GROUP_CONCAT(f.alt) FROM catalog_vimm_format f WHERE f.game_id = g.id) AS avail_formats,
                        (SELECT GROUP_CONCAT(DISTINCT cu.format) FROM completed_urls cu WHERE cu.game_id = g.id) AS owned_formats,
-                       (SELECT GROUP_CONCAT(DISTINCT cu.source) FROM completed_urls cu WHERE cu.game_id = g.id) AS owned_sources
+                       (SELECT GROUP_CONCAT(DISTINCT cu.source) FROM completed_urls cu WHERE cu.game_id = g.id) AS owned_sources,
+                       -- D2b-2 (#167): the DAT-source origin(s) that contributed this game (libretro / daily-bundle).
+                       (SELECT GROUP_CONCAT(DISTINCT gs.origin) FROM catalog_game_source gs WHERE gs.game_id = g.id) AS origins
                 FROM catalog_game g JOIN catalog_system s ON s.id = g.system_id
                 {where}
                 ORDER BY g.name
@@ -585,7 +587,8 @@ class CatalogRepository : ICatalogStore
                     r.IsDBNull(10) ? null : r.GetString(10),
                     ParseIntCsv(r.IsDBNull(11) ? null : r.GetString(11)),
                     ParseIntCsv(r.IsDBNull(12) ? null : r.GetString(12)),
-                    ParseStrCsv(r.IsDBNull(13) ? null : r.GetString(13))));
+                    ParseStrCsv(r.IsDBNull(13) ? null : r.GetString(13)),
+                    ParseStrCsv(r.IsDBNull(14) ? null : r.GetString(14))));
         }
         return (total, games);
     }
