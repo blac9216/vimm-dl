@@ -95,17 +95,21 @@ public class VimmFallbackTests
     // --- helpers ---
 
     private async Task<long> Seed(string console) =>
-        await ScalarLong($"INSERT INTO catalog_system (dat_name, console, source) VALUES ('DAT {console}', '{console}', 'redump') RETURNING id");
+        await ScalarLong("INSERT INTO catalog_system (dat_name, console, source) VALUES ('DAT ' || $console, $console, 'redump') RETURNING id",
+            ("$console", console));
 
     private async Task<long> AddGame(long systemId, string name) =>
-        await ScalarLong($"INSERT INTO catalog_game (system_id, name) VALUES ({systemId}, '{name}') RETURNING id");
+        await ScalarLong("INSERT INTO catalog_game (system_id, name) VALUES ($sid, $name) RETURNING id",
+            ("$sid", systemId), ("$name", name));
 
-    private async Task<long> ScalarLong(string sql)
+    private async Task<long> ScalarLong(string sql, params (string Name, object Value)[] parameters)
     {
         await using var db = new SqliteConnection(_connStr);
         await db.OpenAsync();
         await using var cmd = db.CreateCommand();
         cmd.CommandText = sql;
+        foreach (var (name, value) in parameters)
+            cmd.Parameters.AddWithValue(name, value);
         return Convert.ToInt64(await cmd.ExecuteScalarAsync());
     }
 
