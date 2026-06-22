@@ -255,45 +255,42 @@ class CatalogRepository : ICatalogStore
         await tx.CommitAsync(ct);
     }
 
-    /// <summary>Owned games + their file path + the catalog CRC32s to verify against.</summary>
-    public async Task<List<(long GameId, string Filepath, HashSet<string> Crcs)>> GetOwnedForVerifyAsync()
-    {
-        await using var db = await OpenAsync();
-        await using var cmd = db.CreateCommand();
-        cmd.CommandText = """
-            SELECT o.game_id, o.filepath, r.crc
-            FROM catalog_owned o JOIN catalog_rom r ON r.game_id = o.game_id
-            WHERE r.crc IS NOT NULL
-            ORDER BY o.game_id
-            """;
-        await using var rd = await cmd.ExecuteReaderAsync();
-        var map = new Dictionary<long, (string Path, HashSet<string> Crcs)>();
-        while (await rd.ReadAsync())
-        {
-            var gid = rd.GetInt64(0);
-            if (!map.TryGetValue(gid, out var e))
-                map[gid] = e = (rd.GetString(1), new HashSet<string>(StringComparer.OrdinalIgnoreCase));
-            e.Crcs.Add(rd.GetString(2));
-        }
-        return map.Select(kv => (kv.Key, kv.Value.Path, kv.Value.Crcs)).ToList();
-    }
-
-    /// <summary>Persist verify results (game_id → matched?) onto catalog_owned.</summary>
-    public async Task SetVerifiedAsync(IReadOnlyDictionary<long, bool> results, CancellationToken ct)
+    /// <summary>
+    /// Hash-based owned detection (Phase C / C3): mark each matched game owned + verified, recording
+    /// which hash confirmed it. Name-independent — a match may add a game that name-scanning missed.
+    /// Clears <c>verified</c> on all owned rows first so the flag means "hash-confirmed this run"
+    /// (games we couldn't confirm — archives, mismatches — fall back to verified=0). Upsert by game_id.
+    /// </summary>
+    public async Task MarkOwnedByHashAsync(IReadOnlyDictionary<long, (string Path, string Hash)> matched, CancellationToken ct)
     {
         await using var db = await OpenAsync();
         await using var tx = (SqliteTransaction)await db.BeginTransactionAsync(ct);
-        await using (var cmd = db.CreateCommand())
+
+        await using (var reset = db.CreateCommand())
         {
-            cmd.Transaction = tx;
-            cmd.CommandText = "UPDATE catalog_owned SET verified = $v WHERE game_id = $g";
-            var pv = cmd.Parameters.Add("$v", SqliteType.Integer);
-            var pg = cmd.Parameters.Add("$g", SqliteType.Integer);
-            foreach (var (gid, ok) in results)
+            reset.Transaction = tx;
+            reset.CommandText = "UPDATE catalog_owned SET verified = 0, verified_hash = NULL";
+            await reset.ExecuteNonQueryAsync(ct);
+        }
+        await using (var ins = db.CreateCommand())
+        {
+            ins.Transaction = tx;
+            ins.CommandText = """
+                INSERT INTO catalog_owned (game_id, filepath, matched_at, verified, verified_hash)
+                VALUES ($g, $p, datetime('now'), 1, $h)
+                ON CONFLICT(game_id) DO UPDATE SET
+                    filepath = excluded.filepath, matched_at = excluded.matched_at,
+                    verified = 1, verified_hash = excluded.verified_hash
+                """;
+            var pg = ins.Parameters.Add("$g", SqliteType.Integer);
+            var pp = ins.Parameters.Add("$p", SqliteType.Text);
+            var ph = ins.Parameters.Add("$h", SqliteType.Text);
+            foreach (var (gid, (path, hash)) in matched)
             {
-                pv.Value = ok ? 1 : 0;
                 pg.Value = gid;
-                await cmd.ExecuteNonQueryAsync(ct);
+                pp.Value = path;
+                ph.Value = hash;
+                await ins.ExecuteNonQueryAsync(ct);
             }
         }
         await tx.CommitAsync(ct);
