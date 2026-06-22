@@ -45,9 +45,14 @@ static class FileEndpoints
                     item.CompletedAt, item.Format);
             }).ToList();
 
+            var activeDownloads = queue.ActiveDownloads
+                .Select(a => new ActiveDownloadDto(a.Key, a.Url, a.Source, a.Filename, a.State,
+                    a.Progress, a.Pct, a.SpeedMBps, a.Downloaded, a.Total))
+                .ToList();
+
             return new DataResponse(await repo.GetQueuedItemsAsync(), history,
                 queue.IsRunning, queue.IsPaused, queue.CurrentFile, queue.CurrentUrl,
-                queue.CurrentProgress, queue.TotalBytes, queue.DownloadedBytes);
+                queue.CurrentProgress, queue.TotalBytes, queue.DownloadedBytes, activeDownloads);
         });
     }
 
