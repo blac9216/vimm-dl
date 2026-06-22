@@ -71,6 +71,8 @@ export interface HistoryItem {
   trace: PipelineTrace | null
   completedAt: string | null
   format: number | null
+  /** Catalog game identity (#151/B) — group completed copies of one game; null for legacy/unmatched. */
+  gameId: number | null
 }
 
 export interface MetaResponse {

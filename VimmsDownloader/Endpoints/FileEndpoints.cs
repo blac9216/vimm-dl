@@ -42,7 +42,7 @@ static class FileEndpoints
                     item.Title, item.Platform, item.Size,
                     fileExists, fileSize,
                     trace,
-                    item.CompletedAt, item.Format);
+                    item.CompletedAt, item.Format, item.GameId);
             }).ToList();
 
             var activeDownloads = queue.ActiveDownloads

@@ -61,6 +61,24 @@ public class PipelineIdentityTests
     }
 
     [TestMethod]
+    public async Task GetCompletedItemsEnriched_SurfacesGameId()
+    {
+        // #151/B: /api/data history carries the catalog game_id so the Completed list groups by game.
+        var gameId = await SeedGame(vaultId: 1001);
+        var repo = new QueueRepository();
+        await repo.InitAsync(_connStr, NullLogger.Instance);
+        await repo.AddToQueueAsync("https://vimm.net/vault/1001", 1);
+        var next = (await repo.GetNextQueueItemAsync())!.Value;
+        await repo.CompleteItemAsync(next.Id, next.Url, "Game.7z",
+            Path.Combine(_dir, "downloads", "completed", "Game.7z"), next.Format);
+
+        var item = (await repo.GetCompletedItemsEnrichedAsync()).Single(i => i.Filename == "Game.7z");
+
+        Assert.AreEqual(gameId, item.GameId);
+        Assert.AreEqual(1, item.Format);
+    }
+
+    [TestMethod]
     public async Task CompleteItem_ArchiveSource_LeavesGameIdNull()
     {
         await SeedGame(vaultId: 1001);
