@@ -9,7 +9,12 @@ record QueueReorderRequest(List<int> Ids);
 record VersionResponse(string Current, string? Latest, bool HasUpdate, string? Url, string? Changelog);
 record DataResponse(List<QueuedItem> Queued, List<HistoryItem> History,
     bool IsRunning, bool IsPaused, string? CurrentFile, string? CurrentUrl,
-    string? Progress, long TotalBytes, long DownloadedBytes);
+    string? Progress, long TotalBytes, long DownloadedBytes,
+    List<ActiveDownloadDto> ActiveDownloads);
+// Per-download state for N concurrent downloads (EPIC #113 / A1). The CurrentFile/CurrentUrl/Progress
+// fields above remain as back-compat aliases of the first active download for one release.
+record ActiveDownloadDto(string Key, string Url, string Source, string? Filename, string State,
+    string? Progress, double Pct, double SpeedMBps, long Downloaded, long Total);
 record TraceStep(string Name, string Status, string? Message, long? DurationMs = null);
 record PipelineTrace(string PipelineType, List<TraceStep> Steps, string? IsoFilename, long? IsoSize, List<string> Actions);
 

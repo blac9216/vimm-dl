@@ -31,6 +31,7 @@ class DownloadQueue
     public string? CurrentProgress => _service.CurrentProgress;
     public long TotalBytes => _service.TotalBytes;
     public long DownloadedBytes => _service.DownloadedBytes;
+    public IReadOnlyList<Module.Download.ActiveDownload> ActiveDownloads => _service.ActiveDownloads;
 
     public string GetBasePath() => _service.GetBasePath();
     public void Stop() => _service.Stop();

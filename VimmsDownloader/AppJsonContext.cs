@@ -14,6 +14,8 @@ using Module.Sync.Bridge;
 [JsonSerializable(typeof(QueuedItem))]
 [JsonSerializable(typeof(HistoryItem))]
 [JsonSerializable(typeof(List<HistoryItem>))]
+[JsonSerializable(typeof(ActiveDownloadDto))]
+[JsonSerializable(typeof(List<ActiveDownloadDto>))]
 [JsonSerializable(typeof(MetaResponse))]
 [JsonSerializable(typeof(FormatOption))]
 [JsonSerializable(typeof(List<FormatOption>))]

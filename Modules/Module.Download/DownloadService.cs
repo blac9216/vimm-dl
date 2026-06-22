@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using Module.Core;
 using Module.Download.Bridge;
@@ -13,13 +14,24 @@ public class DownloadService
     private readonly ISourceRegistry _sources;
     private CancellationTokenSource? _cts;
 
+    // Per-download state (EPIC #113 / A1): the set of in-flight downloads, keyed by queue item id.
+    // At one worker there is at most one entry, so the back-compat aliases below behave as before.
+    private readonly ConcurrentDictionary<string, ActiveDownload> _active = new();
+
     public bool IsRunning { get; private set; }
     public bool IsPaused { get; private set; }
-    public string? CurrentFile { get; private set; }
-    public string? CurrentUrl { get; private set; }
-    public string? CurrentProgress { get; private set; }
-    public long TotalBytes { get; private set; }
-    public long DownloadedBytes { get; private set; }
+
+    /// <summary>Snapshot of all in-flight downloads, each with independent progress.</summary>
+    public IReadOnlyList<ActiveDownload> ActiveDownloads => _active.Values.ToList();
+
+    // Back-compat aliases of the first active download (retained one release while callers move to
+    // ActiveDownloads). Null/0 when idle, matching the former singleton fields.
+    private ActiveDownload? First => _active.Values.FirstOrDefault();
+    public string? CurrentFile => First is { } d ? d.Filename ?? d.Url : null;
+    public string? CurrentUrl => First?.Url;
+    public string? CurrentProgress => First?.Progress;
+    public long TotalBytes => First?.Total ?? 0;
+    public long DownloadedBytes => First?.Downloaded ?? 0;
     public string? ActiveDownloadPath { get; private set; }
 
     private string _downloadPath = "";
@@ -89,9 +101,8 @@ public class DownloadService
                 if (item == null) break;
 
                 var (id, url, format) = item;
-                CurrentFile = url;
-                CurrentUrl = url;
-                CurrentProgress = "starting";
+                var active = new ActiveDownload { Key = id.ToString(), Url = url, Source = item.Source, Progress = "starting" };
+                _active[active.Key] = active;
                 await Emit(new DownloadStatusEvent($"Processing: {url}"));
 
                 try
@@ -136,12 +147,14 @@ public class DownloadService
                         await Emit(new DownloadStatusEvent($"Console folder: {consoleDir} ({resolved.Platform})"));
                     }
 
-                    var result = await StreamDownload(
+                    active.State = "downloading";
+                    var result = await StreamDownload(active,
                         http, resolved.DownloadUrl, resolved.RequestHeaders, resolved.SuggestedFilename, resolved.Title,
                         downloadingPath, itemCompletedPath, ct);
 
                     if (!result.IsOk)
                     {
+                        active.State = "error";
                         _log.LogError("Download failed for {Url}: {Error}", url, result.Error);
                         await Emit(new DownloadErrorEvent($"Failed: {url} - {result.Error}"));
                         var backoff = rand.Next(15, 46);
@@ -151,6 +164,7 @@ public class DownloadService
                     }
 
                     var (filename, completedFilePath) = result.Value;
+                    active.State = "done";
 
                     await provider.CompleteAsync(id, url, filename, completedFilePath, format);
                     await Emit(new DownloadCompletedEvent(url, filename, completedFilePath));
@@ -170,6 +184,7 @@ public class DownloadService
                     await Emit(new DownloadStatusEvent($"Rate limited: {url} - waiting 60s before retry"));
                     await Task.Delay(60_000, ct);
                 }
+                finally { _active.TryRemove(active.Key, out _); }
             }
 
             await Emit(new DownloadDoneEvent());
@@ -189,21 +204,16 @@ public class DownloadService
         finally
         {
             IsRunning = false;
-            if (!IsPaused)
-            {
-                CurrentFile = null;
-                CurrentUrl = null;
-                CurrentProgress = null;
-                TotalBytes = 0;
-                DownloadedBytes = 0;
-            }
+            // Per-item finallys already removed each ActiveDownload; clear defensively. The Current*
+            // aliases derive from this set, so they read null/0 once it's empty.
+            _active.Clear();
             _cts?.Dispose();
             _cts = null;
         }
     }
 
     private async Task<Result<(string Filename, string CompletedPath)>> StreamDownload(
-        HttpClient http, string downloadUrl, IReadOnlyList<(string Name, string Value)>? extraHeaders,
+        ActiveDownload active, HttpClient http, string downloadUrl, IReadOnlyList<(string Name, string Value)>? extraHeaders,
         string? suggestedFilename, string gameTitle, string downloadingPath, string completedPath, CancellationToken ct)
     {
         // Apply any source-specific request headers (e.g. Vimm's Referer / Sec-Fetch-Site).
@@ -226,11 +236,11 @@ public class DownloadService
             ?? (string.IsNullOrEmpty(suggestedFilename) ? $"{gameTitle}.zip" : suggestedFilename);
         filename = string.Join("_", filename.Split(Path.GetInvalidFileNameChars()));
 
-        CurrentFile = filename;
+        active.Filename = filename;
         var filePath = Path.Combine(downloadingPath, filename);
         var completedFilePath = Path.Combine(completedPath, filename);
         var totalBytes = headResponse.Content.Headers.ContentLength ?? 0;
-        TotalBytes = totalBytes;
+        active.Total = totalBytes;
 
         long existingBytes = 0;
         if (File.Exists(filePath))
@@ -297,7 +307,7 @@ public class DownloadService
         {
             await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
             downloaded += bytesRead;
-            DownloadedBytes = downloaded;
+            active.Downloaded = downloaded;
 
             var now = DateTime.UtcNow;
             var elapsed = (now - lastReport).TotalSeconds;
@@ -310,8 +320,10 @@ public class DownloadService
                 var progressMsg = totalBytes > 0
                     ? $"{filename}: {mb:F2} / {totalMb:F2} MB ({pct:F2}%) [{speedMBps:F2} MB/s]"
                     : $"{filename}: {mb:F2} MB downloaded [{speedMBps:F2} MB/s]";
-                CurrentProgress = progressMsg;
-                await Emit(new DownloadProgressEvent(filename, progressMsg, pct, speedMBps, downloaded, totalBytes));
+                active.Progress = progressMsg;
+                active.Pct = pct;
+                active.SpeedMBps = speedMBps;
+                await Emit(new DownloadProgressEvent(filename, progressMsg, pct, speedMBps, downloaded, totalBytes, active.Key));
                 lastReport = now;
                 lastReportBytes = downloaded;
             }
