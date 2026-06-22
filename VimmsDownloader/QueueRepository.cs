@@ -399,6 +399,59 @@ class QueueRepository
         return v is null || v == DBNull.Value ? null : Convert.ToInt64(v);
     }
 
+    /// <summary>
+    /// Resolve the catalog identity (game_id + download format + source) for a pipeline/download event,
+    /// given its item name — a completed filename, or a source url/id for download-lifecycle events.
+    /// Completed rows already carry the identity (from C1); in-flight items are resolved from the queue
+    /// via the same vault-URL mapping. Returns nulls for legacy / unmatched items so they keep grouping
+    /// by filename. Used by the SignalR bridges to stamp events with the source-agnostic identity (C2).
+    /// </summary>
+    public async Task<(long? GameId, int? Format, string? Source)> ResolveEventIdentityAsync(string itemName)
+    {
+        if (string.IsNullOrEmpty(itemName) || itemName.StartsWith('_'))
+            return (null, null, null);
+
+        await using var db = await OpenAsync();
+
+        // A completed item already has its identity resolved (game_id from C1, format, source).
+        await using (var cmd = db.CreateCommand())
+        {
+            cmd.CommandText = """
+                SELECT game_id, format, source FROM completed_urls
+                WHERE filename = $x OR url = $x OR source_id = $x
+                ORDER BY id DESC LIMIT 1
+            """;
+            cmd.Parameters.AddWithValue("$x", itemName);
+            await using var r = await cmd.ExecuteReaderAsync();
+            if (await r.ReadAsync())
+                return (r.IsDBNull(0) ? null : r.GetInt64(0),
+                        r.IsDBNull(1) ? null : r.GetInt32(1),
+                        r.IsDBNull(2) ? null : r.GetString(2));
+        }
+
+        // An in-flight item lives in the queue (no game_id column there) — resolve via the vault URL.
+        await using (var cmd = db.CreateCommand())
+        {
+            cmd.CommandText = """
+                SELECT q.format, q.source,
+                       (SELECT g.id FROM catalog_game g
+                         WHERE g.vault_id IS NOT NULL AND q.source = 'vimm'
+                           AND q.source_id = 'https://vimm.net/vault/' || g.vault_id LIMIT 1) AS game_id
+                FROM queued_urls q
+                WHERE q.url = $x OR q.source_id = $x
+                ORDER BY q.id LIMIT 1
+            """;
+            cmd.Parameters.AddWithValue("$x", itemName);
+            await using var r = await cmd.ExecuteReaderAsync();
+            if (await r.ReadAsync())
+                return (r.IsDBNull(2) ? null : r.GetInt64(2),
+                        r.IsDBNull(0) ? null : r.GetInt32(0),
+                        r.IsDBNull(1) ? null : r.GetString(1));
+        }
+
+        return (null, null, null);
+    }
+
     public async Task MoveToFrontAsync(int queueId)
     {
         await using var db = await OpenAsync();
@@ -466,20 +519,20 @@ class QueueRepository
         return items;
     }
 
-    public async Task<EventsResponse> GetEventsAsync(int limit = 200, int offset = 0, string? type = null, string? item = null)
+    public async Task<EventsResponse> GetEventsAsync(int limit = 200, int offset = 0, string? type = null, string? item = null, long? gameId = null)
     {
         await using var db = await OpenAsync();
 
         // Count
         await using var countCmd = db.CreateCommand();
-        var where = BuildEventWhere(countCmd, type, item);
+        var where = BuildEventWhere(countCmd, type, item, gameId);
         countCmd.CommandText = $"SELECT COUNT(*) FROM events{where}";
         var total = Convert.ToInt32(await countCmd.ExecuteScalarAsync());
 
         // Rows
         await using var cmd = db.CreateCommand();
-        var whereRows = BuildEventWhere(cmd, type, item);
-        cmd.CommandText = $"SELECT id, item_name, event_type, phase, message, data, timestamp, correlation_id FROM events{whereRows} ORDER BY id DESC LIMIT $limit OFFSET $offset";
+        var whereRows = BuildEventWhere(cmd, type, item, gameId);
+        cmd.CommandText = $"SELECT id, item_name, event_type, phase, message, data, timestamp, correlation_id, game_id, format FROM events{whereRows} ORDER BY id DESC LIMIT $limit OFFSET $offset";
         cmd.Parameters.AddWithValue("$limit", limit);
         cmd.Parameters.AddWithValue("$offset", offset);
 
@@ -492,13 +545,21 @@ class QueueRepository
                 r.IsDBNull(4) ? null : r.GetString(4),
                 r.IsDBNull(5) ? null : r.GetString(5),
                 r.GetString(6),
-                r.IsDBNull(7) ? null : r.GetString(7)));
+                r.IsDBNull(7) ? null : r.GetString(7),
+                r.IsDBNull(8) ? null : r.GetInt64(8),
+                r.IsDBNull(9) ? null : r.GetInt32(9)));
         return new EventsResponse(events, total);
     }
 
-    private static string BuildEventWhere(SqliteCommand cmd, string? type, string? item)
+    private static string BuildEventWhere(SqliteCommand cmd, string? type, string? item, long? gameId = null)
     {
         var clauses = new List<string>();
+        if (gameId is long g)
+        {
+            // Per-game grouping (Phase C / C2): all events for a catalog game across formats/retries.
+            clauses.Add("game_id = $gameId");
+            cmd.Parameters.AddWithValue("$gameId", g);
+        }
         if (!string.IsNullOrEmpty(type))
         {
             // Prefix match for category filters (e.g. "download" matches "download_status", "download_error", etc.)

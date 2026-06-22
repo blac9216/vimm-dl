@@ -255,6 +255,9 @@ export interface EventRow {
   data: string | null
   timestamp: string
   correlationId: string | null
+  /** Catalog game identity (Phase C) — present once an event resolves to a catalog game; null for legacy/unmatched. */
+  gameId: number | null
+  format: number | null
 }
 
 export interface EventsResponse {
