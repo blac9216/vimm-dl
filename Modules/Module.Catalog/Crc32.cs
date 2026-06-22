@@ -35,4 +35,21 @@ public static class Crc32
 
     /// <summary>Format a raw CRC32 value (e.g. from a zip central directory) as 8-char uppercase hex.</summary>
     public static string ToHex(uint crc) => crc.ToString("X8");
+
+    // Incremental API — lets callers fold CRC32 into a single streaming pass alongside other hashes
+    // (e.g. FileHashes computing CRC32 + MD5 + SHA1 in one read) without exposing the lookup table.
+
+    /// <summary>Start an incremental CRC32 accumulation.</summary>
+    public static uint Begin() => 0xFFFFFFFF;
+
+    /// <summary>Fold a chunk of bytes into a running CRC32 from <see cref="Begin"/>.</summary>
+    public static uint Append(uint crc, ReadOnlySpan<byte> data)
+    {
+        for (int i = 0; i < data.Length; i++)
+            crc = Table[(crc ^ data[i]) & 0xFF] ^ (crc >> 8);
+        return crc;
+    }
+
+    /// <summary>Finalize a running CRC32 to 8-char uppercase hex.</summary>
+    public static string Finish(uint crc) => ToHex(crc ^ 0xFFFFFFFF);
 }
