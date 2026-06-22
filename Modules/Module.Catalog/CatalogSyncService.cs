@@ -57,7 +57,7 @@ public sealed class CatalogSyncService(ICatalogStore store, ILogger<CatalogSyncS
             var parser = new ClrMameProParser();
             var games = parser.Parse(new StringReader(content)).ToList();
             var systemId = await store.UpsertSystemAsync(sys.DatName, sys.Console, sys.Group, ct);
-            await store.ReplaceSystemGamesAsync(systemId, games, parser.Header?.Version, ct);
+            await store.MergeSystemGamesAsync(systemId, source.Origin, games, parser.Header?.Version, ct);
             return Result<int>.Ok(games.Count);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

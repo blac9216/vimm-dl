@@ -5,10 +5,10 @@ using Module.Catalog;
 namespace VimmsDownloader.Tests;
 
 /// <summary>
-/// Exercises the REAL catalog sync path (migration 024 + <see cref="CatalogRepository.ReplaceSystemGamesAsync"/>
+/// Exercises the REAL catalog sync path (migration 024 + <see cref="CatalogRepository.MergeSystemGamesAsync"/>
 /// + <see cref="CanonicalKey"/>) against a temp SQLite file: the canonical content key is persisted per
 /// game, and the SAME ROM content synced under two different systems/DATs yields the SAME key — the
-/// cross-source identity D2 (#129) is built on (the actual row-merge lands with the 2nd source in D3).
+/// cross-source identity D2 (#129) is built on (within-system row-merge lands in D2b / #162).
 /// </summary>
 [TestClass]
 public class CanonicalKeyRepositoryTests
@@ -62,8 +62,8 @@ public class CanonicalKeyRepositoryTests
         var sysA = await _repo.UpsertSystemAsync("Mirror A - SNES", "snes", "no-intro", default);
         var sysB = await _repo.UpsertSystemAsync("Mirror B - SNES", "snes", "no-intro", default);
 
-        await _repo.ReplaceSystemGamesAsync(sysA, [Game("Quest (USA)", Rom("q.sfc", sha1: "AAAA"))], "v1", default);
-        await _repo.ReplaceSystemGamesAsync(sysB, [Game("Quest (Europe)", Rom("q.sfc", sha1: "aaaa"))], "v1", default);
+        await _repo.MergeSystemGamesAsync(sysA, "libretro", [Game("Quest (USA)", Rom("q.sfc", sha1: "AAAA"))], "v1", default);
+        await _repo.MergeSystemGamesAsync(sysB, "libretro", [Game("Quest (Europe)", Rom("q.sfc", sha1: "aaaa"))], "v1", default);
 
         var keyA = await KeyOf("Quest (USA)");
         var keyB = await KeyOf("Quest (Europe)");
@@ -75,7 +75,7 @@ public class CanonicalKeyRepositoryTests
     public async Task DifferentContent_GetsDifferentKeys_AndCrcOnlyIsNull()
     {
         var sys = await _repo.UpsertSystemAsync("Mirror A - SNES", "snes", "no-intro", default);
-        await _repo.ReplaceSystemGamesAsync(sys,
+        await _repo.MergeSystemGamesAsync(sys, "libretro",
         [
             Game("Alpha", Rom("a.sfc", sha1: "1111")),
             Game("Beta", Rom("b.sfc", sha1: "2222")),
@@ -91,13 +91,13 @@ public class CanonicalKeyRepositoryTests
     public async Task MultiDisc_KeyedOnSortedSet_SurvivesResync()
     {
         var sys = await _repo.UpsertSystemAsync("Redump - PS1", "psx", "redump", default);
-        await _repo.ReplaceSystemGamesAsync(sys,
+        await _repo.MergeSystemGamesAsync(sys, "libretro",
             [Game("Epic (USA)", Rom("d1.bin", sha1: "1111"), Rom("d2.bin", sha1: "2222"))], "v1", default);
         var first = await KeyOf("Epic (USA)");
         StringAssert.StartsWith(first, "set:");
 
-        // Re-sync the same system (DELETE + reinsert) recomputes the same key — stable identity.
-        await _repo.ReplaceSystemGamesAsync(sys,
+        // Re-sync the same system/origin: the set key matches, so the row merges onto itself — stable identity.
+        await _repo.MergeSystemGamesAsync(sys, "libretro",
             [Game("Epic (USA)", Rom("d2.bin", sha1: "2222"), Rom("d1.bin", sha1: "1111"))], "v2", default);
         Assert.AreEqual(first, await KeyOf("Epic (USA)"));
     }

@@ -37,47 +37,44 @@ class CatalogRepository : ICatalogStore
         return Convert.ToInt64(await cmd.ExecuteScalarAsync(ct));
     }
 
-    public async Task ReplaceSystemGamesAsync(long systemId, IReadOnlyList<DatGame> games, string? datVersion, CancellationToken ct)
+    public async Task MergeSystemGamesAsync(long systemId, string origin, IReadOnlyList<DatGame> games, string? datVersion, CancellationToken ct)
     {
         await using var db = await OpenAsync();
         await using var tx = (SqliteTransaction)await db.BeginTransactionAsync(ct);
 
-        // Clear the system's existing rows so a re-sync replaces rather than appends.
-        await using (var del = db.CreateCommand())
+        // Snapshot the system's current games: the content key → row map is the dedup anchor (a keyed
+        // incoming game whose key already exists MERGES onto that row), and the set of rows THIS origin
+        // currently sources lets us drop only this origin's stale games on a re-sync (never another's).
+        var keyedExisting = new Dictionary<string, long>(StringComparer.Ordinal);
+        var originGameIds = new HashSet<long>();
+        await using (var sel = db.CreateCommand())
         {
-            del.Transaction = tx;
-            del.CommandText = """
-                DELETE FROM catalog_rom WHERE game_id IN (SELECT id FROM catalog_game WHERE system_id = $sid);
-                DELETE FROM catalog_game WHERE system_id = $sid;
+            sel.Transaction = tx;
+            sel.CommandText = """
+                SELECT g.id, g.canonical_key,
+                       EXISTS(SELECT 1 FROM catalog_game_source s WHERE s.game_id = g.id AND s.origin = $origin) AS mine
+                FROM catalog_game g WHERE g.system_id = $sid
                 """;
-            del.Parameters.AddWithValue("$sid", systemId);
-            await del.ExecuteNonQueryAsync(ct);
+            sel.Parameters.AddWithValue("$sid", systemId);
+            sel.Parameters.AddWithValue("$origin", origin);
+            await using var r = await sel.ExecuteReaderAsync(ct);
+            while (await r.ReadAsync(ct))
+            {
+                var gid = r.GetInt64(0);
+                if (!r.IsDBNull(1)) keyedExisting[r.GetString(1)] = gid;
+                if (r.GetInt32(2) != 0) originGameIds.Add(gid);
+            }
         }
 
-        // 1G1R: title key per game + which variant is the parent (preferred) of its group.
-        var titleKeys = new string[games.Count];
-        var isParent = new bool[games.Count];
-        var groups = new Dictionary<string, List<int>>();
-        for (int i = 0; i < games.Count; i++)
-        {
-            var key = Dedup.TitleKey(games[i].Name);
-            titleKeys[i] = key;
-            if (!groups.TryGetValue(key, out var members)) groups[key] = members = [];
-            members.Add(i);
-        }
-        foreach (var members in groups.Values)
-        {
-            var variants = members.Select(idx => (games[idx].Name, games[idx].Region)).ToList();
-            isParent[members[Dedup.SelectParent(variants)]] = true;
-        }
-
+        var seen = new HashSet<long>();
         await using (var ig = db.CreateCommand())
         await using (var ir = db.CreateCommand())
+        await using (var isrc = db.CreateCommand())
         {
             ig.Transaction = tx;
             ig.CommandText = """
                 INSERT INTO catalog_game (system_id, name, region, serial, serial_key, languages, title_key, is_parent, canonical_key)
-                VALUES ($sid, $name, $region, $serial, $skey, $langs, $tkey, $parent, $ckey) RETURNING id
+                VALUES ($sid, $name, $region, $serial, $skey, $langs, $tkey, 0, $ckey) RETURNING id
                 """;
             ig.Parameters.AddWithValue("$sid", systemId);
             var gName = ig.Parameters.Add("$name", SqliteType.Text);
@@ -86,7 +83,6 @@ class CatalogRepository : ICatalogStore
             var gSkey = ig.Parameters.Add("$skey", SqliteType.Text);
             var gLangs = ig.Parameters.Add("$langs", SqliteType.Text);
             var gTkey = ig.Parameters.Add("$tkey", SqliteType.Text);
-            var gParent = ig.Parameters.Add("$parent", SqliteType.Integer);
             var gCkey = ig.Parameters.Add("$ckey", SqliteType.Text);
 
             ir.Transaction = tx;
@@ -101,51 +97,151 @@ class CatalogRepository : ICatalogStore
             var rMd5 = ir.Parameters.Add("$md5", SqliteType.Text);
             var rSha1 = ir.Parameters.Add("$sha1", SqliteType.Text);
 
-            for (int i = 0; i < games.Count; i++)
-            {
-                var g = games[i];
-                gName.Value = g.Name;
-                gRegion.Value = (object?)g.Region ?? DBNull.Value;
-                gSerial.Value = (object?)g.Serial ?? DBNull.Value;
-                // Normalize with the SAME function the compat table uses (RpcsCompat.NormalizeSerial),
-                // so catalog_game.serial_key and catalog_compat.serial_key join symmetrically (#48).
-                gSkey.Value = string.IsNullOrEmpty(g.Serial)
-                    ? DBNull.Value
-                    : RpcsCompat.NormalizeSerial(g.Serial);
-                gLangs.Value = g.Languages.Count > 0 ? string.Join(',', g.Languages) : DBNull.Value;
-                gTkey.Value = titleKeys[i];
-                gParent.Value = isParent[i] ? 1 : 0;
-                // Cross-source content identity (D2 / #129): hash-derived, name-independent.
-                gCkey.Value = (object?)CanonicalKey.Compute(g.Roms) ?? DBNull.Value;
-                var gid = Convert.ToInt64(await ig.ExecuteScalarAsync(ct));
+            // Bind (or refresh) this origin onto the game — idempotent on the (game_id, origin) unique.
+            isrc.Transaction = tx;
+            isrc.CommandText = """
+                INSERT INTO catalog_game_source (game_id, origin, dat_version) VALUES ($gid, $origin, $ver)
+                ON CONFLICT(game_id, origin) DO UPDATE SET dat_version = excluded.dat_version
+                """;
+            var sGid = isrc.Parameters.Add("$gid", SqliteType.Integer);
+            isrc.Parameters.AddWithValue("$origin", origin);
+            var sVer = isrc.Parameters.Add("$ver", SqliteType.Text);
 
-                foreach (var rom in g.Roms)
+            foreach (var g in games)
+            {
+                // Cross-source content identity (D2 / #129): hash-derived, name-independent. A keyed game
+                // already in the system is the SAME game from another origin → merge onto it; an unkeyed
+                // game (CRC-only/empty) can't be deduped, so it's always inserted (stale prior copies from
+                // this origin are pruned below) — accepting some row churn for these rare entries.
+                var key = CanonicalKey.Compute(g.Roms);
+                long gid;
+                if (key is not null && keyedExisting.TryGetValue(key, out var existing))
                 {
-                    rGid.Value = gid;
-                    rName.Value = rom.Name;
-                    rSize.Value = rom.Size;
-                    rCrc.Value = (object?)rom.Crc ?? DBNull.Value;
-                    rMd5.Value = (object?)rom.Md5 ?? DBNull.Value;
-                    rSha1.Value = (object?)rom.Sha1 ?? DBNull.Value;
-                    await ir.ExecuteNonQueryAsync(ct);
+                    gid = existing;   // merge: keep the existing row + roms, just bind this origin
                 }
+                else
+                {
+                    gName.Value = g.Name;
+                    gRegion.Value = (object?)g.Region ?? DBNull.Value;
+                    gSerial.Value = (object?)g.Serial ?? DBNull.Value;
+                    // Normalize with the SAME function the compat table uses (RpcsCompat.NormalizeSerial),
+                    // so catalog_game.serial_key and catalog_compat.serial_key join symmetrically (#48).
+                    gSkey.Value = string.IsNullOrEmpty(g.Serial)
+                        ? DBNull.Value
+                        : RpcsCompat.NormalizeSerial(g.Serial);
+                    gLangs.Value = g.Languages.Count > 0 ? string.Join(',', g.Languages) : DBNull.Value;
+                    gTkey.Value = Dedup.TitleKey(g.Name);   // is_parent is set in the 1G1R post-pass below
+                    gCkey.Value = (object?)key ?? DBNull.Value;
+                    gid = Convert.ToInt64(await ig.ExecuteScalarAsync(ct));
+                    if (key is not null) keyedExisting[key] = gid;   // dedup repeats within this same DAT too
+
+                    foreach (var rom in g.Roms)
+                    {
+                        rGid.Value = gid;
+                        rName.Value = rom.Name;
+                        rSize.Value = rom.Size;
+                        rCrc.Value = (object?)rom.Crc ?? DBNull.Value;
+                        rMd5.Value = (object?)rom.Md5 ?? DBNull.Value;
+                        rSha1.Value = (object?)rom.Sha1 ?? DBNull.Value;
+                        await ir.ExecuteNonQueryAsync(ct);
+                    }
+                }
+
+                sGid.Value = gid;
+                sVer.Value = (object?)datVersion ?? DBNull.Value;
+                await isrc.ExecuteNonQueryAsync(ct);
+                seen.Add(gid);
             }
         }
+
+        // Drop this origin from games it no longer lists; then delete any game left with no origins at
+        // all (gone from every source). Scoped to this system + this origin — other origins' games and
+        // other systems' (not-yet-resynced) games are untouched.
+        var stale = originGameIds.Where(id => !seen.Contains(id)).ToList();
+        if (stale.Count > 0)
+        {
+            await using var dropSrc = db.CreateCommand();
+            dropSrc.Transaction = tx;
+            dropSrc.CommandText = "DELETE FROM catalog_game_source WHERE game_id = $gid AND origin = $origin";
+            dropSrc.Parameters.AddWithValue("$origin", origin);
+            var dGid = dropSrc.Parameters.Add("$gid", SqliteType.Integer);
+            foreach (var id in stale) { dGid.Value = id; await dropSrc.ExecuteNonQueryAsync(ct); }
+        }
+        await using (var orphan = db.CreateCommand())
+        {
+            orphan.Transaction = tx;
+            orphan.CommandText = """
+                DELETE FROM catalog_rom WHERE game_id IN (
+                    SELECT id FROM catalog_game g WHERE g.system_id = $sid
+                      AND NOT EXISTS(SELECT 1 FROM catalog_game_source s WHERE s.game_id = g.id));
+                DELETE FROM catalog_game WHERE system_id = $sid
+                      AND NOT EXISTS(SELECT 1 FROM catalog_game_source s WHERE s.game_id = catalog_game.id);
+                """;
+            orphan.Parameters.AddWithValue("$sid", systemId);
+            await orphan.ExecuteNonQueryAsync(ct);
+        }
+
+        await RecomputeParentsAsync(db, tx, systemId, ct);
 
         await using (var upd = db.CreateCommand())
         {
             upd.Transaction = tx;
             upd.CommandText = """
-                UPDATE catalog_system SET dat_version = $v, game_count = $gc, synced_at = datetime('now')
+                UPDATE catalog_system
+                SET dat_version = $v,
+                    game_count = (SELECT COUNT(*) FROM catalog_game WHERE system_id = $sid),
+                    synced_at = datetime('now')
                 WHERE id = $sid
                 """;
             upd.Parameters.AddWithValue("$v", (object?)datVersion ?? DBNull.Value);
-            upd.Parameters.AddWithValue("$gc", games.Count);
             upd.Parameters.AddWithValue("$sid", systemId);
             await upd.ExecuteNonQueryAsync(ct);
         }
 
         await tx.CommitAsync(ct);
+    }
+
+    /// <summary>
+    /// Recompute 1G1R parent selection for every game now in the system: group by title key and mark one
+    /// variant per group <c>is_parent</c>. Runs after a merge so newly-added (or removed) variants from a
+    /// second origin are reflected. Title keys are stable per name, so only <c>is_parent</c> moves.
+    /// </summary>
+    private static async Task RecomputeParentsAsync(SqliteConnection db, SqliteTransaction tx, long systemId, CancellationToken ct)
+    {
+        var ids = new List<long>();
+        var variants = new List<(string Name, string? Region)>();
+        var groups = new Dictionary<string, List<int>>(StringComparer.Ordinal);
+        await using (var sel = db.CreateCommand())
+        {
+            sel.Transaction = tx;
+            sel.CommandText = "SELECT id, name, region FROM catalog_game WHERE system_id = $sid";
+            sel.Parameters.AddWithValue("$sid", systemId);
+            await using var r = await sel.ExecuteReaderAsync(ct);
+            while (await r.ReadAsync(ct))
+            {
+                ids.Add(r.GetInt64(0));
+                variants.Add((r.GetString(1), r.IsDBNull(2) ? null : r.GetString(2)));
+                var key = Dedup.TitleKey(r.GetString(1));
+                if (!groups.TryGetValue(key, out var members)) groups[key] = members = [];
+                members.Add(ids.Count - 1);
+            }
+        }
+
+        var isParent = new bool[ids.Count];
+        foreach (var members in groups.Values)
+            isParent[members[Dedup.SelectParent(members.Select(i => variants[i]).ToList())]] = true;
+
+        await using var upd = db.CreateCommand();
+        upd.Transaction = tx;
+        upd.CommandText = "UPDATE catalog_game SET is_parent = $p WHERE id = $id";
+        var pP = upd.Parameters.Add("$p", SqliteType.Integer);
+        var pId = upd.Parameters.Add("$id", SqliteType.Integer);
+        for (int i = 0; i < ids.Count; i++)
+        {
+            pP.Value = isParent[i] ? 1 : 0;
+            pId.Value = ids[i];
+            await upd.ExecuteNonQueryAsync(ct);
+        }
     }
 
     public async Task<List<CatalogSystemStatus>> GetSystemsAsync()
