@@ -40,6 +40,7 @@ record SettingsResponse(string Platform, string OsDescription, string Hostname, 
     bool FixThe, bool AddSerial, bool StripRegion, int Ps3Parallelism,
     int Ps3DefaultFormat, bool Ps3PreserveArchive,
     bool FeatureSync, bool FeatureEvents, bool FeatureLibrary,
+    string CatalogDatSource,
     int ArchiveParallelism, int ArchiveRetries, int ArchiveIdle,
     string ArchiveS3Access, string ArchiveS3Secret);
 

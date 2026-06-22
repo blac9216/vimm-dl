@@ -4,11 +4,18 @@ static class CatalogEndpoints
 {
     public static void MapCatalogEndpoints(this IEndpointRouteBuilder app)
     {
-        // Kick off a background sync of all configured systems (tens of MB across ~18 DATs),
-        // so it never blocks the request thread. 409 if one is already running.
-        app.MapPost("/api/catalog/sync", (CatalogSyncService sync, CatalogSyncState state,
-            ILogger<CatalogSyncService> log) =>
-            state.Run(log, "Catalog sync", ct => sync.SyncAsync(CatalogSystems.All, ct)));
+        // Kick off a background sync of all configured systems (tens of MB across ~95 DATs),
+        // so it never blocks the request thread. 409 if one is already running. The DAT source is
+        // chosen by the catalog_dat_source setting: the fresher daily bundle, else the libretro mirror.
+        app.MapPost("/api/catalog/sync", (CatalogSyncService sync, CatalogSyncState state, QueueRepository repo,
+            LibretroDatSource libretro, DailyBundleDatSource bundle, ILogger<CatalogSyncService> log) =>
+            state.Run(log, "Catalog sync", async ct =>
+            {
+                IDatSource source = await repo.GetSettingAsync(SettingsKeys.CatalogDatSource) == "daily-bundle"
+                    ? bundle
+                    : libretro;
+                await sync.SyncAsync(CatalogSystems.All, source, ct);
+            }));
 
         // Per-console counts + versions, plus which background jobs are currently running.
         app.MapGet("/api/catalog/status", async (CatalogRepository repo, CatalogSyncState sync, CatalogScanState scan,

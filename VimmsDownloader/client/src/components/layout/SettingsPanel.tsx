@@ -247,6 +247,34 @@ export function SettingsPanel() {
             </div>
           </div>
 
+          {/* Catalog */}
+          <div>
+            <div className="text-[10px] text-text-3 tracking-wide uppercase mb-3">
+              Catalog
+            </div>
+            <div className="space-y-3 border border-border/20 rounded p-3 bg-card/30">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-xs text-text">DAT source</div>
+                  <div className="text-[10px] text-text-4">Where catalog sync pulls No-Intro/Redump DATs</div>
+                </div>
+                <select
+                  value={settings.catalogDatSource}
+                  onChange={e => saveMutation.mutate({ key: 'catalog_dat_source', value: e.target.value })}
+                  className="bg-surface-2/60 border border-border/40 text-text-3 text-xs rounded px-2 py-1
+                    focus:outline-none focus:border-accent/30"
+                >
+                  <option value="libretro">libretro mirror</option>
+                  <option value="daily-bundle">Daily bundle (fresher)</option>
+                </select>
+              </div>
+              <div className="text-[10px] text-text-4">
+                The libretro mirror can lag weeks; the daily bundle pulls one fresh zip per group from
+                hugo's auto-datfile-generator. Applies to the next catalog sync.
+              </div>
+            </div>
+          </div>
+
           {/* Feature Flags */}
           <div>
             <div className="text-[10px] text-text-3 tracking-wide uppercase mb-3">
