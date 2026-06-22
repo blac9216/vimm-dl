@@ -11,6 +11,7 @@ import { ActivePanel } from './components/active/ActivePanel'
 import { CompletedPanel } from './components/completed/CompletedPanel'
 import { SyncPanel } from './components/sync/SyncPanel'
 import { LibraryPanel } from './components/library/LibraryPanel'
+import { ImportPanel } from './components/import/ImportPanel'
 import { SettingsPanel } from './components/layout/SettingsPanel'
 import { EventsPanel } from './components/events/EventsPanel'
 import { MetricsPanel } from './components/metrics/MetricsPanel'
@@ -83,8 +84,9 @@ function AppContent() {
     if (!settings?.featureSync) hidden.add('sync')
     if (!settings?.featureEvents) hidden.add('events')
     if (!settings?.featureLibrary) hidden.add('library')
+    if (!settings?.featureImport) hidden.add('import')
     return hidden
-  }, [settings?.featureSync, settings?.featureEvents, settings?.featureLibrary])
+  }, [settings?.featureSync, settings?.featureEvents, settings?.featureLibrary, settings?.featureImport])
 
   // If the active tab is hidden (its feature flag is off), fall back to 'active'. Derived during
   // render instead of synced through an effect, so the visible tab is always consistent in one pass.
@@ -115,6 +117,7 @@ function AppContent() {
             />
           )}
           {effectiveTab === 'library' && <LibraryPanel />}
+          {effectiveTab === 'import' && <ImportPanel />}
           {effectiveTab === 'metrics' && <MetricsPanel />}
           {effectiveTab === 'events' && (
             <EventsPanel

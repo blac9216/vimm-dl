@@ -288,6 +288,12 @@ export function SettingsPanel() {
                 onChange={() => toggle('feature_library', settings.featureLibrary)}
               />
               <Toggle
+                label="Import (Beta)"
+                description="Enable the Import tab to ingest a local drop folder into the catalog by hash"
+                checked={settings.featureImport}
+                onChange={() => toggle('feature_import', settings.featureImport)}
+              />
+              <Toggle
                 label="Sync (Beta)"
                 description="Enable the Sync tab for copying ISOs to an external drive"
                 checked={settings.featureSync}

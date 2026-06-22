@@ -1,4 +1,4 @@
-export type Tab = 'active' | 'completed' | 'library' | 'metrics' | 'events' | 'sync' | 'settings'
+export type Tab = 'active' | 'completed' | 'library' | 'import' | 'metrics' | 'events' | 'sync' | 'settings'
 
 interface TabBarProps {
   activeTab: Tab
@@ -12,6 +12,7 @@ export function TabBar({ activeTab, onTabChange, counts, hiddenTabs }: TabBarPro
     { id: 'active', label: 'Active', count: counts.active },
     { id: 'completed', label: 'Completed', count: counts.completed },
     { id: 'library', label: 'Library', count: 0 },
+    { id: 'import', label: 'Import', count: 0 },
     { id: 'metrics', label: 'Metrics', count: 0 },
     { id: 'events', label: 'Events', count: counts.events },
     { id: 'sync', label: 'Sync', count: counts.sync },

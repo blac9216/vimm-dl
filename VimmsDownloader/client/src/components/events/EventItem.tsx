@@ -11,6 +11,11 @@ function getBadge(e: EventRow): { variant: BadgeVariant; label: string } {
   if (e.eventType === 'download_progress') return { variant: 'downloading', label: 'Progress' }
   if (e.eventType === 'download_status') return { variant: 'starting', label: 'Status' }
   if (e.eventType === 'download_done') return { variant: 'done', label: 'Queue Done' }
+  if (e.eventType === 'import') {
+    return e.phase === 'matched'
+      ? { variant: 'done', label: 'Matched' }
+      : { variant: 'error', label: 'Rejected' }
+  }
   if (e.eventType === 'sync_progress') return { variant: 'downloading', label: 'Sync' }
   if (e.eventType === 'sync_completed') {
     const failed = e.message?.startsWith('Failed')

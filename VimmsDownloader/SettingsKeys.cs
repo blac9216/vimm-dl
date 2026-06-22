@@ -13,6 +13,7 @@ static class SettingsKeys
     public const string FeatureSync = "feature_sync";
     public const string FeatureEvents = "feature_events";
     public const string FeatureLibrary = "feature_library";
+    public const string FeatureImport = "feature_import";
     public const string DefaultSetsSeeded = "default_sets_seeded";
 
     // Catalog DAT source selector: "libretro" (default, raw per-system mirror) or "daily-bundle"

@@ -148,6 +148,7 @@ export interface CatalogStatus {
   compatSyncing: boolean
   verifying: boolean
   vimmSyncing: boolean
+  importing: boolean
   totalGames: number
   systems: CatalogSystemStatus[]
 }
@@ -214,12 +215,15 @@ export interface SettingsResponse {
   featureSync: boolean
   featureEvents: boolean
   featureLibrary: boolean
+  featureImport: boolean
   catalogDatSource: string
   archiveParallelism: number
   archiveRetries: number
   archiveIdle: number
   archiveS3Access: string
   archiveS3Secret: string
+  importPath: string
+  rejectedPath: string
 }
 
 export interface CheckPathResponse {
