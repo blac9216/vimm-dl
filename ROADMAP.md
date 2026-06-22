@@ -107,7 +107,12 @@ incremental" choice:
 
 ## Pipeline Identity: Vault URL + Format
 
-**Status:** Next up (Phase C) — builds on the now-shipped hash binding above.
+**Status:** ✅ Shipped (Phase C) — built across PRs #143/#145/#146/#148/#150 under epic #96, on top of the
+hash binding above. One as-built divergence: identity is carried on the persistent layer (the `events`
+columns + `completed_urls.game_id`) and stamped at the SignalR bridge, rather than re-keying the
+in-memory `PipelineState.Statuses` dict — `ItemName` stays the frontend's display/abort label and the
+PS3 pipeline's cancellation/resume machinery is filename-bound. The live/UI per-game grouping that
+implies is tracked as #151.
 
 ### Problem
 
@@ -178,8 +183,11 @@ sources, not Vimm-only.
 - **Phase B — Vimm hash-identity binding — ✅ shipped.** The schema, the throttled per-console scrape +
   hash match, format capture, the "no Vimm match" badge, and source-aware download resolution
   (archive preferred, bound vault URL fallback + format choice).
-- **Phase C — Identity/dedup deepening (next).** Pipeline identity keyed by catalog game + format,
-  hash-based owned dedup, one library row per game across formats and sources.
+- **Phase C — Identity/dedup deepening — ✅ shipped.** Catalog-game identity (`game_id` + `format`) on
+  the event log + `completed_urls` (migrations 022/023), events stamped with it at the SignalR bridge,
+  hash-based owned detection (CRC32/MD5/SHA1, name-independent), cross-format/source duplicate
+  detection, and one library row per game with consolidated formats/sources. Follow-ons: per-game
+  grouping for queue/history + live conversions (#151).
 
 ---
 
