@@ -1,6 +1,7 @@
-import { useRef, useState } from 'react'
+import { useRef, useState, useMemo } from 'react'
 import { useData, useImportQueue, useReorderQueue, exportQueue } from '../../api/queries'
 import { useDownload } from '../../hooks/useDownloadState'
+import type { Ps3IsoStatusEvent } from '../../types/signalr'
 import { QueueItem } from './QueueItem'
 import { ConvertItem } from './ConvertItem'
 
@@ -16,6 +17,19 @@ export function ActivePanel() {
   const converting = Object.values(state.convStatuses).filter(
     s => ['queued', 'extracting', 'extracted', 'converting'].includes(s.phase)
   )
+
+  // Group live conversions by game (#151/A): multiple formats of one game render together, each row
+  // keeping its filename for display + abort. Unmatched items (no gameId) group by their own filename.
+  const convGroups = useMemo(() => {
+    const map = new Map<string, Ps3IsoStatusEvent[]>()
+    for (const c of converting) {
+      const key = c.gameId != null ? `g${c.gameId}` : `f:${c.itemName}`
+      const arr = map.get(key)
+      if (arr) arr.push(c)
+      else map.set(key, [c])
+    }
+    return [...map.values()]
+  }, [converting])
 
   // --- Drag and drop state ---
   const [dragId, setDragId] = useState<number | null>(null)
@@ -110,8 +124,17 @@ export function ActivePanel() {
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {converting.map(s => (
-          <ConvertItem key={s.itemName} status={s} />
+        {convGroups.map(group => group.length === 1 ? (
+          <ConvertItem key={group[0].itemName} status={group[0]} />
+        ) : (
+          <div key={`grp-${group[0].gameId}`} className="border-l-2 border-l-amber/40 bg-surface-2/10">
+            <div className="px-3 sm:px-5 py-1 text-[10px] text-text-4 tracking-wide uppercase">
+              Same game · {group.length} formats
+            </div>
+            {group.map(s => (
+              <ConvertItem key={s.itemName} status={s} grouped />
+            ))}
+          </div>
         ))}
         {queued.map(item => (
           <QueueItem

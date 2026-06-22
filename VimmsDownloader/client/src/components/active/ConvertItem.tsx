@@ -8,9 +8,11 @@ import type { Ps3IsoStatusEvent } from '../../types/signalr'
 
 interface ConvertItemProps {
   status: Ps3IsoStatusEvent
+  /** Rendered inside a per-game group (#151/A): drop the row's own left accent (the group supplies it). */
+  grouped?: boolean
 }
 
-export function ConvertItem({ status }: ConvertItemProps) {
+export function ConvertItem({ status, grouped = false }: ConvertItemProps) {
   const actionMutation = usePs3Action()
   const { state } = useDownload()
   const startTime = state.convStartTimes[status.itemName]
@@ -43,8 +45,8 @@ export function ConvertItem({ status }: ConvertItemProps) {
   }
 
   return (
-    <div className="flex items-center gap-2 sm:gap-3 px-3 sm:px-5 py-2 sm:py-2.5 border-b border-border/20
-      bg-surface-2/20 border-l-2 border-l-amber/30">
+    <div className={`flex items-center gap-2 sm:gap-3 px-3 sm:px-5 py-2 sm:py-2.5 border-b border-border/20 ${
+      grouped ? 'bg-surface-2/10' : 'bg-surface-2/20 border-l-2 border-l-amber/30'}`}>
       <div className="hidden sm:block w-5" />
 
       <div className="flex-1 min-w-0">
@@ -58,6 +60,11 @@ export function ConvertItem({ status }: ConvertItemProps) {
         )}
       </div>
 
+      {status.format != null && (
+        <span className="hidden sm:inline text-[10px] font-mono text-text-4/60 tabular-nums shrink-0" title="Download format">
+          f{status.format}
+        </span>
+      )}
       <Badge variant={badgeVariant}>{badgeText}</Badge>
 
       {elapsed != null && elapsed > 1000 && (
