@@ -133,7 +133,9 @@ public class PipelineIdentityTests
         await using var db = new SqliteConnection("Data Source=:memory:");
         await db.OpenAsync();
         await Exec(db, """
-            CREATE TABLE catalog_game (id INTEGER PRIMARY KEY AUTOINCREMENT, system_id INTEGER, name TEXT, vault_id INTEGER);
+            -- is_parent (added by migration 015) is present when 022 runs in the real migrator; the 022
+            -- backfill uses it as a deterministic tie-break, so the pre-022 shape must carry it too.
+            CREATE TABLE catalog_game (id INTEGER PRIMARY KEY AUTOINCREMENT, system_id INTEGER, name TEXT, is_parent INTEGER, vault_id INTEGER);
             CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, item_name TEXT, event_type TEXT, correlation_id TEXT);
             CREATE TABLE completed_urls (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, url TEXT, filename TEXT,

@@ -466,7 +466,10 @@ class QueueRepository
 
         await using var cmd = db.CreateCommand();
         cmd.Transaction = tx;
-        cmd.CommandText = "SELECT id FROM catalog_game WHERE vault_id IS NOT NULL AND $sid = 'https://vimm.net/vault/' || vault_id LIMIT 1";
+        // vault_id is indexed but NOT unique; should one vault entry ever bind to multiple catalog
+        // games, resolve deterministically — the 1G1R parent first, then the lowest id. This tie-break
+        // mirrors migration 022's backfill subquery so new completions and historical rows agree.
+        cmd.CommandText = "SELECT id FROM catalog_game WHERE vault_id IS NOT NULL AND $sid = 'https://vimm.net/vault/' || vault_id ORDER BY is_parent DESC, id LIMIT 1";
         cmd.Parameters.AddWithValue("$sid", sourceId);
         var v = await cmd.ExecuteScalarAsync();
         return v is null || v == DBNull.Value ? null : Convert.ToInt64(v);

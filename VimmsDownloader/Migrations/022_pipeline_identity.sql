@@ -19,6 +19,10 @@ SET game_id = (
     SELECT g.id FROM catalog_game g
     WHERE g.vault_id IS NOT NULL
       AND completed_urls.source_id = 'https://vimm.net/vault/' || g.vault_id
+    -- vault_id isn't UNIQUE; if one vault entry binds several games, pick deterministically (1G1R
+    -- parent first, then lowest id) so this backfill agrees with QueueRepository.ResolveGameIdAsync.
+    ORDER BY g.is_parent DESC, g.id
+    LIMIT 1
 )
 WHERE game_id IS NULL
   AND source = 'vimm'
