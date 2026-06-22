@@ -112,7 +112,7 @@ class QueueRepository
         return items;
     }
 
-    public record DuplicateDbMatch(string Url, string Source, string? ConvPhase, string? Title, string? Filename, string? IsoFilename, string? Platform, string? Filepath = null);
+    public record DuplicateDbMatch(string Url, string Source, string? ConvPhase, string? Title, string? Filename, string? IsoFilename, string? Platform, string? Filepath = null, int? Format = null, long? GameId = null, bool CrossFormat = false);
 
     public async Task<List<DuplicateDbMatch>> CheckDuplicatesAsync(List<string> urls)
     {
@@ -128,7 +128,7 @@ class QueueRepository
         await using (var cmd = db.CreateCommand())
         {
             cmd.CommandText = $"""
-                SELECT DISTINCT q.url, m.title, m.platform
+                SELECT DISTINCT q.url, m.title, m.platform, q.format
                 FROM queued_urls q LEFT JOIN source_meta m ON q.source = m.source AND q.source_id = m.source_id
                 WHERE LOWER(q.url) IN ({placeholders})
             """;
@@ -140,7 +140,8 @@ class QueueRepository
                 var url = r.GetString(0);
                 var title = r.IsDBNull(1) ? null : r.GetString(1);
                 var platform = r.IsDBNull(2) ? null : r.GetString(2);
-                results.Add(new DuplicateDbMatch(url, "queued", null, title, null, null, platform));
+                var format = r.IsDBNull(3) ? (int?)null : r.GetInt32(3);
+                results.Add(new DuplicateDbMatch(url, "queued", null, title, null, null, platform, Format: format));
             }
         }
 
@@ -148,7 +149,7 @@ class QueueRepository
         await using (var cmd = db.CreateCommand())
         {
             cmd.CommandText = $"""
-                SELECT c.url, c.conv_phase, c.iso_filename, c.filename, m.title, m.platform, c.filepath
+                SELECT c.url, c.conv_phase, c.iso_filename, c.filename, m.title, m.platform, c.filepath, c.format, c.game_id
                 FROM completed_urls c LEFT JOIN source_meta m ON c.source = m.source AND c.source_id = m.source_id
                 WHERE LOWER(c.url) IN ({placeholders})
             """;
@@ -166,14 +167,77 @@ class QueueRepository
                 var title = r.IsDBNull(4) ? null : r.GetString(4);
                 var platform = r.IsDBNull(5) ? null : r.GetString(5);
                 var filepath = r.IsDBNull(6) ? null : r.GetString(6);
+                var format = r.IsDBNull(7) ? (int?)null : r.GetInt32(7);
+                var gameId = r.IsDBNull(8) ? (long?)null : r.GetInt64(8);
 
                 if (!byUrl.TryGetValue(url, out var existing) || RankPhase(phase) > RankPhase(existing.ConvPhase))
-                    byUrl[url] = new DuplicateDbMatch(url, "completed", phase, title, filename, iso, platform, filepath);
+                    byUrl[url] = new DuplicateDbMatch(url, "completed", phase, title, filename, iso, platform, filepath, format, gameId);
             }
 
             results.AddRange(byUrl.Values);
         }
 
+        return results;
+    }
+
+    /// <summary>
+    /// Cross-format / cross-source duplicate detection (Phase C / C4): find existing completed items
+    /// that are the SAME catalog game as an incoming URL but a DIFFERENT format (or a different
+    /// source's URL) — the "you already have this as &lt;format&gt;" case the URL-only check misses.
+    /// Resolves each incoming URL to its catalog game (Vimm vault mapping), then matches by
+    /// <c>completed_urls.game_id</c>. The exact (incoming URL + incoming format) pair is the job of the
+    /// URL check and is excluded here. Items that don't resolve to a catalog game return nothing.
+    /// </summary>
+    public async Task<List<DuplicateDbMatch>> CheckGameDuplicatesAsync(List<string> urls, int incomingFormat)
+    {
+        if (urls.Count == 0) return [];
+        var normalized = urls.Select(u => u.ToLowerInvariant()).Distinct().ToList();
+        var urlPh = string.Join(",", normalized.Select((_, i) => $"$u{i}"));
+
+        await using var db = await OpenAsync();
+
+        // Incoming Vimm vault URLs → catalog game_ids.
+        var gameIds = new List<long>();
+        await using (var cmd = db.CreateCommand())
+        {
+            cmd.CommandText = $"SELECT g.id FROM catalog_game g WHERE g.vault_id IS NOT NULL AND LOWER('https://vimm.net/vault/' || g.vault_id) IN ({urlPh})";
+            for (int i = 0; i < normalized.Count; i++)
+                cmd.Parameters.AddWithValue($"$u{i}", normalized[i]);
+            await using var r = await cmd.ExecuteReaderAsync();
+            while (await r.ReadAsync()) gameIds.Add(r.GetInt64(0));
+        }
+        if (gameIds.Count == 0) return [];
+
+        var gamePh = string.Join(",", gameIds.Select((_, i) => $"$g{i}"));
+        var results = new List<DuplicateDbMatch>();
+        await using (var cmd = db.CreateCommand())
+        {
+            cmd.CommandText = $"""
+                SELECT c.url, c.conv_phase, c.iso_filename, c.filename, m.title, m.platform, c.filepath, c.format, c.game_id
+                FROM completed_urls c LEFT JOIN source_meta m ON c.source = m.source AND c.source_id = m.source_id
+                WHERE c.game_id IN ({gamePh})
+                  AND NOT (LOWER(c.url) IN ({urlPh}) AND c.format = $fmt)
+            """;
+            for (int i = 0; i < gameIds.Count; i++)
+                cmd.Parameters.AddWithValue($"$g{i}", gameIds[i]);
+            for (int i = 0; i < normalized.Count; i++)
+                cmd.Parameters.AddWithValue($"$u{i}", normalized[i]);
+            cmd.Parameters.AddWithValue("$fmt", incomingFormat);
+
+            await using var r = await cmd.ExecuteReaderAsync();
+            while (await r.ReadAsync())
+                results.Add(new DuplicateDbMatch(
+                    r.GetString(0), "completed",
+                    r.IsDBNull(1) ? null : r.GetString(1),
+                    r.IsDBNull(4) ? null : r.GetString(4),
+                    r.IsDBNull(3) ? null : r.GetString(3),
+                    r.IsDBNull(2) ? null : r.GetString(2),
+                    r.IsDBNull(5) ? null : r.GetString(5),
+                    r.IsDBNull(6) ? null : r.GetString(6),
+                    r.IsDBNull(7) ? (int?)null : r.GetInt32(7),
+                    r.IsDBNull(8) ? (long?)null : r.GetInt64(8),
+                    CrossFormat: true));
+        }
         return results;
     }
 

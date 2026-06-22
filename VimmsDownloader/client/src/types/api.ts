@@ -160,6 +160,9 @@ export interface DuplicateInfo {
   isoFilename: string | null
   archiveExists: boolean
   isoExists: boolean
+  /** Phase C (C4): this is the same catalog game in a different format/source, not an exact duplicate. */
+  crossFormat: boolean
+  existingFormat: number | null
 }
 
 export interface QueueExportItem {

@@ -2,7 +2,7 @@ record AddRequest(List<string> Urls, int? Format = null, bool Force = false, str
 record SourceInfo(string Id, string DisplayName, bool Catalog);
 record AddResponse(List<QueueIdRow>? Queued, List<DuplicateInfo>? Duplicates);
 record DuplicateInfo(string Url, string Source, string Reason, string? Title, string? Filename, string? IsoFilename,
-    bool ArchiveExists, bool IsoExists);
+    bool ArchiveExists, bool IsoExists, bool CrossFormat = false, int? ExistingFormat = null);
 record QueuePatchRequest(string? Direction = null, int? Format = null);
 record QueueReorderRequest(List<int> Ids);
 

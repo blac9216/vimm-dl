@@ -55,11 +55,13 @@ export function DuplicateDialog({ duplicates, onConfirm, onCancel, isPending }: 
               </div>
               <div className="flex items-center gap-2 mt-1 flex-wrap">
                 <span className={`text-[10px] px-1.5 py-0.5 rounded border font-medium tracking-wide ${
-                  d.source === 'queued'
-                    ? 'bg-amber/12 text-amber border-amber/20'
-                    : 'bg-ps-triangle/12 text-ps-triangle border-ps-triangle/20'
+                  d.crossFormat
+                    ? 'bg-ps-square/12 text-ps-square border-ps-square/20'
+                    : d.source === 'queued'
+                      ? 'bg-amber/12 text-amber border-amber/20'
+                      : 'bg-ps-triangle/12 text-ps-triangle border-ps-triangle/20'
                 }`}>
-                  {d.source === 'queued' ? 'IN QUEUE' : 'COMPLETED'}
+                  {d.crossFormat ? 'OTHER FORMAT' : d.source === 'queued' ? 'IN QUEUE' : 'COMPLETED'}
                 </span>
                 <span className="text-[10px] text-text-3">{d.reason}</span>
               </div>
