@@ -456,7 +456,11 @@ class CatalogRepository : ICatalogStore
                        EXISTS(SELECT 1 FROM catalog_owned o WHERE o.game_id = g.id) AS owned,
                        (SELECT c.status FROM catalog_compat c WHERE c.serial_key = g.serial_key LIMIT 1) AS compat,
                        (SELECT o.verified FROM catalog_owned o WHERE o.game_id = g.id) AS verified,
-                       g.vimm_match AS vimm_match
+                       g.vimm_match AS vimm_match,
+                       -- Phase C (C5): consolidate this game's formats/sources into the one row.
+                       (SELECT GROUP_CONCAT(f.alt) FROM catalog_vimm_format f WHERE f.game_id = g.id) AS avail_formats,
+                       (SELECT GROUP_CONCAT(DISTINCT cu.format) FROM completed_urls cu WHERE cu.game_id = g.id) AS owned_formats,
+                       (SELECT GROUP_CONCAT(DISTINCT cu.source) FROM completed_urls cu WHERE cu.game_id = g.id) AS owned_sources
                 FROM catalog_game g JOIN catalog_system s ON s.id = g.system_id
                 {where}
                 ORDER BY g.name
@@ -479,10 +483,25 @@ class CatalogRepository : ICatalogStore
                     r.GetInt32(7) != 0,
                     r.IsDBNull(8) ? null : r.GetString(8),
                     r.IsDBNull(9) ? null : r.GetInt32(9) != 0,
-                    r.IsDBNull(10) ? null : r.GetString(10)));
+                    r.IsDBNull(10) ? null : r.GetString(10),
+                    ParseIntCsv(r.IsDBNull(11) ? null : r.GetString(11)),
+                    ParseIntCsv(r.IsDBNull(12) ? null : r.GetString(12)),
+                    ParseStrCsv(r.IsDBNull(13) ? null : r.GetString(13))));
         }
         return (total, games);
     }
+
+    /// <summary>Parse a SQLite GROUP_CONCAT of ints (e.g. "0,1,1") into a sorted, distinct list.</summary>
+    private static List<int> ParseIntCsv(string? csv) => string.IsNullOrEmpty(csv)
+        ? []
+        : csv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+             .Select(int.Parse).Distinct().OrderBy(x => x).ToList();
+
+    /// <summary>Parse a SQLite GROUP_CONCAT of strings into a distinct list.</summary>
+    private static List<string> ParseStrCsv(string? csv) => string.IsNullOrEmpty(csv)
+        ? []
+        : csv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+             .Distinct().ToList();
 
     // --- download sets ---
 

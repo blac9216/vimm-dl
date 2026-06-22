@@ -90,6 +90,10 @@ export interface CatalogGame {
   compat: string | null
   verified: boolean | null
   vimmMatch: string | null   // 'sha1' | 'md5' | 'crc' (matched) | 'none' (no match) | null (unscraped)
+  // Phase C (C5): the game's formats/sources consolidated into one row.
+  availableFormats: number[] // Vimm download format alts offered for this game
+  ownedFormats: number[]     // download formats already on disk for this game
+  ownedSources: string[]     // sources the on-disk copies came from (e.g. 'vimm', 'archive')
 }
 
 export interface CatalogGamesResponse {

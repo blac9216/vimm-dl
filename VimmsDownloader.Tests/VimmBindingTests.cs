@@ -111,7 +111,46 @@ public class VimmBindingTests
         Assert.IsNull(byName["Unbound Game"].VimmMatch);
     }
 
+    [TestMethod]
+    public async Task GetGames_ConsolidatesFormatsAndSources_PerGame()
+    {
+        // Phase C / C5: one row per game carrying its available + owned formats and owned sources.
+        var snes = await Seed("snes");
+        var game = await AddGame(snes, "Multi Format Game");
+        await AddRom(game, "Multi Format Game.sfc", "aa", "bb", "cc");
+        // Vimm offers two formats (available); the user owns both — one from Vimm, one from archive.
+        await _repo.BindVimmAsync(game, 200, "sha1",
+            [new(0, "JB Folder", 10, "10 B"), new(1, ".dec.iso", 20, "20 B")], default);
+        await AddCompleted(game, format: 0, source: "vimm", "G.7z");
+        await AddCompleted(game, format: 1, source: "archive", "G.dec.iso");
+
+        var (_, games) = await _repo.GetGamesAsync("snes", null, "all", false, 0, 100);
+        var g = games.Single(x => x.Name == "Multi Format Game");
+
+        CollectionAssert.AreEqual(new[] { 0, 1 }, g.AvailableFormats);
+        CollectionAssert.AreEqual(new[] { 0, 1 }, g.OwnedFormats);
+        CollectionAssert.AreEquivalent(new[] { "vimm", "archive" }, g.OwnedSources);
+    }
+
+    [TestMethod]
+    public async Task GetGames_EmptyFormatsAndSources_WhenNeitherBoundNorOwned()
+    {
+        var snes = await Seed("snes");
+        await AddGame(snes, "Bare Game");
+
+        var (_, games) = await _repo.GetGamesAsync("snes", null, "all", false, 0, 100);
+        var g = games.Single(x => x.Name == "Bare Game");
+
+        Assert.IsEmpty(g.AvailableFormats);
+        Assert.IsEmpty(g.OwnedFormats);
+        Assert.IsEmpty(g.OwnedSources);
+    }
+
     // --- seeding / verification helpers (direct SQL) ---
+
+    private async Task AddCompleted(long gameId, int format, string source, string filename) =>
+        await Exec($"INSERT INTO completed_urls (url, filename, format, source, source_id, game_id) " +
+                   $"VALUES ('u-{gameId}-{format}', '{filename}', {format}, '{source}', 'sid-{gameId}-{format}', {gameId})");
 
     private async Task<long> Seed(string console) =>
         await ScalarLong($"INSERT INTO catalog_system (dat_name, console, source) VALUES ('DAT {console}', '{console}', 'no-intro') RETURNING id");
