@@ -96,7 +96,7 @@ public class SourcesAwareMergeTests
         CollectionAssert.AreEqual(new[] { "daily-bundle", "libretro" }, await OriginsOf("Beta")); // both, by content
         CollectionAssert.AreEqual(new[] { "daily-bundle" }, await OriginsOf("Gamma"));
         // The shared game kept its first-seen row (name "Beta"), not a duplicate from the 2nd origin.
-        Assert.AreEqual(0, (await OriginsOf("Beta (Rev 1)")).Count);
+        Assert.IsEmpty(await OriginsOf("Beta (Rev 1)"));
     }
 
     [TestMethod]
@@ -123,7 +123,7 @@ public class SourcesAwareMergeTests
         await _repo.MergeSystemGamesAsync(_sys, "libretro", [Game("Alpha", sha1: "a1")], "v2", default);
         Assert.AreEqual(1, await GameCount());
         Assert.AreEqual(1, await RomCount());
-        Assert.AreEqual(0, (await OriginsOf("Beta")).Count);
+        Assert.IsEmpty(await OriginsOf("Beta"));
     }
 
     [TestMethod]
@@ -178,6 +178,6 @@ public class SourcesAwareMergeTests
         // One game, one rom, two origin links — the 2nd origin merged onto the existing content.
         Assert.AreEqual(1, await GameCount());
         Assert.AreEqual(1, await RomCount());
-        Assert.AreEqual(2, (await OriginsOf("Beta")).Count);
+        Assert.HasCount(2, await OriginsOf("Beta"));
     }
 }
