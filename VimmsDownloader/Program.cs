@@ -38,6 +38,7 @@ builder.Services.AddSingleton<CatalogVerifyService>();
 builder.Services.AddSingleton<CatalogVerifyState>();
 builder.Services.AddSingleton<VimmSyncService>();
 builder.Services.AddSingleton<CatalogVimmState>();
+builder.Services.AddSingleton<IArchiveExtractor, SevenZipArchiveExtractor>();
 builder.Services.AddSingleton<ImportService>();
 builder.Services.AddSingleton<CatalogImportService>();
 builder.Services.AddSingleton<CatalogImportState>();

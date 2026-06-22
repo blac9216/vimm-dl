@@ -2,26 +2,70 @@ using Module.Catalog;
 using Module.Core;
 
 /// <summary>
-/// Local catalog import (epic #118 / L1): given a user-supplied ROM file, hash it and match it to the
-/// catalog by content (SHA1 → MD5 → CRC32), exactly the way the Vimm binding and the verify pass match.
-/// On a hit the file is moved into <c>completed/{console}/</c> (the matched game's console) and the game
-/// is marked owned; on a miss it's moved to a <c>rejected/</c> folder (kept, never deleted) with a reason.
+/// Local catalog import (epic #118): given a user-supplied file, hash it and match it to the catalog by
+/// content (SHA1 → MD5 → CRC32), exactly the way the Vimm binding and the verify pass match. On a hit the
+/// file is moved into <c>completed/{console}/</c> (the matched game's console) and the game is marked
+/// owned; on a miss it's moved to a <c>rejected/</c> folder (kept, never deleted) with a reason.
 ///
-/// <para>Header-aware: for systems whose DAT hash is of the headerless ROM (iNES/FDS/Lynx/7800), a
+/// <para>Header-aware (L1): for systems whose DAT hash is of the headerless ROM (iNES/FDS/Lynx/7800), a
 /// locally-headered file is hashed both as-is and with its header stripped, and a match on either wins
-/// (see <see cref="RomHeaders"/>). Raw files only — archives (.zip/.7z) are L3 (#126).</para>
+/// (see <see cref="RomHeaders"/>). Archives (L3): a <c>.zip</c>/<c>.7z</c> is extracted to a temp dir and
+/// each inner file imported by its own hash — so multi-ROM and <c>.bin</c>/<c>.cue</c> disc archives match
+/// per file — then the archive wrapper is discarded.</para>
 /// </summary>
-class ImportService(CatalogRepository catalog, QueueRepository queue, ILogger<ImportService> log)
+class ImportService(CatalogRepository catalog, QueueRepository queue, IArchiveExtractor extractor, ILogger<ImportService> log)
 {
-    /// <summary>Import one file, placing the rejected folder beside <c>completed/</c> by default.</summary>
-    public Task<ImportResult> ImportFileAsync(string filePath, CancellationToken ct)
+    /// <summary>Import one path, placing the rejected folder beside <c>completed/</c> by default.</summary>
+    public Task<IReadOnlyList<ImportResult>> ImportFileAsync(string filePath, CancellationToken ct)
         => ImportFileAsync(filePath, Path.Combine(queue.GetDownloadPath(), "rejected"), ct);
 
     /// <summary>
-    /// Import one file, sending non-matches to <paramref name="rejectedRoot"/> (configurable in L2). The
-    /// completed root is always <c>downloads/completed</c>. Returns a per-file <see cref="ImportResult"/>.
+    /// Import one path, sending non-matches to <paramref name="rejectedRoot"/> (configurable in L2). A raw
+    /// file yields one result; an archive yields one per inner file. The completed root is always
+    /// <c>downloads/completed</c>.
     /// </summary>
-    public async Task<ImportResult> ImportFileAsync(string filePath, string rejectedRoot, CancellationToken ct)
+    public async Task<IReadOnlyList<ImportResult>> ImportFileAsync(string filePath, string rejectedRoot, CancellationToken ct)
+    {
+        if (FileExtensions.IsArchive(filePath))
+            return await ImportArchiveAsync(filePath, rejectedRoot, ct);
+        return [await ImportRawFileAsync(filePath, rejectedRoot, ct)];
+    }
+
+    /// <summary>Extract an archive to a temp dir, import each inner file by hash, then discard the archive.</summary>
+    private async Task<IReadOnlyList<ImportResult>> ImportArchiveAsync(string archivePath, string rejectedRoot, CancellationToken ct)
+    {
+        var name = Path.GetFileName(archivePath);
+        var tempDir = Path.Combine(Path.GetTempPath(), $"vimm-import-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            var extracted = await extractor.ExtractAsync(archivePath, tempDir, ct);
+            if (!extracted.IsOk)
+                return [Reject(archivePath, name, rejectedRoot, $"extract failed: {extracted.Error}")];
+
+            var inner = Directory.EnumerateFiles(tempDir, "*", SearchOption.AllDirectories).ToList();
+            if (inner.Count == 0)
+                return [Reject(archivePath, name, rejectedRoot, "archive contained no files")];
+
+            var results = new List<ImportResult>(inner.Count);
+            foreach (var f in inner)
+            {
+                ct.ThrowIfCancellationRequested();
+                results.Add(await ImportRawFileAsync(f, rejectedRoot, ct));
+            }
+
+            // Contents are now placed (completed/) or set aside (rejected/); discard the archive wrapper.
+            FileOps.TryDelete(archivePath);
+            return results;
+        }
+        finally
+        {
+            FileOps.TryDeleteDirectory(tempDir);
+        }
+    }
+
+    /// <summary>Hash one raw file, place it into <c>completed/{console}/</c> on a match, else reject it.</summary>
+    private async Task<ImportResult> ImportRawFileAsync(string filePath, string rejectedRoot, CancellationToken ct)
     {
         var name = Path.GetFileName(filePath);
         var completedRoot = Path.Combine(queue.GetDownloadPath(), "completed");

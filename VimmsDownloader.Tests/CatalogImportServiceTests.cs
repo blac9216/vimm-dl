@@ -35,7 +35,7 @@ public class CatalogImportServiceTests
         await _queue.InitAsync(_connStr, NullLogger.Instance);
         _catalog = new CatalogRepository();
         _catalog.Configure(_connStr);
-        var import = new ImportService(_catalog, _queue, NullLogger<ImportService>.Instance);
+        var import = new ImportService(_catalog, _queue, new FakeArchiveExtractor(), NullLogger<ImportService>.Instance);
         _svc = new CatalogImportService(import, _queue, NullLogger<CatalogImportService>.Instance);
 
         _downloads = _queue.GetDownloadPath();
