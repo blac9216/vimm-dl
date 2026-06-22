@@ -24,12 +24,15 @@ class CatalogImportService(ImportService import, QueueRepository queue, ILogger<
         var matched = 0;
         var rejected = 0;
         // Top-level files only: subfolders / multi-file disc sets are handled later (epic open question).
+        // A raw file yields one result; an archive yields one per inner file (L3) — record + count each.
         foreach (var file in Directory.EnumerateFiles(importDir))
         {
             ct.ThrowIfCancellationRequested();
-            var result = await import.ImportFileAsync(file, rejectedDir, ct);
-            await RecordAsync(result);
-            if (result.Outcome == ImportOutcome.Matched) matched++; else rejected++;
+            foreach (var result in await import.ImportFileAsync(file, rejectedDir, ct))
+            {
+                await RecordAsync(result);
+                if (result.Outcome == ImportOutcome.Matched) matched++; else rejected++;
+            }
         }
 
         log.LogInformation("Import: {Matched} matched, {Rejected} rejected from {Dir}", matched, rejected, importDir);

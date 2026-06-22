@@ -36,7 +36,7 @@ public class ImportServiceTests
         await _queue.InitAsync(_connStr, NullLogger.Instance); // runs migrations + derives the download path
         _catalog = new CatalogRepository();
         _catalog.Configure(_connStr);
-        _import = new ImportService(_catalog, _queue, NullLogger<ImportService>.Instance);
+        _import = new ImportService(_catalog, _queue, new FakeArchiveExtractor(), NullLogger<ImportService>.Instance);
 
         _downloads = _queue.GetDownloadPath();
         _importDir = Path.Combine(_downloads, "import");
@@ -56,7 +56,7 @@ public class ImportServiceTests
         var game = await SeedRom("snes", "Real Catalog Name (USA).sfc", sha1: HelloSha1.ToUpperInvariant(), md5: null, crc: null);
         var src = Stage("totally-different-name.sfc", "hello");
 
-        var result = await _import.ImportFileAsync(src, default);
+        var result = await ImportOne(src);
 
         Assert.AreEqual(ImportOutcome.Matched, result.Outcome);
         Assert.AreEqual("sha1", result.MatchKind);
@@ -75,7 +75,7 @@ public class ImportServiceTests
     public async Task Match_FallsBackToMd5_WhenNoSha1()
     {
         var game = await SeedRom("nes", "A.nes", sha1: null, md5: HelloMd5, crc: null);
-        Assert.AreEqual("md5", (await _import.ImportFileAsync(Stage("a.nes", "hello"), default)).MatchKind);
+        Assert.AreEqual("md5", (await ImportOne(Stage("a.nes", "hello"))).MatchKind);
         Assert.AreEqual((1, "md5"), await OwnedFlag(game));
     }
 
@@ -83,7 +83,7 @@ public class ImportServiceTests
     public async Task Match_FallsBackToCrc_WhenNoSha1OrMd5()
     {
         var game = await SeedRom("gba", "B.gba", sha1: null, md5: null, crc: HelloCrc);
-        Assert.AreEqual("crc", (await _import.ImportFileAsync(Stage("b.gba", "hello"), default)).MatchKind);
+        Assert.AreEqual("crc", (await ImportOne(Stage("b.gba", "hello"))).MatchKind);
         Assert.AreEqual((1, "crc"), await OwnedFlag(game));
     }
 
@@ -93,7 +93,7 @@ public class ImportServiceTests
         var game = await SeedRom("ps3", "Game.iso", sha1: HelloSha1, md5: null, crc: null);
         var src = Stage("mystery.iso", "world"); // different content → different hashes
 
-        var result = await _import.ImportFileAsync(src, default);
+        var result = await ImportOne(src);
 
         Assert.AreEqual(ImportOutcome.Rejected, result.Outcome);
         Assert.AreEqual("no catalog hash match", result.Reason);
@@ -111,7 +111,7 @@ public class ImportServiceTests
         var src = Stage("nope.iso", "world");
         var customRejected = Path.Combine(_dir, "custom-reject");
 
-        var result = await _import.ImportFileAsync(src, customRejected, default);
+        var result = await ImportOne(src, customRejected);
 
         Assert.AreEqual(ImportOutcome.Rejected, result.Outcome);
         Assert.IsTrue(File.Exists(Path.Combine(customRejected, "nope.iso")));
@@ -126,7 +126,7 @@ public class ImportServiceTests
         var headered = INesHeader().Concat("hello"u8.ToArray()).ToArray();
         var src = StageBytes("headered.nes", headered);
 
-        var result = await _import.ImportFileAsync(src, default);
+        var result = await ImportOne(src);
 
         Assert.AreEqual(ImportOutcome.Matched, result.Outcome);
         Assert.AreEqual(game, result.GameId);
@@ -140,7 +140,7 @@ public class ImportServiceTests
         // iNES header + "world" — neither the full bytes nor the stripped "world" match "hello".
         var src = StageBytes("nomatch.nes", INesHeader().Concat("world"u8.ToArray()).ToArray());
 
-        var result = await _import.ImportFileAsync(src, default);
+        var result = await ImportOne(src);
 
         Assert.AreEqual(ImportOutcome.Rejected, result.Outcome);
         Assert.IsTrue(File.Exists(Path.Combine(_downloads, "rejected", "nomatch.nes")));
@@ -150,9 +150,9 @@ public class ImportServiceTests
     public async Task Reimport_UpsertsOwnedRow()
     {
         var game = await SeedRom("gb", "Tetris.gb", sha1: HelloSha1, md5: null, crc: null);
-        Assert.AreEqual(ImportOutcome.Matched, (await _import.ImportFileAsync(Stage("t1.gb", "hello"), default)).Outcome);
+        Assert.AreEqual(ImportOutcome.Matched, (await ImportOne(Stage("t1.gb", "hello"))).Outcome);
         // A second copy under a different name re-matches the same game and refreshes its owned filepath.
-        var second = await _import.ImportFileAsync(Stage("t2.gb", "hello"), default);
+        var second = await ImportOne(Stage("t2.gb", "hello"));
 
         Assert.AreEqual(ImportOutcome.Matched, second.Outcome);
         var owned = await OwnedRow(game);
@@ -160,6 +160,10 @@ public class ImportServiceTests
     }
 
     // --- helpers ---
+
+    // A raw file yields exactly one result; unwrap it so these (raw-only) assertions stay readable.
+    private async Task<ImportResult> ImportOne(string path) => (await _import.ImportFileAsync(path, default)).Single();
+    private async Task<ImportResult> ImportOne(string path, string rejectedRoot) => (await _import.ImportFileAsync(path, rejectedRoot, default)).Single();
 
     private static byte[] INesHeader()
     {
