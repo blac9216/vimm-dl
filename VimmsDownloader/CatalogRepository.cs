@@ -76,8 +76,8 @@ class CatalogRepository : ICatalogStore
         {
             ig.Transaction = tx;
             ig.CommandText = """
-                INSERT INTO catalog_game (system_id, name, region, serial, serial_key, languages, title_key, is_parent)
-                VALUES ($sid, $name, $region, $serial, $skey, $langs, $tkey, $parent) RETURNING id
+                INSERT INTO catalog_game (system_id, name, region, serial, serial_key, languages, title_key, is_parent, canonical_key)
+                VALUES ($sid, $name, $region, $serial, $skey, $langs, $tkey, $parent, $ckey) RETURNING id
                 """;
             ig.Parameters.AddWithValue("$sid", systemId);
             var gName = ig.Parameters.Add("$name", SqliteType.Text);
@@ -87,6 +87,7 @@ class CatalogRepository : ICatalogStore
             var gLangs = ig.Parameters.Add("$langs", SqliteType.Text);
             var gTkey = ig.Parameters.Add("$tkey", SqliteType.Text);
             var gParent = ig.Parameters.Add("$parent", SqliteType.Integer);
+            var gCkey = ig.Parameters.Add("$ckey", SqliteType.Text);
 
             ir.Transaction = tx;
             ir.CommandText = """
@@ -114,6 +115,8 @@ class CatalogRepository : ICatalogStore
                 gLangs.Value = g.Languages.Count > 0 ? string.Join(',', g.Languages) : DBNull.Value;
                 gTkey.Value = titleKeys[i];
                 gParent.Value = isParent[i] ? 1 : 0;
+                // Cross-source content identity (D2 / #129): hash-derived, name-independent.
+                gCkey.Value = (object?)CanonicalKey.Compute(g.Roms) ?? DBNull.Value;
                 var gid = Convert.ToInt64(await ig.ExecuteScalarAsync(ct));
 
                 foreach (var rom in g.Roms)
