@@ -140,8 +140,17 @@ export function useCatalogStatus() {
     // Poll while any catalog job is running so the UI advances; idle otherwise.
     refetchInterval: q => {
       const s = q.state.data
-      return s?.syncing || s?.scanning || s?.compatSyncing || s?.verifying || s?.vimmSyncing ? 2000 : false
+      return s?.syncing || s?.scanning || s?.compatSyncing || s?.verifying || s?.vimmSyncing || s?.importing ? 2000 : false
     },
+  })
+}
+
+// Ingest the import drop folder (hash-match → place/reject). Background, single-flight.
+export function useImportCatalog() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => postJson('/api/catalog/import'),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['catalog-status'] }),
   })
 }
 

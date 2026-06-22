@@ -15,6 +15,13 @@ static class SettingsEndpoints
             var defaultPath = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
 
+            // Import/reject folders: the configured value, or the same effective defaults
+            // CatalogImportService falls back to (downloads/import, downloads/rejected).
+            var importPath = s.GetValueOrDefault(SettingsKeys.ImportPath, "");
+            if (string.IsNullOrWhiteSpace(importPath)) importPath = Path.Combine(repo.GetDownloadPath(), "import");
+            var rejectedPath = s.GetValueOrDefault(SettingsKeys.RejectedPath, "");
+            if (string.IsNullOrWhiteSpace(rejectedPath)) rejectedPath = Path.Combine(repo.GetDownloadPath(), "rejected");
+
             return new SettingsResponse(
                 Platform: platformName,
                 OsDescription: System.Runtime.InteropServices.RuntimeInformation.OSDescription,
@@ -32,12 +39,15 @@ static class SettingsEndpoints
                 FeatureSync: s.GetValueOrDefault(SettingsKeys.FeatureSync, "false") == "true",
                 FeatureEvents: s.GetValueOrDefault(SettingsKeys.FeatureEvents, "false") == "true",
                 FeatureLibrary: s.GetValueOrDefault(SettingsKeys.FeatureLibrary, "false") == "true",
+                FeatureImport: s.GetValueOrDefault(SettingsKeys.FeatureImport, "false") == "true",
                 CatalogDatSource: s.GetValueOrDefault(SettingsKeys.CatalogDatSource, "libretro"),
                 ArchiveParallelism: int.TryParse(s.GetValueOrDefault(SettingsKeys.ArchiveParallelism, "4"), out var ap) ? ap : 4,
                 ArchiveRetries: int.TryParse(s.GetValueOrDefault(SettingsKeys.ArchiveRetries, "3"), out var ar) ? ar : 3,
                 ArchiveIdle: int.TryParse(s.GetValueOrDefault(SettingsKeys.ArchiveIdle, "60"), out var ai) ? ai : 60,
                 ArchiveS3Access: s.GetValueOrDefault(SettingsKeys.ArchiveS3Access, ""),
-                ArchiveS3Secret: s.GetValueOrDefault(SettingsKeys.ArchiveS3Secret, "")
+                ArchiveS3Secret: s.GetValueOrDefault(SettingsKeys.ArchiveS3Secret, ""),
+                ImportPath: importPath,
+                RejectedPath: rejectedPath
             );
         });
 

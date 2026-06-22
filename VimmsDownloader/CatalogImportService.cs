@@ -1,10 +1,10 @@
 /// <summary>
 /// The local-import background job (epic #118 / L2): walks the configured <b>import</b> drop folder and
 /// hands each file to the L1 <see cref="ImportService"/> (hash-match → place into <c>completed/{console}/</c>
-/// or set aside in <c>rejected/</c>), logging a per-file event so the UI can show what happened. Raw files
-/// only — archives (.zip/.7z) are L3 (#126); they currently hash as opaque bytes and fall to rejected.
-/// Mirrors the other catalog jobs (scan/verify): single-flight via <c>CatalogImportState</c>, the UI polls
-/// <c>/api/catalog/status</c> while it runs.
+/// or set aside in <c>rejected/</c>), logging a per-file event so the UI can show what happened. Archives
+/// (.zip/.7z) are extracted and matched by their inner ROMs (L3 / #126), so one archive can yield several
+/// per-file results. Mirrors the other catalog jobs (scan/verify): single-flight via
+/// <c>CatalogImportState</c>, the UI polls <c>/api/catalog/status</c> while it runs.
 /// </summary>
 class CatalogImportService(ImportService import, QueueRepository queue, ILogger<CatalogImportService> log)
 {
