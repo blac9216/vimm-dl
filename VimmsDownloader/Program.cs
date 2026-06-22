@@ -38,6 +38,9 @@ builder.Services.AddSingleton<CatalogVerifyService>();
 builder.Services.AddSingleton<CatalogVerifyState>();
 builder.Services.AddSingleton<VimmSyncService>();
 builder.Services.AddSingleton<CatalogVimmState>();
+builder.Services.AddSingleton<ImportService>();
+builder.Services.AddSingleton<CatalogImportService>();
+builder.Services.AddSingleton<CatalogImportState>();
 builder.Services.AddSingleton<ArchiveAuth>();
 builder.Services.AddTransient<ArchiveAuthHandler>();
 builder.Services.ConfigureHttpJsonOptions(o =>
@@ -154,6 +157,9 @@ await repo.PruneEventsAsync();
     var dlBase = repo.GetDownloadPath();
     Directory.CreateDirectory(Path.Combine(dlBase, "downloading"));
     Directory.CreateDirectory(Path.Combine(dlBase, "completed"));
+    // Local-import drop + reject folders (epic #118). Defaults; custom paths are created on demand.
+    Directory.CreateDirectory(Path.Combine(dlBase, "import"));
+    Directory.CreateDirectory(Path.Combine(dlBase, "rejected"));
 }
 
 // Seed pipeline state from DB + clean up orphans

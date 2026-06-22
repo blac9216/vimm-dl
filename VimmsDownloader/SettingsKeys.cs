@@ -19,6 +19,11 @@ static class SettingsKeys
     // (fresher hugo auto-datfile-generator release zips). See DailyBundleDatSource.
     public const string CatalogDatSource = "catalog_dat_source";
 
+    // Local import (epic #118): the drop folder ingested by POST /api/catalog/import, and where
+    // non-matching files are set aside. Empty → defaults to downloads/import and downloads/rejected.
+    public const string ImportPath = "import_path";
+    public const string RejectedPath = "rejected_path";
+
     // archive.org download tuning (RomGoGetter parity). Parallelism/retries/idle are stored now and
     // wired into the download engine in a follow-up; the S3 keys are active immediately (see ArchiveAuth).
     public const string ArchiveParallelism = "archive_parallelism";

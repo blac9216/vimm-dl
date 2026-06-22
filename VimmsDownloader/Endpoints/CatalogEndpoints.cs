@@ -19,12 +19,18 @@ static class CatalogEndpoints
 
         // Per-console counts + versions, plus which background jobs are currently running.
         app.MapGet("/api/catalog/status", async (CatalogRepository repo, CatalogSyncState sync, CatalogScanState scan,
-            CatalogCompatState compat, CatalogVerifyState verify, CatalogVimmState vimm) =>
+            CatalogCompatState compat, CatalogVerifyState verify, CatalogVimmState vimm, CatalogImportState import) =>
         {
             var systems = await repo.GetSystemsAsync();
             return new CatalogStatusResponse(sync.IsRunning, scan.IsRunning, compat.IsRunning, verify.IsRunning,
-                vimm.IsRunning, systems.Sum(s => s.GameCount), systems);
+                vimm.IsRunning, import.IsRunning, systems.Sum(s => s.GameCount), systems);
         });
+
+        // Ingest the import drop folder: hash-match each file → place into completed/{console}/ or
+        // set aside in rejected/, one per-file event each. Background, single-flight (202/409).
+        app.MapPost("/api/catalog/import", (CatalogImportService svc, CatalogImportState state,
+            ILogger<CatalogImportService> log) =>
+            state.Run(log, "Import", async ct => { await svc.ImportAsync(ct); }));
 
         // Scrape Vimm's Lair and bind each catalog game to its vault entry by hash (background,
         // single-flight). Optional ?console= to scrape one console; otherwise every Vimm-carried one.
@@ -176,3 +182,4 @@ sealed class CatalogScanState : BackgroundJobGate;
 sealed class CatalogCompatState : BackgroundJobGate;
 sealed class CatalogVerifyState : BackgroundJobGate;
 sealed class CatalogVimmState : BackgroundJobGate;
+sealed class CatalogImportState : BackgroundJobGate;
