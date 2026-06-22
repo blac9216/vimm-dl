@@ -85,7 +85,7 @@ public class VaultPageParserEdgeCaseTests
     {
         var html = """<form id="dl_form" action="http://dl3.vimm.net/">""";
         var server = VaultPageParser.ResolveDlServer(html, "https://vimm.net/vault/1");
-        Assert.IsTrue(server.StartsWith("https://"), $"Expected https, got: {server}");
+        Assert.StartsWith("https://", server, $"Expected https, got: {server}");
     }
 
     [TestMethod]
@@ -93,7 +93,7 @@ public class VaultPageParserEdgeCaseTests
     {
         var html = """<form id="dl_form" action="https://dl3.vimm.net">""";
         var server = VaultPageParser.ResolveDlServer(html, "https://vimm.net/vault/1");
-        Assert.IsTrue(server.EndsWith("/"), "Server URL should end with /");
+        Assert.EndsWith("/", server, "Server URL should end with /");
     }
 
     [TestMethod]
@@ -112,7 +112,7 @@ public class VaultPageParserEdgeCaseTests
     {
         var html = """<form id="dl_form" action="/download/">""";
         var server = VaultPageParser.ResolveDlServer(html, "https://vimm.net/vault/1");
-        Assert.IsTrue(server.StartsWith("https://"), $"Should resolve relative URL: {server}");
+        Assert.StartsWith("https://", server, $"Should resolve relative URL: {server}");
     }
 
     // --- Format parameter in download URL ---
@@ -127,7 +127,7 @@ public class VaultPageParserEdgeCaseTests
             """;
         var result = VaultPageParser.Parse(html, "https://vimm.net/vault/1", 0);
         Assert.IsNotNull(result);
-        Assert.IsFalse(result.DownloadUrl.Contains("alt="));
+        Assert.DoesNotContain("alt=", result.DownloadUrl);
     }
 
     [TestMethod]
@@ -143,7 +143,7 @@ public class VaultPageParserEdgeCaseTests
         // No format options on page -> falls back to 0 (default)
         Assert.AreEqual(0, result.ResolvedFormat);
         Assert.IsNotNull(result.FormatNote);
-        Assert.IsFalse(result.DownloadUrl.Contains("alt="));
+        Assert.DoesNotContain("alt=", result.DownloadUrl);
     }
 
     // --- Malformed HTML ---

@@ -186,7 +186,7 @@ public class VaultPageParserTests
     {
         var available = new HashSet<int> { 2, 3 };
         var (format, note) = VaultPageParser.ResolveFormat(1, available);
-        Assert.IsTrue(available.Contains(format));
+        Assert.Contains(format, available);
         Assert.IsNotNull(note);
         StringAssert.Contains(note, "not available");
     }
@@ -208,9 +208,9 @@ public class VaultPageParserTests
             <option value="1" title="dec.iso">.dec.iso</option>
             """;
         var formats = VaultPageParser.ExtractAvailableFormats(html);
-        Assert.AreEqual(2, formats.Count);
-        Assert.IsTrue(formats.Contains(0));
-        Assert.IsTrue(formats.Contains(1));
+        Assert.HasCount(2, formats);
+        Assert.Contains(0, formats);
+        Assert.Contains(1, formats);
     }
 
     [TestMethod]
@@ -218,7 +218,7 @@ public class VaultPageParserTests
     {
         var html = "<body>No format options</body>";
         var formats = VaultPageParser.ExtractAvailableFormats(html);
-        Assert.AreEqual(0, formats.Count);
+        Assert.IsEmpty(formats);
     }
 
     [TestMethod]
@@ -238,7 +238,7 @@ public class VaultPageParserTests
         Assert.IsNotNull(result.FormatNote);
         StringAssert.Contains(result.FormatNote, "not available");
         // URL should NOT contain alt= since resolved to format 0
-        Assert.IsFalse(result.DownloadUrl.Contains("alt="));
+        Assert.DoesNotContain("alt=", result.DownloadUrl);
     }
 
     [TestMethod]

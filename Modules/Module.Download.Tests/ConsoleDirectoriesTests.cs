@@ -3,7 +3,7 @@ using Module.Core;
 [TestClass]
 public class ConsoleDirectoriesTests
 {
-    [DataTestMethod]
+    [TestMethod]
     // Real Vimm's Lair section titles
     [DataRow("PlayStation 3", "ps3")]
     [DataRow("PlayStation 2", "ps2")]
