@@ -28,6 +28,38 @@ function compatClass(status: string): string {
   }
 }
 
+// Human label for a download format alt (PS3 conventions; mirrors the backend FormatLabel).
+function fmtLabel(alt: number): string {
+  switch (alt) {
+    case 0: return 'JB Folder'
+    case 1: return '.dec.iso'
+    default: return `fmt ${alt}`
+  }
+}
+
+// One row per game (Phase C / C5): consolidate the game's available + owned download formats into a
+// compact chip group. Owned formats are highlighted; available-but-not-owned are downloadable.
+function FormatChips({ game }: { game: CatalogGame }) {
+  const owned = new Set(game.ownedFormats)
+  const alts = [...new Set([...game.availableFormats, ...game.ownedFormats])].sort((a, b) => a - b)
+  if (alts.length === 0) return null
+  return (
+    <div className="hidden sm:flex items-center gap-1 shrink-0">
+      {alts.map(alt => (
+        <span key={alt}
+          className={`text-[9px] px-1.5 py-0.5 rounded border ${
+            owned.has(alt)
+              ? 'bg-ps-triangle/15 text-ps-triangle border-ps-triangle/25'
+              : 'bg-surface-3/40 text-text-3 border-border/30'
+          }`}
+          title={owned.has(alt) ? `Owned: ${fmtLabel(alt)}` : `Available: ${fmtLabel(alt)}`}>
+          {owned.has(alt) ? '✓ ' : ''}{fmtLabel(alt)}
+        </span>
+      ))}
+    </div>
+  )
+}
+
 const PAGE_SIZE = 100
 
 // Persist Library filters so they survive tab navigation (the panel unmounts on tab change).
@@ -258,6 +290,7 @@ export function LibraryPanel() {
             {g.size > 0 && (
               <span className="text-[10px] text-text-4 font-mono tabular-nums shrink-0">{fmtBytes(g.size)}</span>
             )}
+            <FormatChips game={g} />
             {g.owned ? (
               g.verified === true ? (
                 <span className="text-[9px] px-1.5 py-0.5 rounded bg-ps-triangle/15 text-ps-triangle

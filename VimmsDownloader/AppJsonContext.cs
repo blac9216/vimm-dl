@@ -42,6 +42,7 @@ using Module.Sync.Bridge;
 [JsonSerializable(typeof(List<CatalogSetDto>))]
 [JsonSerializable(typeof(AddSetRequest))]
 [JsonSerializable(typeof(List<string>))]
+[JsonSerializable(typeof(List<int>))]
 [JsonSerializable(typeof(CatalogQueueResponse))]
 [JsonSerializable(typeof(CatalogVimmDto))]
 [JsonSerializable(typeof(DuplicateInfo))]
