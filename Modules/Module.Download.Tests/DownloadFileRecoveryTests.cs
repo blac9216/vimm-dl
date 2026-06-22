@@ -103,7 +103,7 @@ public class DownloadFileRecoveryTests
         var existingBytes = new FileInfo(Path.Combine(dlDir, "Game.7z")).Length;
         long totalBytes = 10000;
 
-        Assert.IsTrue(existingBytes >= totalBytes);
+        Assert.IsGreaterThanOrEqualTo(totalBytes, existingBytes);
 
         // Recover by moving
         File.Move(Path.Combine(dlDir, "Game.7z"), Path.Combine(cDir, "Game.7z"));
@@ -138,7 +138,7 @@ public class DownloadFileRecoveryTests
         var sanitized = string.Join("_", name.Split(invalidChars));
 
         Assert.IsFalse(sanitized.Any(c => invalidChars.Contains(c)));
-        Assert.IsTrue(sanitized.Length > 0);
+        Assert.IsGreaterThan(0, sanitized.Length);
     }
 
     [TestMethod]
@@ -168,7 +168,7 @@ public class DownloadFileRecoveryTests
 
         Task.WaitAll(tasks);
 
-        Assert.AreEqual(10, Directory.GetFiles(dlDir).Length);
+        Assert.HasCount(10, Directory.GetFiles(dlDir));
     }
 
     // --- Directory creation ---

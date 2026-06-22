@@ -120,9 +120,9 @@ public class ArchiveSourceTests
         var r = await NewSource().SearchSetsAsync("game boy advance", StubClient(SearchJson), CancellationToken.None);
 
         Assert.IsTrue(r.IsOk, r.Error);
-        Assert.AreEqual(2, r.Value!.Count);
+        Assert.HasCount(2, r.Value!);
 
-        var gba = r.Value[0];
+        var gba = r.Value![0];
         Assert.AreEqual("ef_gba_no-intro_2024-02-21", gba.Id);
         Assert.AreEqual("Nintendo - Game Boy Advance (No-Intro 2024-02-21)", gba.Title);
         Assert.AreEqual("gba", ConsoleDirectories.Resolve(gba.Platform)); // console from title/subject
@@ -145,14 +145,14 @@ public class ArchiveSourceTests
         var r = await NewSource().ListFilesAsync("ef_gba_no-intro_2024-02-21", null, StubClient(FilesJson), CancellationToken.None);
 
         Assert.IsTrue(r.IsOk, r.Error);
-        Assert.AreEqual(2, r.Value!.Count); // .jpg thumb, .xml, .torrent excluded
+        Assert.HasCount(2, r.Value!); // .jpg thumb, .xml, .torrent excluded
 
-        var first = r.Value[0];
+        var first = r.Value![0];
         Assert.AreEqual("007 - NightFire (USA, Europe).zip", first.Name);
         Assert.AreEqual(12345, first.Size); // size parsed from string
         StringAssert.StartsWith(first.DownloadUrl, "https://archive.org/download/ef_gba_no-intro_2024-02-21/");
         StringAssert.Contains(first.DownloadUrl, "NightFire");        // name is URL-encoded into the path
-        Assert.IsFalse(first.DownloadUrl.Contains(' '));               // spaces escaped
+        Assert.DoesNotContain(' ', first.DownloadUrl);                 // spaces escaped
 
         Assert.AreEqual(67890, r.Value[1].Size); // size parsed from number
     }
@@ -163,8 +163,8 @@ public class ArchiveSourceTests
         var r = await NewSource().ListFilesAsync("ef_gba_no-intro_2024-02-21", "nightfire", StubClient(FilesJson), CancellationToken.None);
 
         Assert.IsTrue(r.IsOk, r.Error);
-        Assert.AreEqual(1, r.Value!.Count);
-        Assert.AreEqual("007 - NightFire (USA, Europe).zip", r.Value[0].Name);
+        Assert.HasCount(1, r.Value!);
+        Assert.AreEqual("007 - NightFire (USA, Europe).zip", r.Value![0].Name);
     }
 
     [TestMethod]
