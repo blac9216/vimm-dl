@@ -573,7 +573,7 @@ class QueueRepository
         cmd.CommandText = """
             SELECT c.id, c.url, c.filename, c.filepath, c.completed_at,
                    m.title, m.platform, m.size,
-                   c.conv_phase, c.conv_message, c.iso_filename, c.format
+                   c.conv_phase, c.conv_message, c.iso_filename, c.format, c.game_id
             FROM completed_urls c
             LEFT JOIN source_meta m ON c.source = m.source AND c.source_id = m.source_id
             ORDER BY c.id DESC
@@ -591,7 +591,8 @@ class QueueRepository
                 r.IsDBNull(8) ? null : r.GetString(8),
                 r.IsDBNull(9) ? null : r.GetString(9),
                 r.IsDBNull(10) ? null : r.GetString(10),
-                r.IsDBNull(11) ? null : r.GetInt32(11)));
+                r.IsDBNull(11) ? null : r.GetInt32(11),
+                r.IsDBNull(12) ? null : r.GetInt64(12)));
         return items;
     }
 
