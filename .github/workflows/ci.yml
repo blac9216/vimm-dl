@@ -35,5 +35,41 @@ jobs:
       - name: Pull tools image
         run: docker pull ghcr.io/eduvhc/vimm-dl-tools:latest
 
-      - name: Run all tests
-        run: dotnet test --no-restore --verbosity normal
+      - name: Run all tests with coverage
+        run: dotnet test --no-restore --verbosity normal --collect:"XPlat Code Coverage" --results-directory ./TestResults
+
+      # coverlet emits one coverage.cobertura.xml per test assembly (issue #177); merge them into a
+      # single source-filtered report so the number reflects the whole suite, not raw per-assembly
+      # line-rate (which is diluted by each assembly's full dependency closure).
+      - name: Install ReportGenerator
+        if: always()
+        run: |
+          dotnet tool install --global dotnet-reportgenerator-globaltool
+          echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+
+      - name: Merge coverage into a report
+        if: always()
+        # The ReportGenerator global tool targets an earlier .NET; roll it forward so it launches on the
+        # .NET 10-only runner that setup-dotnet provisions.
+        env:
+          DOTNET_ROLL_FORWARD: LatestMajor
+        run: |
+          reportgenerator \
+            -reports:"TestResults/**/coverage.cobertura.xml" \
+            -targetdir:CoverageReport \
+            -reporttypes:"Cobertura;Html;MarkdownSummaryGithub"
+
+      - name: Publish coverage to the job summary
+        if: always()
+        run: cat CoverageReport/SummaryGithub.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: CoverageReport
+
+      # A build-breaking threshold gate is intentionally NOT enabled yet (issue #187, optional AC): it
+      # needs a maintainer-agreed baseline read off the merged report this job now publishes. To enable,
+      # add a step that fails when CoverageReport/Cobertura.xml's top-level line-rate drops below the floor.
