@@ -159,6 +159,53 @@ public class ImportServiceTests
         Assert.AreEqual(Path.Combine(_downloads, "completed", "gb", "t2.gb"), owned.Filepath);
     }
 
+    // --- defensive error paths (#176) ---
+    // Forced with a directory at the target path, which makes File.OpenRead / File.Move throw on every
+    // platform — and, unlike chmod, still fails for root (the test container runs as root).
+
+    [TestMethod]
+    public async Task UnreadableSource_IsRejected_WithReason()
+    {
+        // A directory can't be opened as a file, so hashing fails before any match is attempted.
+        var src = Path.Combine(_importDir, "broken.iso");
+        Directory.CreateDirectory(src);
+
+        var result = await ImportOne(src);
+
+        Assert.AreEqual(ImportOutcome.Rejected, result.Outcome);
+        Assert.AreEqual("unreadable (could not hash)", result.Reason);
+    }
+
+    [TestMethod]
+    public async Task MatchedFile_MoveIntoCompletedFails_RejectedAndNotOwned()
+    {
+        var game = await SeedRom("snes", "Game (USA).sfc", sha1: HelloSha1, md5: null, crc: null);
+        var src = Stage("game.sfc", "hello");
+        // Occupy completed/snes/game.sfc with a directory so the placement move fails after the match.
+        Directory.CreateDirectory(Path.Combine(_downloads, "completed", "snes", "game.sfc"));
+
+        var result = await ImportOne(src);
+
+        Assert.AreEqual(ImportOutcome.Rejected, result.Outcome);
+        StringAssert.Contains(result.Reason, "move failed");
+        Assert.IsFalse(await IsOwned(game), "a failed placement must not mark the game owned");
+    }
+
+    [TestMethod]
+    public async Task NonMatch_RejectMoveFails_StillRejected_WithNullDest()
+    {
+        await SeedRom("ps3", "Other.iso", sha1: HelloSha1, md5: null, crc: null);
+        var src = Stage("mystery.iso", "world"); // no catalog match → headed for rejected/
+        // Occupy rejected/mystery.iso with a directory so even the reject move fails.
+        Directory.CreateDirectory(Path.Combine(_downloads, "rejected", "mystery.iso"));
+
+        var result = await ImportOne(src);
+
+        Assert.AreEqual(ImportOutcome.Rejected, result.Outcome);
+        Assert.AreEqual("no catalog hash match", result.Reason);
+        Assert.IsNull(result.DestPath, "when the reject move fails the result carries no dest path");
+    }
+
     // --- helpers ---
 
     // A raw file yields exactly one result; unwrap it so these (raw-only) assertions stay readable.
