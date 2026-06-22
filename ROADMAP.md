@@ -178,8 +178,9 @@ sources, not Vimm-only.
 - **Phase A — Archive sets & settings — ✅ shipped.** Sets modeled as name + console + links[] (with
   migration), RomGoGetter archive defaults seeded, archive settings incl. Internet Archive S3 keys,
   Library filter persistence, and full No-Intro/Redump console coverage in the catalog.
-  *Still open:* source-aware download parallelism (archive parallel, Vimm serial) — the
-  `archive_parallelism`/`retries`/`idle` settings are stored but not yet wired into the engine.
+  *Source-aware download parallelism* — the `archive_parallelism`/`retries`/`idle` settings — shipped
+  in **EPIC #113**: a per-download state model, an archive worker pool (Vimm serial) with a shared 429
+  cooldown, archive retries + an idle/stall watchdog, and an N-concurrent-download UI.
 - **Phase B — Vimm hash-identity binding — ✅ shipped.** The schema, the throttled per-console scrape +
   hash match, format capture, the "no Vimm match" badge, and source-aware download resolution
   (archive preferred, bound vault URL fallback + format choice).
