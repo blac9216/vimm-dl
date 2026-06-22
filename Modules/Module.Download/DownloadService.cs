@@ -45,6 +45,16 @@ public class DownloadService
     /// <summary>How long a 429 parks archive workers. Internal so tests can shorten it.</summary>
     internal TimeSpan ArchiveCooldownDuration { get; set; } = TimeSpan.FromSeconds(60);
 
+    // Archive resilience (EPIC #113 / A4): a failed archive transfer is retried up to N times (resuming
+    // from the partial), and a transfer making no byte progress for the idle window is cancelled and
+    // retried. Both default off (0) so non-production/serial flows are unchanged; the host wires the
+    // archive_retries / archive_idle settings in.
+    private int _archiveRetries;
+    private int _archiveIdleSeconds;
+    /// <summary>Backoff before retry attempt N (0-based). Internal so tests can zero it out.</summary>
+    internal Func<int, TimeSpan> ArchiveRetryBackoff { get; set; } =
+        attempt => TimeSpan.FromSeconds(Math.Min(30, (attempt + 1) * 5));
+
     public DownloadService(IDownloadBridge bridge, ILogger<DownloadService> log,
         IHttpClientFactory httpFactory, ISourceRegistry sources)
     {
@@ -54,10 +64,12 @@ public class DownloadService
         _sources = sources;
     }
 
-    public void Configure(string downloadPath, int archiveParallelism = 1)
+    public void Configure(string downloadPath, int archiveParallelism = 1, int archiveRetries = 0, int archiveIdleSeconds = 0)
     {
         _downloadPath = downloadPath;
         _archiveParallelism = Math.Max(1, archiveParallelism);
+        _archiveRetries = Math.Max(0, archiveRetries);
+        _archiveIdleSeconds = Math.Max(0, archiveIdleSeconds);
     }
 
     public string GetBasePath()
@@ -251,16 +263,21 @@ public class DownloadService
             }
 
             active.State = "downloading";
-            var result = await StreamDownload(active,
-                http, resolved.DownloadUrl, resolved.RequestHeaders, resolved.SuggestedFilename, resolved.Title,
-                downloadingPath, itemCompletedPath, ct);
+            var result = isArchive
+                ? await DownloadArchiveWithRetriesAsync(active, http, resolved, downloadingPath, itemCompletedPath, ct)
+                : await StreamDownload(active, http, resolved.DownloadUrl, resolved.RequestHeaders,
+                    resolved.SuggestedFilename, resolved.Title, downloadingPath, itemCompletedPath, ct);
 
             if (!result.IsOk)
             {
                 active.State = "error";
                 _log.LogError("Download failed for {Url}: {Error}", url, result.Error);
                 await Emit(new DownloadErrorEvent($"Failed: {url} - {result.Error}"));
-                if (!isArchive)
+                if (isArchive)
+                    // The archive retry budget is already exhausted (DownloadArchiveWithRetriesAsync);
+                    // drop the item so it isn't re-claimed into an endless retry loop.
+                    await provider.RemoveAsync(id);
+                else
                 {
                     var backoff = rand.Next(15, 46);
                     await Emit(new DownloadStatusEvent($"Waiting {backoff}s before retry..."));
@@ -295,6 +312,68 @@ public class DownloadService
             else await Task.Delay(ArchiveCooldownDuration, ct);
         }
         finally { _active.TryRemove(active.Key, out _); }
+    }
+
+    /// <summary>
+    /// Stream an archive transfer with resilience (EPIC #113 / A4): retry up to <c>archive_retries</c>
+    /// times (resuming from the partial via the existing Range support), and abort+retry a transfer that
+    /// makes no byte progress for <c>archive_idle</c> seconds. Stop/pause (the outer token) is never
+    /// retried. Returns the final result; the caller emits the error if every attempt failed.
+    /// </summary>
+    private async Task<Result<(string Filename, string CompletedPath)>> DownloadArchiveWithRetriesAsync(
+        ActiveDownload active, HttpClient http, ResolvedDownload resolved,
+        string downloadingPath, string completedPath, CancellationToken ct)
+    {
+        var idle = _archiveIdleSeconds > 0 ? TimeSpan.FromSeconds(_archiveIdleSeconds) : Timeout.InfiniteTimeSpan;
+        var result = Result<(string, string)>.Fail("not attempted");
+
+        for (var attempt = 0; ; attempt++)
+        {
+            using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            var watchdog = _archiveIdleSeconds > 0 ? StallWatchdogAsync(active, idle, attemptCts) : Task.CompletedTask;
+            try
+            {
+                result = await StreamDownload(active, http, resolved.DownloadUrl, resolved.RequestHeaders,
+                    resolved.SuggestedFilename, resolved.Title, downloadingPath, completedPath, attemptCts.Token);
+            }
+            catch (OperationCanceledException) when (attemptCts.IsCancellationRequested && !ct.IsCancellationRequested)
+            {
+                // Watchdog tripped — a stall, not a real stop/pause. Treat it as a failed attempt.
+                result = Result<(string, string)>.Fail($"stalled (no progress for {_archiveIdleSeconds}s)");
+            }
+            finally
+            {
+                if (!attemptCts.IsCancellationRequested) attemptCts.Cancel();
+                await watchdog;
+            }
+
+            if (result.IsOk || attempt >= _archiveRetries) return result;
+
+            var backoff = ArchiveRetryBackoff(attempt);
+            await Emit(new DownloadStatusEvent(
+                $"Retry {attempt + 1}/{_archiveRetries} for {active.Filename ?? active.Url} in {backoff.TotalSeconds:F0}s ({result.Error})"));
+            await Task.Delay(backoff, ct);
+        }
+    }
+
+    /// <summary>
+    /// Cancel <paramref name="attemptCts"/> once a transfer goes an entire idle window with no new bytes.
+    /// Polls the download's byte counter every window; resolves quietly when the attempt ends.
+    /// </summary>
+    private static async Task StallWatchdogAsync(ActiveDownload active, TimeSpan idle, CancellationTokenSource attemptCts)
+    {
+        try
+        {
+            var last = active.Downloaded;
+            while (true)
+            {
+                await Task.Delay(idle, attemptCts.Token);
+                var now = active.Downloaded;
+                if (now == last) { attemptCts.Cancel(); return; }
+                last = now;
+            }
+        }
+        catch (OperationCanceledException) { /* attempt finished or was cancelled */ }
     }
 
     /// <summary>Park all archive workers until any active 429 cooldown elapses (EPIC #113 / A3).</summary>
