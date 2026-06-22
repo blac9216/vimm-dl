@@ -7,15 +7,22 @@ class SignalRPs3PipelineBridge(IHubContext<DownloadHub> hub, QueueRepository rep
 {
     public async Task SendAsync(PipelineStatusEvent evt)
     {
-        // 1. Append ALL events to event log (with correlation ID)
+        // Resolve the catalog identity once (best-effort): used both to stamp the persisted event (so a
+        // game's conversion history groups across formats/retries — Phase C / C2) and to enrich the live
+        // payload below (so the Active panel can group conversions by game — #151 / A). Null for legacy /
+        // unmatched items, which fall back to filename grouping.
+        long? gameId = null;
+        int? format = null;
+        string? source = null;
+        try { (gameId, format, source) = await repo.ResolveEventIdentityAsync(evt.ItemName); }
+        catch { }
+
+        // 1. Append ALL events to event log (with correlation ID + identity)
         try
         {
             var data = evt.OutputFilename != null
                 ? $"{{\"outputFilename\":\"{EscapeJson(evt.OutputFilename)}\"}}"
                 : null;
-            // Stamp the event with the catalog identity (Phase C / C2) so a game's conversion history
-            // groups across formats and retries; nulls for legacy / unmatched items (filename grouping).
-            var (gameId, format, source) = await repo.ResolveEventIdentityAsync(evt.ItemName);
             await repo.AppendEventAsync(evt.ItemName, "pipeline_status", evt.Phase, evt.Message, data, evt.CorrelationId,
                 gameId, format, source);
         }
@@ -28,10 +35,11 @@ class SignalRPs3PipelineBridge(IHubContext<DownloadHub> hub, QueueRepository rep
             catch { }
         }
 
-        // 3. SignalR broadcast
+        // 3. SignalR broadcast — carry the identity on the live payload (ItemName stays the display/abort key).
         try
         {
-            var json = JsonSerializer.SerializeToElement(evt, AppJsonContext.Default.PipelineStatusEvent);
+            var live = evt with { GameId = gameId, Format = format };
+            var json = JsonSerializer.SerializeToElement(live, AppJsonContext.Default.PipelineStatusEvent);
             await hub.Clients.All.SendAsync("ConvertStatus", json);
             await hub.Clients.All.SendAsync("Status", $"[PS3] {evt.ItemName}: {evt.Message}");
         }
