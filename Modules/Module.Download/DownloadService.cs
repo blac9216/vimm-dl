@@ -36,6 +36,15 @@ public class DownloadService
 
     private string _downloadPath = "";
 
+    // Source-aware concurrency (EPIC #113 / A3): archive.org items run up to N at once; everything else
+    // (Vimm) stays strictly serial. Applied on each Start, so changing the setting takes effect for the
+    // next run. A 429 from any archive transfer parks all archive workers via a shared cooldown.
+    private int _archiveParallelism = 1;
+    private readonly object _cooldownLock = new();
+    private DateTime _archiveCooldownUntil = DateTime.MinValue;
+    /// <summary>How long a 429 parks archive workers. Internal so tests can shorten it.</summary>
+    internal TimeSpan ArchiveCooldownDuration { get; set; } = TimeSpan.FromSeconds(60);
+
     public DownloadService(IDownloadBridge bridge, ILogger<DownloadService> log,
         IHttpClientFactory httpFactory, ISourceRegistry sources)
     {
@@ -45,9 +54,10 @@ public class DownloadService
         _sources = sources;
     }
 
-    public void Configure(string downloadPath)
+    public void Configure(string downloadPath, int archiveParallelism = 1)
     {
         _downloadPath = downloadPath;
+        _archiveParallelism = Math.Max(1, archiveParallelism);
     }
 
     public string GetBasePath()
@@ -93,104 +103,54 @@ public class DownloadService
         ActiveDownloadPath = downloadingPath;
         await Emit(new DownloadStatusEvent($"Download path: {downloadPath}"));
 
+        // Single dispatcher claims items in queue order. Archive items fan out to background workers
+        // bounded by an archive semaphore (up to N concurrent); non-archive (Vimm) items are processed
+        // inline so they stay strictly serial. Claiming excludes in-flight ids so no row runs twice.
+        // (SemaphoreSlim is intentionally not disposed — background workers may still release it as the
+        // run unwinds, and we never touch its wait handle.)
+        var archiveSlots = new SemaphoreSlim(_archiveParallelism);
+        var archiveTasks = new List<Task>();
         try
         {
             while (!ct.IsCancellationRequested)
             {
-                var item = await provider.GetNextAsync();
-                if (item == null) break;
-
-                var (id, url, format) = item;
-                var active = new ActiveDownload { Key = id.ToString(), Url = url, Source = item.Source, Progress = "starting" };
-                _active[active.Key] = active;
-                await Emit(new DownloadStatusEvent($"Processing: {url}"));
-
-                try
+                var claim = await ClaimNextAsync(provider);
+                if (claim is null)
                 {
-                    var source = _sources.Get(item.Source);
-                    if (source == null)
-                    {
-                        await Emit(new DownloadErrorEvent($"Unknown download source '{item.Source}' for {url}"));
-                        await provider.RemoveAsync(id);
-                        continue;
-                    }
-
-                    var http = _httpFactory.CreateClient(source.HttpClientName);
-
-                    // The source ("where the bytes come from") resolves the item into a
-                    // concrete, streamable download. Everything below is source-agnostic.
-                    var resolveResult = await source.ResolveAsync(url, format, http, ct);
-                    if (!resolveResult.IsOk)
-                    {
-                        await Emit(new DownloadErrorEvent($"{resolveResult.Error}"));
-                        await provider.RemoveAsync(id);
-                        continue;
-                    }
-                    var resolved = resolveResult.Value!;
-
-                    if (resolved.FormatNote != null)
-                        await Emit(new DownloadStatusEvent($"Format fallback: {resolved.FormatNote}"));
-
-                    var formatLabel = resolved.ResolvedFormat == 0 ? "JB Folder" : $".dec.iso (format {resolved.ResolvedFormat})";
-                    await Emit(new DownloadStatusEvent($"Download URL: {resolved.DownloadUrl}"));
-                    await Emit(new DownloadStatusEvent($"Downloading: {resolved.Title} [{formatLabel}] (source={source.Id})"));
-
-                    // Sort completed files into an EmuDeck-style per-console folder
-                    // (e.g. completed/ps3/). Unknown platforms stay in completed/.
-                    var consoleDir = ConsoleDirectories.Resolve(resolved.Platform);
-                    var itemCompletedPath = consoleDir != null
-                        ? Path.Combine(completedPath, consoleDir)
-                        : completedPath;
-                    if (consoleDir != null)
-                    {
-                        Directory.CreateDirectory(itemCompletedPath);
-                        await Emit(new DownloadStatusEvent($"Console folder: {consoleDir} ({resolved.Platform})"));
-                    }
-
-                    active.State = "downloading";
-                    var result = await StreamDownload(active,
-                        http, resolved.DownloadUrl, resolved.RequestHeaders, resolved.SuggestedFilename, resolved.Title,
-                        downloadingPath, itemCompletedPath, ct);
-
-                    if (!result.IsOk)
-                    {
-                        active.State = "error";
-                        _log.LogError("Download failed for {Url}: {Error}", url, result.Error);
-                        await Emit(new DownloadErrorEvent($"Failed: {url} - {result.Error}"));
-                        var backoff = rand.Next(15, 46);
-                        await Emit(new DownloadStatusEvent($"Waiting {backoff}s before retry..."));
-                        await Task.Delay(backoff * 1000, ct);
-                        continue;
-                    }
-
-                    var (filename, completedFilePath) = result.Value;
-                    active.State = "done";
-
-                    await provider.CompleteAsync(id, url, filename, completedFilePath, format);
-                    await Emit(new DownloadCompletedEvent(url, filename, completedFilePath));
-                    _log.LogInformation("Downloaded {Filename} -> completed/", filename);
-
-                    if (OnPostDownload != null)
-                        await OnPostDownload(url, filename, completedFilePath, format);
-
-                    var delay = rand.Next(5, 31);
-                    await Emit(new DownloadStatusEvent($"Waiting {delay}s before next download..."));
-                    await Task.Delay(delay * 1000, ct);
+                    archiveTasks.RemoveAll(t => t.IsCompleted);
+                    if (archiveTasks.Count == 0) break;   // queue drained and no archive worker running
+                    await Task.WhenAny(archiveTasks);      // wait for a worker, then re-check the queue
+                    continue;
                 }
-                catch (OperationCanceledException) { break; }
-                catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+
+                var (item, active) = claim.Value;
+                await Emit(new DownloadStatusEvent($"Processing: {item.Url}"));
+
+                if (string.Equals(item.Source, "archive", StringComparison.OrdinalIgnoreCase))
                 {
-                    _log.LogWarning("Rate limited on {Url}, backing off 60s", url);
-                    await Emit(new DownloadStatusEvent($"Rate limited: {url} - waiting 60s before retry"));
-                    await Task.Delay(60_000, ct);
+                    await archiveSlots.WaitAsync(ct);
+                    archiveTasks.Add(Task.Run(async () =>
+                    {
+                        try { await ProcessItemAsync(item, active, provider, downloadingPath, completedPath, rand, ct); }
+                        catch (OperationCanceledException) { }
+                        catch (Exception ex) { _log.LogError(ex, "Archive worker failed for {Url}", item.Url); }
+                        finally { _active.TryRemove(active.Key, out _); archiveSlots.Release(); }
+                    }, CancellationToken.None));
                 }
-                finally { _active.TryRemove(active.Key, out _); }
+                else
+                {
+                    // Serial source (Vimm / unknown): process inline. OperationCanceledException
+                    // propagates to stop/pause the run; the per-item finally removes the ActiveDownload.
+                    await ProcessItemAsync(item, active, provider, downloadingPath, completedPath, rand, ct);
+                }
             }
 
+            await DrainAsync(archiveTasks);   // drain in-flight archive workers before signalling done
             await Emit(new DownloadDoneEvent());
         }
         catch (OperationCanceledException)
         {
+            await DrainAsync(archiveTasks);   // let cancelled archive workers unwind cleanly
             if (IsPaused)
                 await Emit(new DownloadStatusEvent("Downloads paused. Resume to continue."));
             else
@@ -198,6 +158,7 @@ public class DownloadService
         }
         catch (Exception ex)
         {
+            await DrainAsync(archiveTasks);
             _log.LogError(ex, "Queue processing failed");
             await Emit(new DownloadErrorEvent($"Queue failed: {ex.Message}"));
         }
@@ -210,6 +171,150 @@ public class DownloadService
             _cts?.Dispose();
             _cts = null;
         }
+    }
+
+    private static async Task DrainAsync(List<Task> tasks)
+    {
+        try { await Task.WhenAll(tasks); } catch { /* individual worker faults are logged in-task */ }
+    }
+
+    /// <summary>
+    /// Claim the next queue item not already in flight, registering its <see cref="ActiveDownload"/> so
+    /// concurrent workers (and the next claim) skip it. The dispatcher is single-threaded, so claiming
+    /// needs no extra lock. Returns null when nothing is left to claim.
+    /// </summary>
+    private async Task<(DownloadItem Item, ActiveDownload Active)?> ClaimNextAsync(IDownloadItemProvider provider)
+    {
+        var exclude = new HashSet<int>();
+        foreach (var key in _active.Keys)
+            if (int.TryParse(key, out var i)) exclude.Add(i);
+
+        var item = await provider.GetNextAsync(exclude);
+        if (item == null) return null;
+
+        var active = new ActiveDownload { Key = item.Id.ToString(), Url = item.Url, Source = item.Source, Progress = "starting" };
+        _active[active.Key] = active;
+        return (item, active);
+    }
+
+    /// <summary>
+    /// Resolve and stream one queue item, reporting progress on its <see cref="ActiveDownload"/>. Removes
+    /// the ActiveDownload when done. Archive items honour the shared 429 cooldown and skip the per-download
+    /// politeness delay (parallel by design); serial sources keep the inter-download pacing.
+    /// <see cref="OperationCanceledException"/> is allowed to propagate so the caller can stop/pause.
+    /// </summary>
+    private async Task ProcessItemAsync(DownloadItem item, ActiveDownload active, IDownloadItemProvider provider,
+        string downloadingPath, string completedPath, Random rand, CancellationToken ct)
+    {
+        var (id, url, format) = item;
+        var isArchive = string.Equals(item.Source, "archive", StringComparison.OrdinalIgnoreCase);
+        try
+        {
+            var source = _sources.Get(item.Source);
+            if (source == null)
+            {
+                await Emit(new DownloadErrorEvent($"Unknown download source '{item.Source}' for {url}"));
+                await provider.RemoveAsync(id);
+                return;
+            }
+
+            if (isArchive) await WaitArchiveCooldownAsync(ct);
+
+            var http = _httpFactory.CreateClient(source.HttpClientName);
+
+            // The source ("where the bytes come from") resolves the item into a concrete, streamable
+            // download. Everything below is source-agnostic.
+            var resolveResult = await source.ResolveAsync(url, format, http, ct);
+            if (!resolveResult.IsOk)
+            {
+                await Emit(new DownloadErrorEvent($"{resolveResult.Error}"));
+                await provider.RemoveAsync(id);
+                return;
+            }
+            var resolved = resolveResult.Value!;
+
+            if (resolved.FormatNote != null)
+                await Emit(new DownloadStatusEvent($"Format fallback: {resolved.FormatNote}"));
+
+            var formatLabel = resolved.ResolvedFormat == 0 ? "JB Folder" : $".dec.iso (format {resolved.ResolvedFormat})";
+            await Emit(new DownloadStatusEvent($"Download URL: {resolved.DownloadUrl}"));
+            await Emit(new DownloadStatusEvent($"Downloading: {resolved.Title} [{formatLabel}] (source={source.Id})"));
+
+            // Sort completed files into an EmuDeck-style per-console folder (e.g. completed/ps3/).
+            // Unknown platforms stay in completed/.
+            var consoleDir = ConsoleDirectories.Resolve(resolved.Platform);
+            var itemCompletedPath = consoleDir != null ? Path.Combine(completedPath, consoleDir) : completedPath;
+            if (consoleDir != null)
+            {
+                Directory.CreateDirectory(itemCompletedPath);
+                await Emit(new DownloadStatusEvent($"Console folder: {consoleDir} ({resolved.Platform})"));
+            }
+
+            active.State = "downloading";
+            var result = await StreamDownload(active,
+                http, resolved.DownloadUrl, resolved.RequestHeaders, resolved.SuggestedFilename, resolved.Title,
+                downloadingPath, itemCompletedPath, ct);
+
+            if (!result.IsOk)
+            {
+                active.State = "error";
+                _log.LogError("Download failed for {Url}: {Error}", url, result.Error);
+                await Emit(new DownloadErrorEvent($"Failed: {url} - {result.Error}"));
+                if (!isArchive)
+                {
+                    var backoff = rand.Next(15, 46);
+                    await Emit(new DownloadStatusEvent($"Waiting {backoff}s before retry..."));
+                    await Task.Delay(backoff * 1000, ct);
+                }
+                return;
+            }
+
+            var (filename, completedFilePath) = result.Value;
+            active.State = "done";
+
+            await provider.CompleteAsync(id, url, filename, completedFilePath, format);
+            await Emit(new DownloadCompletedEvent(url, filename, completedFilePath));
+            _log.LogInformation("Downloaded {Filename} -> completed/", filename);
+
+            if (OnPostDownload != null)
+                await OnPostDownload(url, filename, completedFilePath, format);
+
+            // Serial sources keep the polite inter-download delay; archive runs back-to-back (parallel).
+            if (!isArchive)
+            {
+                var delay = rand.Next(5, 31);
+                await Emit(new DownloadStatusEvent($"Waiting {delay}s before next download..."));
+                await Task.Delay(delay * 1000, ct);
+            }
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+        {
+            _log.LogWarning("Rate limited on {Url}, backing off", url);
+            await Emit(new DownloadStatusEvent($"Rate limited: {url} - backing off before retry"));
+            if (isArchive) TriggerArchiveCooldown(ArchiveCooldownDuration);
+            else await Task.Delay(ArchiveCooldownDuration, ct);
+        }
+        finally { _active.TryRemove(active.Key, out _); }
+    }
+
+    /// <summary>Park all archive workers until any active 429 cooldown elapses (EPIC #113 / A3).</summary>
+    private async Task WaitArchiveCooldownAsync(CancellationToken ct)
+    {
+        TimeSpan wait;
+        lock (_cooldownLock) wait = _archiveCooldownUntil - DateTime.UtcNow;
+        if (wait > TimeSpan.Zero)
+        {
+            await Emit(new DownloadStatusEvent($"Archive rate-limited — waiting {wait.TotalSeconds:F0}s"));
+            await Task.Delay(wait, ct);
+        }
+    }
+
+    /// <summary>Start (or extend) a shared cooldown that all archive workers observe before fetching.</summary>
+    private void TriggerArchiveCooldown(TimeSpan duration)
+    {
+        var until = DateTime.UtcNow + duration;
+        lock (_cooldownLock)
+            if (until > _archiveCooldownUntil) _archiveCooldownUntil = until;
     }
 
     private async Task<Result<(string Filename, string CompletedPath)>> StreamDownload(

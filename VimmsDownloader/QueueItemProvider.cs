@@ -2,9 +2,9 @@ using Module.Download;
 
 class QueueItemProvider(QueueRepository repo) : IDownloadItemProvider
 {
-    public async Task<DownloadItem?> GetNextAsync()
+    public async Task<DownloadItem?> GetNextAsync(IReadOnlySet<int> excludeIds)
     {
-        var row = await repo.GetNextQueueItemAsync();
+        var row = await repo.GetNextQueueItemAsync(excludeIds);
         if (row == null) return null;
         var (id, url, format, source) = row.Value;
         return new DownloadItem(id, url, format) { Source = source };

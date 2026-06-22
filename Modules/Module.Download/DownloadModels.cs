@@ -16,7 +16,12 @@ public record DownloadItem(int Id, string Url, int Format)
 /// </summary>
 public interface IDownloadItemProvider
 {
-    Task<DownloadItem?> GetNextAsync();
+    /// <summary>
+    /// The next queue item to download, skipping any whose id is in <paramref name="excludeIds"/>.
+    /// The exclusion lets the engine hand out distinct items to concurrent workers without claiming
+    /// the same row twice (an in-flight download stays in the queue until it completes).
+    /// </summary>
+    Task<DownloadItem?> GetNextAsync(IReadOnlySet<int> excludeIds);
     Task CompleteAsync(int id, string url, string filename, string filepath, int format);
     Task RemoveAsync(int id);
 }
