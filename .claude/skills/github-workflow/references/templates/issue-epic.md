@@ -35,12 +35,11 @@ as decisions are made. This is the durable design memory; do not rely on chat
 history or summaries to carry it.
 
 ## Sub-Issues
-Right-sized child issues, each landing in its own review-sized PR. There must be
-more than one. Check the box when the issue is closed and its PR is merged.
-
-- [ ] #<id> — <short title> — PR #<pr> _(fill the PR in when opened/merged)_
-- [ ] #<id> — <short title>
-- [ ] #<id> — <short title>
+Child issues are linked as **native GitHub sub-issues** of this epic (via the API /
+UI — not a checklist in this body), so GitHub tracks the parent's progress bar
+automatically and a later session can enumerate them programmatically. There must be
+more than one. Per-issue PR numbers and any design drift live in the Trajectory Log
+below — the narrative the native list doesn't capture.
 
 ## Trajectory Log
 Append a brief entry each time a sub-issue closes: which issue/PR landed, and

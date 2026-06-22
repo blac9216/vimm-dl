@@ -35,6 +35,8 @@ default for this project's automated work.
 | Create an issue | `gh issue create --title … --body … --label …` | `issue_write` method `create` |
 | Update an issue (label / close / assign) | `gh issue edit <N> --add-label …`, `gh issue close <N>` | `issue_write` method `update` (`labels`, `state`, `assignees`) |
 | Comment on an issue or a PR | `gh issue comment <N>`, `gh pr comment <N>` | `add_issue_comment` (`issue_number` accepts a PR number too) |
+| Link a sub-issue to a parent (epic) | `gh api repos/{owner}/{repo}/issues/<parent>/sub_issues -F sub_issue_id=<id>` | `sub_issue_write` method `add` (parent `issue_number` + `sub_issue_id`) — see caveat |
+| List an epic's sub-issues | `gh api repos/{owner}/{repo}/issues/<parent>/sub_issues` | `issue_read` method `get_sub_issues` |
 | Check whether a label exists | `gh label list` | `get_label` (404 ⇒ does not exist) |
 | Read CI run logs | `gh run view <run-id> --log` | `get_job_logs` (`failed_only: true` for a run) or `actions_get` |
 | Secret scan a diff/file | _(no first-class command)_ | `run_secret_scanning` |
@@ -73,3 +75,8 @@ default for this project's automated work.
    edit`) or a human action in the cloud sandbox. If a required label is missing
    or mis-colored and you cannot fix it, stop and ask the user — do not proceed
    with a substitute or no label.
+
+6. **`sub_issue_id` is the issue's internal ID, not its number.** Both
+   `sub_issue_write` and the `gh api …/sub_issues` body take the child issue's
+   database **`id`** (read it from `issue_read` `get` on the child — the `id`
+   field), not its `#number`. Mixing them up links the wrong issue or errors.

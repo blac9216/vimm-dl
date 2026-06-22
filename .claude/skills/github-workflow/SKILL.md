@@ -40,12 +40,12 @@ An **epic** is a meta-issue that tracks one larger goal delivered across **more 
 
 **When to open one.** The moment a feature is too big to land in one review-sized PR (≤ ~400 net LOC / ≤ 15 files), it needs an epic. If you're about to file a second issue that only makes sense as part of the same larger goal, that goal is an epic — open it first. An epic always has more than one sub-issue; a "one sub-issue epic" is just an issue.
 
-**Shape.** Use [references/templates/issue-epic.md](references/templates/issue-epic.md) and apply the `epic` label. The body is a **living spec**: a Goal, the Design/Approach (edited in place as decisions change), a **Sub-Issues checklist** (one checkbox per child issue, each carrying its PR number once opened), a **Trajectory Log**, and a one-line Status. Treat the first draft as a starting point, not a contract.
+**Shape.** Use [references/templates/issue-epic.md](references/templates/issue-epic.md) and apply the `epic` label. The body is a **living spec**: a Goal, the Design/Approach (edited in place as decisions change), the **sub-issues linked natively** (GitHub then auto-tracks the parent's progress — not a manual checklist), a **Trajectory Log** (each closed sub-issue's PR + any design drift), and a one-line Status. Treat the first draft as a starting point, not a contract.
 
 **Keep it current — this is the part that matters.** An epic that isn't maintained is worse than none, because it lies to the next session. Two mandatory update points:
 
 - **Before** you start work on any sub-issue: re-read the epic in full, confirm the sub-issue still fits the goal, and update Status to show it's in flight.
-- **After** a sub-issue closes: tick its checkbox, record its PR number, and append a Trajectory Log entry — which issue/PR landed and **what changed from the original design**, if anything. Then **re-evaluate the whole epic's trajectory**: does the remaining plan still make sense given what just shipped? If not, edit the Design section and update any still-open sub-issues whose scope or approach the change affects (comment on them, or revise their bodies). Catching drift here is the entire point — a stale open sub-issue is how a session three windows from now builds the wrong thing.
+- **After** a sub-issue closes: GitHub updates the parent's progress bar automatically, so just append a Trajectory Log entry — which issue/PR landed and **what changed from the original design**, if anything. Then **re-evaluate the whole epic's trajectory**: does the remaining plan still make sense given what just shipped? If not, edit the Design section and update any still-open sub-issues whose scope or approach the change affects (comment on them, or revise their bodies). Catching drift here is the entire point — a stale open sub-issue is how a session three windows from now builds the wrong thing.
 
 ## Plan the work, then file it all — before starting
 
@@ -55,7 +55,7 @@ When a discussion lands on a path forward, do not start coding the first piece. 
 
 ## Starting a session / picking up after compaction
 
-When this skill loads in a fresh context window and the work is part of an epic, **familiarize yourself with the entire epic and all its associated sub-issues before doing anything else** — read the epic body (Goal, Design, Trajectory Log, Status) and read each open sub-issue. This is the durable channel the previous session left for you; reconstruct the larger picture from it rather than inferring intent from the diff. Only once you hold the whole epic in view should you start (or resume) a sub-issue — and per the rule above, update the epic's Status before you do.
+When this skill loads in a fresh context window and the work is part of an epic, **familiarize yourself with the entire epic and all its associated sub-issues before doing anything else** — read the epic body (Goal, Design, Trajectory Log, Status) and read each open sub-issue (enumerate them from the native sub-issue list — `issue_read` `get_sub_issues`, or `gh api …/sub_issues`). This is the durable channel the previous session left for you; reconstruct the larger picture from it rather than inferring intent from the diff. Only once you hold the whole epic in view should you start (or resume) a sub-issue — and per the rule above, update the epic's Status before you do.
 
 ## Deferred Items Rule
 
