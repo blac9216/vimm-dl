@@ -25,6 +25,9 @@ export function useSignalR(dispatch: React.Dispatch<DownloadAction>) {
     connection.on('Progress', (msg: string) => {
       const info = parseProgress(msg)
       if (info) dispatch({ type: 'PROGRESS', info })
+      // Refresh /api/data so per-download progress (activeDownloads[]) stays live for N concurrent
+      // downloads (EPIC #113 / A2). React Query dedups the concurrent invalidations into one refetch.
+      queryClient.invalidateQueries({ queryKey: ['data'] })
       invalidateEvents()
     })
 

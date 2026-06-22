@@ -27,9 +27,18 @@ export function QueueItem({
   const patchMutation = usePatchQueueItem()
 
   const title = item.title || slugFromUrl(item.url)
-  const isActive = state.activeUrl === item.url
+  // Per-download state (EPIC #113 / A2): each item finds its own in-flight record, so N concurrent
+  // downloads each render independent progress. Falls back to the single live parse for legacy items.
+  const active = state.activeDownloads.find(a => a.url === item.url)
+  const isActive = !!active || state.activeUrl === item.url
   const isDownloading = isActive && state.running && !state.paused
   const isPaused = isActive && state.paused
+
+  const legacyInfo = !active && state.activeUrl === item.url ? state.activeDlInfo : null
+  const dlPct = active ? (active.pct >= 0 ? `${active.pct.toFixed(2)}%` : 'Starting') : legacyInfo?.pct ?? null
+  const dlWidth = active ? `${Math.max(0, active.pct).toFixed(2)}%` : legacyInfo?.width ?? null
+  const dlSpeed = active ? (active.speedMBps > 0 ? `${active.speedMBps.toFixed(2)} MB/s` : null) : legacyInfo?.speed ?? null
+  const hasProgress = active ? active.pct >= 0 : !!legacyInfo
 
   const formats: FormatOption[] = item.formats ? JSON.parse(item.formats) : []
 
@@ -53,9 +62,9 @@ export function QueueItem({
 
   let badgeVariant: 'downloading' | 'paused' | 'queued' | 'starting' = 'queued'
   let badgeText = 'Queued'
-  if (isDownloading && state.activeDlInfo) {
+  if (isDownloading && hasProgress && dlPct) {
     badgeVariant = 'downloading'
-    badgeText = state.activeDlInfo.pct
+    badgeText = dlPct
   } else if (isDownloading) {
     badgeVariant = 'starting'
     badgeText = 'Starting'
@@ -125,14 +134,14 @@ export function QueueItem({
 
       {/* Speed */}
       <span className="hidden md:inline text-[10px] font-mono text-text-3 w-20 text-right tabular-nums">
-        {isDownloading && state.activeDlInfo?.speed ? state.activeDlInfo.speed : ''}
+        {isDownloading && dlSpeed ? dlSpeed : ''}
       </span>
 
       <div className="hidden sm:block w-28">
-        {(isDownloading && state.activeDlInfo) ? (
-          <ProgressBar width={state.activeDlInfo.width} variant="download" />
-        ) : isPaused && state.activeDlInfo ? (
-          <ProgressBar width={state.activeDlInfo.width} variant="paused" />
+        {(isDownloading && dlWidth) ? (
+          <ProgressBar width={dlWidth} variant="download" />
+        ) : isPaused && dlWidth ? (
+          <ProgressBar width={dlWidth} variant="paused" />
         ) : null}
       </div>
 

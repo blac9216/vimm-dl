@@ -7,7 +7,10 @@ export function StatusBar() {
 
   const queued = data?.queued.length ?? 0
   const completed = data?.history.length ?? 0
-  const downloading = state.running && !state.paused ? 1 : 0
+  // Real number of concurrent downloads (EPIC #113 / A2), not a hardcoded 1.
+  const downloading = state.activeDownloads.length > 0
+    ? state.activeDownloads.length
+    : (state.running && !state.paused ? 1 : 0)
 
   return (
     <footer className="flex items-center justify-between px-3 sm:px-6 py-1.5 bg-surface/60 border-t border-border/30

@@ -8,6 +8,22 @@ export interface DataResponse {
   progress: string | null
   totalBytes: number
   downloadedBytes: number
+  /** All in-flight downloads, each with independent progress (EPIC #113). currentUrl/progress above are aliases of the first. */
+  activeDownloads: ActiveDownload[]
+}
+
+/** One in-flight download (EPIC #113 / A1). */
+export interface ActiveDownload {
+  key: string
+  url: string
+  source: string
+  filename: string | null
+  state: string // starting | downloading | done | error
+  progress: string | null
+  pct: number
+  speedMBps: number
+  downloaded: number
+  total: number
 }
 
 export interface QueuedItem {

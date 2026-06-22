@@ -51,7 +51,9 @@ function AppContent() {
       const info = parseProgress(data.progress)
       if (info) dispatch({ type: 'PROGRESS', info })
     }
-  }, [data?.isRunning, data?.isPaused, data?.currentUrl]) // eslint-disable-line react-hooks/exhaustive-deps
+    // Per-download state (EPIC #113 / A2) — the Active tab renders one progress row per item.
+    dispatch({ type: 'SET_ACTIVE', active: data.activeDownloads ?? [] })
+  }, [data?.isRunning, data?.isPaused, data?.currentUrl, data?.activeDownloads]) // eslint-disable-line react-hooks/exhaustive-deps
 
 
   // Update document title with progress
