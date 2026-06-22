@@ -23,6 +23,8 @@ public sealed class DailyBundleDatSource(HttpClient http, ILogger<DailyBundleDat
     internal string BundleUrlTemplate { get; set; } =
         "https://github.com/hugo19941994/auto-datfile-generator/releases/latest/download/{0}.zip";
 
+    /// <inheritdoc/>
+    public string Origin => "daily-bundle";
     public TimeSpan InterSystemDelay => TimeSpan.Zero;   // ~2 requests for a full run — no pacing needed
 
     // group -> compressed zip bytes, downloaded at most once per run. Guarded by _gate.

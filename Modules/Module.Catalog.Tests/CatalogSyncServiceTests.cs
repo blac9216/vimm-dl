@@ -107,6 +107,7 @@ public class CatalogSyncServiceTests
 
     private sealed class FakeSource(Func<CatalogSystemInfo, Result<string>> responder) : IDatSource
     {
+        public string Origin { get; init; } = "libretro";
         public TimeSpan InterSystemDelay { get; init; } = TimeSpan.Zero;
         public Task<Result<string>> GetDatAsync(CatalogSystemInfo sys, CancellationToken ct)
             => Task.FromResult(responder(sys));
@@ -117,6 +118,7 @@ public class CatalogSyncServiceTests
         public readonly List<(string Dat, string Console, string Source)> Systems = [];
         public readonly List<DatGame> Games = [];
         public string? LastVersion;
+        public string? LastOrigin;
 
         public Task<long> UpsertSystemAsync(string datName, string console, string source, CancellationToken ct)
         {
@@ -124,10 +126,11 @@ public class CatalogSyncServiceTests
             return Task.FromResult((long)Systems.Count);
         }
 
-        public Task ReplaceSystemGamesAsync(long systemId, IReadOnlyList<DatGame> games, string? datVersion, CancellationToken ct)
+        public Task MergeSystemGamesAsync(long systemId, string origin, IReadOnlyList<DatGame> games, string? datVersion, CancellationToken ct)
         {
             Games.AddRange(games);
             LastVersion = datVersion;
+            LastOrigin = origin;
             return Task.CompletedTask;
         }
     }

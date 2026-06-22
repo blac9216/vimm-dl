@@ -24,6 +24,8 @@ public sealed class LibretroDatSource(HttpClient http, ILogger<LibretroDatSource
     internal TimeSpan RetryBackoff { get; set; } = TimeSpan.FromSeconds(2);
     /// <summary>Upper bound on a single backoff wait (also caps an over-long <c>Retry-After</c>).</summary>
     internal TimeSpan MaxBackoff { get; set; } = TimeSpan.FromSeconds(30);
+    /// <inheritdoc/>
+    public string Origin => "libretro";
     /// <summary>Polite pause between systems so a full multi-console run stays under the anonymous cap.</summary>
     public TimeSpan InterSystemDelay { get; set; } = TimeSpan.FromMilliseconds(250);
     /// <summary>Delay seam — defaults to <see cref="Task.Delay(TimeSpan, CancellationToken)"/>; tests substitute a no-op recorder.</summary>

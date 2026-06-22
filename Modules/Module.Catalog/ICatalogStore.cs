@@ -11,8 +11,11 @@ public interface ICatalogStore
     Task<long> UpsertSystemAsync(string datName, string console, string source, CancellationToken ct);
 
     /// <summary>
-    /// Replace every game (and its roms) for a system with <paramref name="games"/>, recording the
-    /// DAT version. Re-syncing a system must not leave duplicates — implementations replace, not append.
+    /// Merge <paramref name="games"/> into a system on behalf of one data-source <paramref name="origin"/>
+    /// (e.g. "libretro" / "daily-bundle"), recording the DAT version. Implementations <b>accumulate +
+    /// dedup by canonical_key</b> (D2b / #162): a game whose content key already exists in the system gains
+    /// this origin without duplicating the row; games only this origin no longer lists lose this origin and,
+    /// if left with no origins, are removed. Re-syncing one origin must never drop another origin's games.
     /// </summary>
-    Task ReplaceSystemGamesAsync(long systemId, IReadOnlyList<DatGame> games, string? datVersion, CancellationToken ct);
+    Task MergeSystemGamesAsync(long systemId, string origin, IReadOnlyList<DatGame> games, string? datVersion, CancellationToken ct);
 }
