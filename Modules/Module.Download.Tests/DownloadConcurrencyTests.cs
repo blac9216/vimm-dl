@@ -186,13 +186,17 @@ sealed class MultiItemProvider(List<DownloadItem> items) : IDownloadItemProvider
 {
     private readonly object _lock = new();
     private readonly HashSet<int> _completed = [];
+    private readonly HashSet<int> _removed = [];
     public int CompletedCount { get { lock (_lock) return _completed.Count; } }
+    public int RemovedCount { get { lock (_lock) return _removed.Count; } }
 
     public Task<DownloadItem?> GetNextAsync(IReadOnlySet<int> excludeIds)
     {
         lock (_lock)
         {
-            var next = items.FirstOrDefault(i => !excludeIds.Contains(i.Id) && !_completed.Contains(i.Id));
+            // Skip in-flight, completed, and removed (dropped) items so each runs at most once.
+            var next = items.FirstOrDefault(i =>
+                !excludeIds.Contains(i.Id) && !_completed.Contains(i.Id) && !_removed.Contains(i.Id));
             return Task.FromResult(next);
         }
     }
@@ -201,5 +205,5 @@ sealed class MultiItemProvider(List<DownloadItem> items) : IDownloadItemProvider
         lock (_lock) _completed.Add(id);
         return Task.CompletedTask;
     }
-    public Task RemoveAsync(int id) { lock (_lock) _completed.Add(id); return Task.CompletedTask; }
+    public Task RemoveAsync(int id) { lock (_lock) _removed.Add(id); return Task.CompletedTask; }
 }
