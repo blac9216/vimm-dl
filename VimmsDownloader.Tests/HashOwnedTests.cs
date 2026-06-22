@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -93,6 +94,30 @@ public class HashOwnedTests
         Assert.IsFalse(await IsOwned(psx));
     }
 
+    [TestMethod]
+    public async Task Verify_MarksOwnedByZipEntryCrc()
+    {
+        // The rom lives inside a .zip; its CRC is read from the central directory (no decompress).
+        // A .zip entry stores the CRC32 of its *uncompressed* content, so "hello" → 3610A686.
+        var game = await SeedRom("ps3", "Real Catalog Name (USA).iso", sha1: null, md5: null, crc: "3610A686");
+        WriteZip("archived.zip", "inner.iso", "hello");
+
+        Assert.AreEqual(1, await _verify.VerifyAsync(default));
+        Assert.AreEqual((1, "crc"), await OwnedState(game)); // matched by the zip entry's CRC
+    }
+
+    [TestMethod]
+    public async Task Verify_Skips7zArchive_NotOwned()
+    {
+        // .7z can't be hashed without extracting, so it's skipped — even though the bytes are "hello"
+        // (crc 3610A686) and a rom with that CRC exists, the archive is left unmatched (and no throw).
+        var game = await SeedRom("ps3", "Game.iso", sha1: null, md5: null, crc: "3610A686");
+        await WriteFile("archived.7z", "hello");
+
+        Assert.AreEqual(0, await _verify.VerifyAsync(default));
+        Assert.IsFalse(await IsOwned(game));
+    }
+
     // --- helpers ---
 
     private async Task<long> SeedRom(string console, string romName, string? sha1, string? md5, string? crc)
@@ -131,6 +156,13 @@ public class HashOwnedTests
 
     private async Task WriteFile(string name, string content)
         => await File.WriteAllTextAsync(Path.Combine(_completed, name), content);
+
+    private void WriteZip(string name, string entryName, string content)
+    {
+        using var zip = ZipFile.Open(Path.Combine(_completed, name), ZipArchiveMode.Create);
+        using var writer = new StreamWriter(zip.CreateEntry(entryName).Open());
+        writer.Write(content); // UTF-8 (no BOM); ASCII content hashes to the same CRC32
+    }
 
     private async Task<(int Verified, string? Hash)> OwnedState(long gameId)
     {

@@ -13,6 +13,61 @@ static class DownloadEndpoints
         _ => $"format {format}",
     };
 
+    /// <summary>
+    /// Assemble the duplicate warnings for an add request from the URL-match pass (<paramref name="dbMatches"/>)
+    /// and the catalog-game-match pass (<paramref name="gameMatches"/>). A match in a *different* format than
+    /// the incoming one becomes a soft cross-format warning; an exact-format match defers to
+    /// <paramref name="diskCheck"/> (pipeline + filesystem). Cross-format entries are deduped by
+    /// (url, existing format) across both passes so they never double-report. Side-effect free apart from the
+    /// injected disk check, so the routing is unit-testable.
+    /// </summary>
+    internal static List<DuplicateInfo> BuildDuplicates(
+        IReadOnlyList<QueueRepository.DuplicateDbMatch> dbMatches,
+        IReadOnlyList<QueueRepository.DuplicateDbMatch> gameMatches,
+        int incomingFormat,
+        Func<QueueRepository.DuplicateDbMatch, DuplicateInfo?> diskCheck)
+    {
+        var duplicates = new List<DuplicateInfo>();
+        // Dedup cross-format entries by (url, existing format) across both passes.
+        var crossSeen = new HashSet<(string, int?)>();
+
+        void AddCrossFormat(QueueRepository.DuplicateDbMatch m)
+        {
+            if (!crossSeen.Add((m.Url.ToLowerInvariant(), m.Format))) return;
+            duplicates.Add(new DuplicateInfo(m.Url, m.Source,
+                $"Already have this game as {FormatLabel(m.Format)}",
+                m.Title, m.Filename, m.IsoFilename, false, false,
+                CrossFormat: true, ExistingFormat: m.Format));
+        }
+
+        foreach (var m in dbMatches)
+        {
+            // Same game, different format (e.g. queued/own format 0, adding format 1):
+            // a soft cross-format warning, not the exact-dup disk check.
+            if (m.Format is int f && f != incomingFormat)
+            {
+                AddCrossFormat(m);
+                continue;
+            }
+
+            if (m.Source == "queued")
+            {
+                duplicates.Add(new DuplicateInfo(m.Url, "queued", "Already in download queue",
+                    m.Title, null, null, false, false));
+                continue;
+            }
+
+            if (diskCheck(m) is { } dup)
+                duplicates.Add(dup);
+        }
+
+        // Same-game-different-source matches (different URL) the URL pass can't see.
+        foreach (var gm in gameMatches)
+            AddCrossFormat(gm);
+
+        return duplicates;
+    }
+
     public static void MapDownloadEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapPost("/api/queue", async (AddRequest req, QueueRepository repo,
@@ -29,64 +84,35 @@ static class DownloadEndpoints
                 if (dbMatches.Count > 0 || gameMatches.Count > 0)
                 {
                     var completedDir = Path.Combine(queue.GetBasePath(), "completed");
-                    var duplicates = new List<DuplicateInfo>();
-                    // Dedup cross-format entries by (url, existing format) across both passes.
-                    var crossSeen = new HashSet<(string, int?)>();
 
-                    void AddCrossFormat(QueueRepository.DuplicateDbMatch m)
+                    // Exact-format match on an existing/owned item: pipeline + filesystem rules decide
+                    // whether it's really a duplicate (null ⇒ nothing on disk ⇒ not a duplicate). Kept
+                    // out of BuildDuplicates because it touches the pipeline registry and the disk.
+                    DuplicateInfo? DiskCheck(QueueRepository.DuplicateDbMatch m)
                     {
-                        if (!crossSeen.Add((m.Url.ToLowerInvariant(), m.Format))) return;
-                        duplicates.Add(new DuplicateInfo(m.Url, m.Source,
-                            $"Already have this game as {FormatLabel(m.Format)}",
-                            m.Title, m.Filename, m.IsoFilename, false, false,
-                            CrossFormat: true, ExistingFormat: m.Format));
-                    }
-
-                    foreach (var m in dbMatches)
-                    {
-                        // Same game, different format (e.g. queued/own format 0, adding format 1):
-                        // a soft cross-format warning, not the exact-dup disk check.
-                        if (m.Format is int f && f != incomingFormat)
-                        {
-                            AddCrossFormat(m);
-                            continue;
-                        }
-
-                        if (m.Source == "queued")
-                        {
-                            duplicates.Add(new DuplicateInfo(m.Url, "queued", "Already in download queue",
-                                m.Title, null, null, false, false));
-                            continue;
-                        }
-
-                        // Files live in a per-console subfolder (completed/ps3/, …).
-                        // Use the stored filepath's directory so disk checks look in the
-                        // right place; fall back to the completed root for legacy items.
+                        // Files live in a per-console subfolder (completed/ps3/, …). Use the stored
+                        // filepath's directory so disk checks look in the right place; fall back to the
+                        // completed root for legacy items.
                         var itemDir = DirOf(m.Filepath) ?? completedDir;
 
-                        // Delegate to pipeline — each console defines its own duplicate rules
+                        // Delegate to pipeline — each console defines its own duplicate rules.
                         var pipeline = queue.GetPipeline(m.Platform);
                         if (pipeline != null)
                         {
                             var result = pipeline.CheckDuplicate(itemDir, m.Filename, m.IsoFilename, m.ConvPhase);
-                            if (result == null) continue;
-                            duplicates.Add(new DuplicateInfo(m.Url, "completed", result.Reason,
-                                m.Title, m.Filename, m.IsoFilename, result.ArchiveExists, result.IsoExists));
+                            if (result == null) return null;
+                            return new DuplicateInfo(m.Url, "completed", result.Reason,
+                                m.Title, m.Filename, m.IsoFilename, result.ArchiveExists, result.IsoExists);
                         }
-                        else
-                        {
-                            // Generic fallback for non-pipeline platforms
-                            var archiveExists = m.Filename != null && File.Exists(Path.Combine(itemDir, m.Filename));
-                            if (!archiveExists) continue;
-                            duplicates.Add(new DuplicateInfo(m.Url, "completed", "Already downloaded",
-                                m.Title, m.Filename, null, archiveExists, false));
-                        }
+
+                        // Generic fallback for non-pipeline platforms.
+                        var archiveExists = m.Filename != null && File.Exists(Path.Combine(itemDir, m.Filename));
+                        if (!archiveExists) return null;
+                        return new DuplicateInfo(m.Url, "completed", "Already downloaded",
+                            m.Title, m.Filename, null, archiveExists, false);
                     }
 
-                    // Same-game-different-source matches (different URL) the URL pass can't see.
-                    foreach (var gm in gameMatches)
-                        AddCrossFormat(gm);
-
+                    var duplicates = BuildDuplicates(dbMatches, gameMatches, incomingFormat, DiskCheck);
                     if (duplicates.Count > 0)
                         return Results.Ok(new AddResponse(null, duplicates));
                 }

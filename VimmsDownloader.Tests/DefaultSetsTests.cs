@@ -28,7 +28,7 @@ public class DefaultSetsTests
     {
         var consoles = Module.Catalog.CatalogSystems.All.Select(s => s.Console).ToHashSet();
         foreach (var set in DefaultSets.All)
-            Assert.IsTrue(consoles.Contains(set.Console), $"{set.Name} → non-catalog console '{set.Console}'");
+            Assert.Contains(set.Console, consoles, $"{set.Name} → non-catalog console '{set.Console}'");
     }
 
     [TestMethod]
