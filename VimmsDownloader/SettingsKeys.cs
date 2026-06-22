@@ -15,6 +15,10 @@ static class SettingsKeys
     public const string FeatureLibrary = "feature_library";
     public const string DefaultSetsSeeded = "default_sets_seeded";
 
+    // Catalog DAT source selector: "libretro" (default, raw per-system mirror) or "daily-bundle"
+    // (fresher hugo auto-datfile-generator release zips). See DailyBundleDatSource.
+    public const string CatalogDatSource = "catalog_dat_source";
+
     // archive.org download tuning (RomGoGetter parity). Parallelism/retries/idle are stored now and
     // wired into the download engine in a follow-up; the S3 keys are active immediately (see ArchiveAuth).
     public const string ArchiveParallelism = "archive_parallelism";

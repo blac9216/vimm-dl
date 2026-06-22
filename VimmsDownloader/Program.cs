@@ -18,8 +18,15 @@ builder.Services.AddSingleton<Module.Sync.SyncService>();
 builder.Services.AddSingleton<CatalogRepository>();
 builder.Services.AddSingleton<Module.Catalog.ICatalogStore>(sp => sp.GetRequiredService<CatalogRepository>());
 builder.Services.AddSingleton<CatalogSyncState>();
-builder.Services.AddSingleton(sp => new Module.Catalog.CatalogSyncService(
+// DAT sources: the default libretro mirror (per-system raw fetch, rate-safe) and the fresher daily
+// bundle (hugo release zips). The sync endpoint picks between them on the catalog_dat_source setting.
+builder.Services.AddSingleton(sp => new Module.Catalog.LibretroDatSource(
     sp.GetRequiredService<IHttpClientFactory>().CreateClient("libretro"),
+    sp.GetRequiredService<ILogger<Module.Catalog.LibretroDatSource>>()));
+builder.Services.AddSingleton(sp => new Module.Catalog.DailyBundleDatSource(
+    sp.GetRequiredService<IHttpClientFactory>().CreateClient("datbundle"),
+    sp.GetRequiredService<ILogger<Module.Catalog.DailyBundleDatSource>>()));
+builder.Services.AddSingleton(sp => new Module.Catalog.CatalogSyncService(
     sp.GetRequiredService<Module.Catalog.ICatalogStore>(),
     sp.GetRequiredService<ILogger<Module.Catalog.CatalogSyncService>>()));
 builder.Services.AddSingleton<CatalogScanService>();
@@ -89,6 +96,15 @@ builder.Services.AddHttpClient("libretro")
     .ConfigureHttpClient(c =>
     {
         c.Timeout = TimeSpan.FromMinutes(5);
+        c.DefaultRequestHeaders.Add("User-Agent", "vimm-dl");
+    });
+
+// hugo auto-datfile-generator daily bundle zips, served as GitHub release assets (302 → a CDN
+// object; AllowAutoRedirect is on by default). One ~tens-of-MB zip per group, so a longer timeout.
+builder.Services.AddHttpClient("datbundle")
+    .ConfigureHttpClient(c =>
+    {
+        c.Timeout = TimeSpan.FromMinutes(10);
         c.DefaultRequestHeaders.Add("User-Agent", "vimm-dl");
     });
 

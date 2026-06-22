@@ -213,6 +213,7 @@ export interface SettingsResponse {
   featureSync: boolean
   featureEvents: boolean
   featureLibrary: boolean
+  catalogDatSource: string
   archiveParallelism: number
   archiveRetries: number
   archiveIdle: number

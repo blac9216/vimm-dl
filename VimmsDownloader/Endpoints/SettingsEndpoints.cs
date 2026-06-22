@@ -32,6 +32,7 @@ static class SettingsEndpoints
                 FeatureSync: s.GetValueOrDefault(SettingsKeys.FeatureSync, "false") == "true",
                 FeatureEvents: s.GetValueOrDefault(SettingsKeys.FeatureEvents, "false") == "true",
                 FeatureLibrary: s.GetValueOrDefault(SettingsKeys.FeatureLibrary, "false") == "true",
+                CatalogDatSource: s.GetValueOrDefault(SettingsKeys.CatalogDatSource, "libretro"),
                 ArchiveParallelism: int.TryParse(s.GetValueOrDefault(SettingsKeys.ArchiveParallelism, "4"), out var ap) ? ap : 4,
                 ArchiveRetries: int.TryParse(s.GetValueOrDefault(SettingsKeys.ArchiveRetries, "3"), out var ar) ? ar : 3,
                 ArchiveIdle: int.TryParse(s.GetValueOrDefault(SettingsKeys.ArchiveIdle, "60"), out var ai) ? ai : 60,
