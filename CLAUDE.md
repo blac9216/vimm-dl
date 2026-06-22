@@ -303,7 +303,7 @@ Most integration tests use real file I/O via `TempDirectory` or a temp SQLite fi
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md). **Shipped:** the No-Intro/Redump catalog (all consoles with a libretro DAT), archive.org sets + settings, and the **Catalog ↔ Vimm hash binding** (scrape → hash-match → bind vault URL + formats → archive-preferred download with Vimm fallback + format picker). **Next (Phase C):** pipeline identity keyed by catalog game + format, hash-based owned dedup, one library row per game across formats/sources, and future console pipelines via `IPipeline`.
+See [ROADMAP.md](ROADMAP.md). **Shipped:** the No-Intro/Redump catalog (all consoles with a libretro DAT), archive.org sets + settings, the **Catalog ↔ Vimm hash binding** (scrape → hash-match → bind vault URL + formats → archive-preferred download with Vimm fallback + format picker), and **Phase C — identity/dedup deepening** (epic #96): catalog-game identity (`game_id` + `format`) on the event log + `completed_urls`, events stamped with it at the SignalR bridge, **hash-based owned detection** (CRC32/MD5/SHA1, name-independent), **cross-format/source duplicate detection**, and one Library row per game with its consolidated formats/sources. **Next:** future console pipelines via `IPipeline`; per-game grouping for queue/history + live conversions (#151).
 
 ## User Preferences
 
