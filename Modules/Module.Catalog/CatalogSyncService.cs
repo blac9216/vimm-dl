@@ -63,8 +63,8 @@ public sealed class CatalogSyncService(HttpClient http, ICatalogStore store, ILo
         var url = $"{BaseUrl}{sys.Group}/{Uri.EscapeDataString(sys.DatName)}.dat";
 
         var fetch = await FetchWithRetryAsync(url, sys.DatName, ct);
-        if (!fetch.IsOk) return Result<int>.Fail(fetch.Error);
-        var content = fetch.Value;
+        if (!fetch.IsOk) return Result<int>.Fail(fetch.Error!);   // Error is set whenever !IsOk
+        var content = fetch.Value!;                               // Value is set whenever IsOk
 
         try
         {
