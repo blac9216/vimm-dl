@@ -288,7 +288,7 @@ file class FakeHttpClientFactory : IHttpClientFactory
 file class FakeItemProvider(List<DownloadItem> items) : IDownloadItemProvider
 {
     private int _index;
-    public Task<DownloadItem?> GetNextAsync() => Task.FromResult(_index < items.Count ? items[_index++] : null);
+    public Task<DownloadItem?> GetNextAsync(IReadOnlySet<int> excludeIds) => Task.FromResult(_index < items.Count ? items[_index++] : null);
     public Task CompleteAsync(int id, string url, string filename, string filepath, int format) => Task.CompletedTask;
     public Task RemoveAsync(int id) => Task.CompletedTask;
 }
@@ -309,7 +309,7 @@ file class BlockingItemProvider : IDownloadItemProvider
 
     public void Release() => _release.Set();
 
-    public Task<DownloadItem?> GetNextAsync()
+    public Task<DownloadItem?> GetNextAsync(IReadOnlySet<int> excludeIds)
     {
         Interlocked.Increment(ref _enterCount);
         _entered.Set();
@@ -322,7 +322,7 @@ file class BlockingItemProvider : IDownloadItemProvider
 
 file class ThrowingItemProvider(bool throwOnGetNext) : IDownloadItemProvider
 {
-    public Task<DownloadItem?> GetNextAsync() =>
+    public Task<DownloadItem?> GetNextAsync(IReadOnlySet<int> excludeIds) =>
         throwOnGetNext ? throw new InvalidOperationException("DB connection lost") : Task.FromResult<DownloadItem?>(null);
     public Task CompleteAsync(int id, string url, string filename, string filepath, int format) => Task.CompletedTask;
     public Task RemoveAsync(int id) => Task.CompletedTask;

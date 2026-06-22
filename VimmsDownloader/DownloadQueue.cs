@@ -45,7 +45,10 @@ class DownloadQueue
 
     public async Task StartAsync(string? overridePath)
     {
-        _service.Configure(_repo.GetDownloadPath());
+        // Read archive concurrency fresh each start, so changing the setting takes effect for the next
+        // run (EPIC #113 / A3). Default 4 — Internet Archive rate-limits above ~4–5 concurrent.
+        var parallelism = int.TryParse(await _repo.GetSettingAsync(SettingsKeys.ArchiveParallelism), out var p) ? p : 4;
+        _service.Configure(_repo.GetDownloadPath(), parallelism);
         _service.Start(_provider, overridePath);
     }
 

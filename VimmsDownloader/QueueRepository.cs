@@ -385,11 +385,20 @@ class QueueRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
-    public async Task<(int Id, string Url, int Format, string Source)?> GetNextQueueItemAsync()
+    public async Task<(int Id, string Url, int Format, string Source)?> GetNextQueueItemAsync(IReadOnlySet<int>? excludeIds = null)
     {
         await using var db = await OpenAsync();
         await using var cmd = db.CreateCommand();
-        cmd.CommandText = "SELECT id, url, format, source FROM queued_urls ORDER BY id LIMIT 1";
+        // Skip ids already in flight (claimed by a concurrent worker) so each worker gets a distinct row.
+        var exclude = "";
+        if (excludeIds is { Count: > 0 })
+        {
+            var names = excludeIds.Select((_, i) => $"$x{i}").ToList();
+            exclude = $" WHERE id NOT IN ({string.Join(",", names)})";
+            var i = 0;
+            foreach (var id in excludeIds) cmd.Parameters.AddWithValue($"$x{i++}", id);
+        }
+        cmd.CommandText = $"SELECT id, url, format, source FROM queued_urls{exclude} ORDER BY id LIMIT 1";
         await using var r = await cmd.ExecuteReaderAsync();
         if (!await r.ReadAsync()) return null;
         return (r.GetInt32(0), r.GetString(1), r.GetInt32(2), r.IsDBNull(3) ? "vimm" : r.GetString(3));

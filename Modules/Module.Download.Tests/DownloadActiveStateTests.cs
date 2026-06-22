@@ -131,7 +131,7 @@ file sealed class OneItemProvider(DownloadItem item) : IDownloadItemProvider
 {
     private bool _served;
     public readonly List<int> Completed = [];
-    public Task<DownloadItem?> GetNextAsync()
+    public Task<DownloadItem?> GetNextAsync(IReadOnlySet<int> excludeIds)
     {
         if (_served) return Task.FromResult<DownloadItem?>(null);
         _served = true;
