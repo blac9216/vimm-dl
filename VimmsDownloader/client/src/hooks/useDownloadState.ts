@@ -1,6 +1,7 @@
 import { createContext, useContext } from 'react'
 import type { HubConnection } from '@microsoft/signalr'
 import type { Ps3IsoStatusEvent, SyncProgressEvent } from '../types/signalr'
+import type { ActiveDownload } from '../types/api'
 import type { ParsedProgress } from '../lib/format'
 
 export type ConnectionState = 'connected' | 'reconnecting' | 'disconnected'
@@ -10,6 +11,8 @@ export interface DownloadState {
   paused: boolean
   activeUrl: string | null
   activeDlInfo: ParsedProgress | null
+  /** All in-flight downloads from /api/data (EPIC #113 / A2) — the source of per-item progress. */
+  activeDownloads: ActiveDownload[]
   convStatuses: Record<string, Ps3IsoStatusEvent>
   convStartTimes: Record<string, number>
   syncCopying: Record<string, SyncProgressEvent>
@@ -22,6 +25,7 @@ export const initialState: DownloadState = {
   paused: false,
   activeUrl: null,
   activeDlInfo: null,
+  activeDownloads: [],
   convStatuses: {},
   convStartTimes: {},
   syncCopying: {},
@@ -31,6 +35,7 @@ export const initialState: DownloadState = {
 
 export type DownloadAction =
   | { type: 'SET_RUNNING'; running: boolean; paused: boolean }
+  | { type: 'SET_ACTIVE'; active: ActiveDownload[] }
   | { type: 'STATUS'; url: string }
   | { type: 'PROGRESS'; info: ParsedProgress }
   | { type: 'COMPLETED' }
@@ -46,6 +51,9 @@ export function downloadReducer(state: DownloadState, action: DownloadAction): D
   switch (action.type) {
     case 'SET_RUNNING':
       return { ...state, running: action.running, paused: action.paused }
+
+    case 'SET_ACTIVE':
+      return { ...state, activeDownloads: action.active }
 
     case 'STATUS': {
       const m = action.url.match(/Processing:\s*(https?:\/\/\S+)/i)
@@ -93,6 +101,7 @@ export function downloadReducer(state: DownloadState, action: DownloadAction): D
         paused: false,
         activeUrl: null,
         activeDlInfo: null,
+        activeDownloads: [],
       }
 
     case 'CONNECTION':
