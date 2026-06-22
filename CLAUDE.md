@@ -17,7 +17,7 @@ metal), also runs on Windows for dev.
 **Follow this every session, including immediately after a context compaction.**
 
 - **GitHub workflow** — load the `github-workflow` skill at the start of every session, including immediately after a context compaction, and follow it for all GitHub work: issues, epics, branches, commits, PRs, and the contextless PR review (which it hands off to the `github-pr-review` skill). It is the durable home for these conventions — do not rely on chat memory or summaries to carry them.
-- **Toolchain (remote)** — .NET SDK at `/tmp/dotnet`, bun at `/root/.bun/bin`, clang at `/usr/bin/clang`. MSTest 4 emits no results without a TRX logger: `dotnet test <proj> -c Debug --logger "trx;LogFileName=x.trx" --results-directory /tmp/trx`. Frontend build: `bun run build` (runs `tsc -b && vite build`).
+- **Toolchain (remote)** — .NET SDK at `/tmp/dotnet`, bun at `/root/.bun/bin`, clang at `/usr/bin/clang`. MSTest 4 emits no results without a TRX logger: `dotnet test <proj> -c Debug --logger "trx;LogFileName=x.trx" --results-directory /tmp/trx`. **Coverage:** every `*.Tests` project references `coverlet.collector`, so append `--collect:"XPlat Code Coverage"` to emit a `coverage.cobertura.xml` under the results dir (e.g. `dotnet test VimmsDownloader.slnx -c Debug --collect:"XPlat Code Coverage" --results-directory /tmp/cov`). Frontend build: `bun run build` (runs `tsc -b && vite build`).
 
 ## Architecture
 

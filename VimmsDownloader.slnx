@@ -1,5 +1,6 @@
 <Solution>
   <Project Path="VimmsDownloader/VimmsDownloader.csproj" />
+  <Project Path="VimmsDownloader.Tests/VimmsDownloader.Tests.csproj" />
   <Project Path="MockServer/MockServer.csproj" />
   <Project Path="Modules/Module.Core/Module.Core.csproj" />
   <Project Path="Modules/Module.Core.Testing/Module.Core.Testing.csproj" />

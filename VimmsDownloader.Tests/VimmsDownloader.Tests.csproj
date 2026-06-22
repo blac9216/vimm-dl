@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <PackageReference Include="MSTest" Version="4.0.2" />
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.5" />
     <!-- CVE-2025-6965 / NU1903: force the patched SQLitePCLRaw 3.x native bundle (see host csproj). -->
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.3" />
