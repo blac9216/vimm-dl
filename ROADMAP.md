@@ -173,6 +173,43 @@ sources, not Vimm-only.
 
 ---
 
+## Local Catalog Import (drop folder → hash-match → place/reject)
+
+**Status:** ✅ Shipped — epic #118, built across PRs #175/#178/#180/#182. Behind the `feature_import`
+beta flag.
+
+The catalog is the identity layer; sources bind onto it. Beyond downloading, a user can now fold an
+**existing local collection** (or manually-sourced ROMs) into the catalog by the same authoritative
+**hash identity** the Vimm binding uses — so owned-state and organization are correct regardless of
+where a file came from. The user drops files into an import folder and triggers **ingest**: each file
+is hashed (SHA1 → MD5 → CRC32) and matched against `catalog_rom`; a match is moved into
+`completed/{console}/` (the matched game's console) and marked **owned**, a non-match is moved to a
+`rejected/` folder (kept, never deleted) with a reason.
+
+As built, in four layers:
+
+- **L1 — engine (#124):** `ImportService` hashes a file across all systems and places it
+  (`completed/{console}/` + `catalog_owned`) or rejects it. **Header-aware** — for systems whose DAT
+  hash is of the headerless ROM (iNES/FDS/Atari Lynx/Atari 7800), the file is hashed both as-is and with
+  its detected header stripped (`Module.Catalog/RomHeaders`), so a headered local file still matches.
+  `CatalogRepository.FindGameByHashAsync` searches all systems (case-insensitive, sha1-indexed).
+- **L2 — host (#125):** `POST /api/catalog/import` runs `CatalogImportService` as a single-flight
+  background job (202/409, like sync/scan/verify). Configurable `import_path` / `rejected_path` settings
+  (defaults `downloads/import` + `downloads/rejected`, created on startup), a per-file `import` event for
+  each outcome (matched carries the catalog `game_id`), and `importing` in `/api/catalog/status`.
+- **L3 — archives (#126):** `.zip`/`.7z` are extracted to a temp dir and each **inner ROM** matched by
+  its own hash (No-Intro/Redump hash the raw ROM, not the archive), so multi-ROM and `.bin`/`.cue` disc
+  archives match per file; the archive wrapper is discarded, the temp dir always cleaned up, and an
+  unextractable/empty archive is kept in `rejected/`. An `IArchiveExtractor` seam over `Module.Extractor`
+  keeps the orchestration testable without a 7z binary.
+- **L4 — UI (#127):** an **Import** tab (beta-gated) showing the drop folder, an Ingest button, live
+  matched/rejected per-file results, and an All/Matched/Rejected filter.
+
+**What it unblocks:** RomGoGetter-style curation from an existing collection, by hash — the same identity
+the rest of the catalog already trusts.
+
+---
+
 ## Phasing overview
 
 - **Phase A — Archive sets & settings — ✅ shipped.** Sets modeled as name + console + links[] (with
