@@ -159,6 +159,98 @@ public class PipelineIdentityTests
         }
     }
 
+    // --- C2: identity resolution at the bridge boundary + per-game event grouping ---
+
+    [TestMethod]
+    public async Task ResolveEventIdentity_FromCompletedFilename()
+    {
+        var gameId = await SeedGame(vaultId: 1001);
+        var repo = new QueueRepository();
+        await repo.InitAsync(_connStr, NullLogger.Instance);
+        await repo.AddToQueueAsync("https://vimm.net/vault/1001", 1);
+        var next = (await repo.GetNextQueueItemAsync())!.Value;
+        await repo.CompleteItemAsync(next.Id, next.Url, "Game.7z",
+            Path.Combine(_dir, "downloads", "completed", "Game.7z"), next.Format);
+
+        // The pipeline bridge resolves by the completed filename it emits status for.
+        var (gid, fmt, src) = await repo.ResolveEventIdentityAsync("Game.7z");
+        Assert.AreEqual(gameId, gid);
+        Assert.AreEqual(1, fmt);
+        Assert.AreEqual("vimm", src);
+    }
+
+    [TestMethod]
+    public async Task ResolveEventIdentity_InFlightFromQueue()
+    {
+        var gameId = await SeedGame(vaultId: 1001);
+        var repo = new QueueRepository();
+        await repo.InitAsync(_connStr, NullLogger.Instance);
+        // Still queued (not completed) — the download bridge resolves by the vault URL.
+        await repo.AddToQueueAsync("https://vimm.net/vault/1001", 2);
+
+        var (gid, fmt, src) = await repo.ResolveEventIdentityAsync("https://vimm.net/vault/1001");
+        Assert.AreEqual(gameId, gid);
+        Assert.AreEqual(2, fmt);
+        Assert.AreEqual("vimm", src);
+    }
+
+    [TestMethod]
+    public async Task ResolveEventIdentity_UnknownOrLifecycle_ReturnsNulls()
+    {
+        await SeedGame(vaultId: 1001);
+        var repo = new QueueRepository();
+        await repo.InitAsync(_connStr, NullLogger.Instance);
+
+        foreach (var name in new[] { "NoSuchFile.7z", "_queue", "" })
+        {
+            var (gid, fmt, src) = await repo.ResolveEventIdentityAsync(name);
+            Assert.IsNull(gid, $"game_id should be null for '{name}'");
+            Assert.IsNull(fmt);
+            Assert.IsNull(src);
+        }
+    }
+
+    [TestMethod]
+    public async Task PipelineEvent_StampedWithIdentity_LikeBridge()
+    {
+        var gameId = await SeedGame(vaultId: 1001);
+        var repo = new QueueRepository();
+        await repo.InitAsync(_connStr, NullLogger.Instance);
+        await repo.AddToQueueAsync("https://vimm.net/vault/1001", 1);
+        var next = (await repo.GetNextQueueItemAsync())!.Value;
+        await repo.CompleteItemAsync(next.Id, next.Url, "Game.7z",
+            Path.Combine(_dir, "downloads", "completed", "Game.7z"), next.Format);
+
+        // Mirror SignalRPs3PipelineBridge: resolve identity, then append the event with it.
+        var (gid, fmt, src) = await repo.ResolveEventIdentityAsync("Game.7z");
+        await repo.AppendEventAsync("Game.7z", "pipeline_status", "Done", "ISO ready", null,
+            correlationId: "run1", gameId: gid, format: fmt, source: src);
+
+        var events = (await repo.GetEventsAsync(gameId: gameId)).Events;
+        Assert.HasCount(1, events);
+        Assert.AreEqual(gameId, events[0].GameId);
+        Assert.AreEqual(1, events[0].Format);
+    }
+
+    [TestMethod]
+    public async Task EventsFilteredByGameId_GroupAcrossFormatsAndRetries()
+    {
+        var repo = new QueueRepository();
+        await repo.InitAsync(_connStr, NullLogger.Instance);
+
+        // Same game, two formats + a retry; plus an unrelated game and a legacy (null) event.
+        await repo.AppendEventAsync("A.7z", "pipeline_status", "Done", "m", null, correlationId: "r1", gameId: 5, format: 0, source: "vimm");
+        await repo.AppendEventAsync("A.dec.iso", "pipeline_status", "Done", "m", null, correlationId: "r2", gameId: 5, format: 1, source: "vimm");
+        await repo.AppendEventAsync("A.7z", "pipeline_status", "Done", "m", null, correlationId: "r3", gameId: 5, format: 0, source: "vimm");
+        await repo.AppendEventAsync("B.7z", "pipeline_status", "Done", "m", null, correlationId: "r4", gameId: 6, format: 0, source: "vimm");
+        await repo.AppendEventAsync("Legacy.7z", "pipeline_status", "Done", "m", null, correlationId: "r5");
+
+        var grouped = (await repo.GetEventsAsync(gameId: 5)).Events;
+        Assert.HasCount(3, grouped, "all three game-5 events (both formats + retry) group together");
+        CollectionAssert.AreEquivalent(new[] { 0, 1, 0 }, grouped.Select(e => e.Format!.Value).ToList());
+        Assert.IsTrue(grouped.All(e => e.GameId == 5));
+    }
+
     // --- helpers ---
 
     private async Task<SqliteConnection> Migrate()

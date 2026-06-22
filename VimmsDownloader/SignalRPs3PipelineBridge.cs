@@ -13,7 +13,11 @@ class SignalRPs3PipelineBridge(IHubContext<DownloadHub> hub, QueueRepository rep
             var data = evt.OutputFilename != null
                 ? $"{{\"outputFilename\":\"{EscapeJson(evt.OutputFilename)}\"}}"
                 : null;
-            await repo.AppendEventAsync(evt.ItemName, "pipeline_status", evt.Phase, evt.Message, data, evt.CorrelationId);
+            // Stamp the event with the catalog identity (Phase C / C2) so a game's conversion history
+            // groups across formats and retries; nulls for legacy / unmatched items (filename grouping).
+            var (gameId, format, source) = await repo.ResolveEventIdentityAsync(evt.ItemName);
+            await repo.AppendEventAsync(evt.ItemName, "pipeline_status", evt.Phase, evt.Message, data, evt.CorrelationId,
+                gameId, format, source);
         }
         catch { }
 

@@ -19,7 +19,10 @@ class SignalRDownloadBridge(IHubContext<DownloadHub> hub, QueueRepository repo) 
                 DownloadDoneEvent => ("_queue", "download_done", "Queue empty", (string?)null),
                 _ => ("_unknown", "unknown", "", (string?)null)
             };
-            await repo.AppendEventAsync(itemName, eventType, null, message, data);
+            // Stamp the download event with the catalog identity (Phase C / C2); nulls for legacy /
+            // unmatched / lifecycle items (e.g. "_queue") so they keep grouping by filename.
+            var (gameId, format, source) = await repo.ResolveEventIdentityAsync(itemName);
+            await repo.AppendEventAsync(itemName, eventType, null, message, data, gameId: gameId, format: format, source: source);
         }
         catch { }
 

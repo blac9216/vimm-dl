@@ -71,7 +71,7 @@ record Ps3ActionResponse(bool Success);
 record SyncCompareRequest(string Path);
 record SyncCopyRequest(string? Filename = null);
 
-record EventRow(int Id, string ItemName, string EventType, string? Phase, string? Message, string? Data, string Timestamp, string? CorrelationId);
+record EventRow(int Id, string ItemName, string EventType, string? Phase, string? Message, string? Data, string Timestamp, string? CorrelationId, long? GameId = null, int? Format = null);
 record EventsResponse(List<EventRow> Events, int Total);
 
 static class QueueLock
