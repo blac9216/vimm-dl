@@ -395,6 +395,69 @@ class CatalogRepository : ICatalogStore
         await tx.CommitAsync(ct);
     }
 
+    // --- Local import (catalog hash lookup + single-game owned; epic #118) ---
+
+    /// <summary>A catalog game matched to a local file by content hash, plus which hash confirmed it.</summary>
+    public sealed record CatalogHashMatch(long GameId, string Console, string MatchKind);
+
+    /// <summary>
+    /// Find the catalog game whose <c>catalog_rom</c> carries this file's hash, searched across <b>all</b>
+    /// systems (import doesn't know the console up front) with SHA1 → MD5 → CRC32 precedence. Matching is
+    /// case-insensitive because DAT hash case isn't normalized at store time; both case forms are passed so
+    /// the SHA1 index is still used (hex within one source is uniformly cased). Null when no ROM matches.
+    /// </summary>
+    public async Task<CatalogHashMatch?> FindGameByHashAsync(FileHashes.Hashes h, CancellationToken ct)
+    {
+        if (await LookupByHashAsync("sha1", h.Sha1, ct) is { } a) return new CatalogHashMatch(a.GameId, a.Console, "sha1");
+        if (await LookupByHashAsync("md5", h.Md5, ct) is { } b) return new CatalogHashMatch(b.GameId, b.Console, "md5");
+        if (await LookupByHashAsync("crc", h.Crc, ct) is { } c) return new CatalogHashMatch(c.GameId, c.Console, "crc");
+        return null;
+    }
+
+    /// <summary>One indexed hash lookup. <paramref name="column"/> is an internal literal (sha1/md5/crc), never user input.</summary>
+    private async Task<(long GameId, string Console)?> LookupByHashAsync(string column, string? hash, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(hash)) return null;
+        await using var db = await OpenAsync();
+        await using var cmd = db.CreateCommand();
+        cmd.CommandText = $"""
+            SELECT g.id, s.console
+            FROM catalog_rom r
+            JOIN catalog_game g ON g.id = r.game_id
+            JOIN catalog_system s ON s.id = g.system_id
+            WHERE r.{column} IN ($lo, $hi)
+            LIMIT 1
+            """;
+        var v = hash.Trim();
+        cmd.Parameters.AddWithValue("$lo", v.ToLowerInvariant());
+        cmd.Parameters.AddWithValue("$hi", v.ToUpperInvariant());
+        await using var r = await cmd.ExecuteReaderAsync(ct);
+        if (!await r.ReadAsync(ct)) return null;
+        return (r.GetInt64(0), r.GetString(1));
+    }
+
+    /// <summary>
+    /// Mark a single game owned + hash-verified at <paramref name="filepath"/> (import placed it there),
+    /// recording the hash that confirmed it. Upsert by game_id — re-importing refreshes the path; other
+    /// owned rows are untouched (unlike the verify pass, which rebuilds the verified set wholesale).
+    /// </summary>
+    public async Task MarkOwnedAsync(long gameId, string filepath, string matchKind, CancellationToken ct)
+    {
+        await using var db = await OpenAsync();
+        await using var cmd = db.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO catalog_owned (game_id, filepath, matched_at, verified, verified_hash)
+            VALUES ($g, $p, datetime('now'), 1, $h)
+            ON CONFLICT(game_id) DO UPDATE SET
+                filepath = excluded.filepath, matched_at = excluded.matched_at,
+                verified = 1, verified_hash = excluded.verified_hash
+            """;
+        cmd.Parameters.AddWithValue("$g", gameId);
+        cmd.Parameters.AddWithValue("$p", filepath);
+        cmd.Parameters.AddWithValue("$h", matchKind);
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
     // --- Vimm binding (catalog <-> Vimm by hash; migration 021) ---
 
     /// <summary>Per-console hash -> game_id maps from catalog_rom (lowercased) for in-memory Vimm matching.</summary>
