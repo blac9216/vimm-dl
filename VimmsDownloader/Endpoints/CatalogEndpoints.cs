@@ -43,10 +43,14 @@ static class CatalogEndpoints
             ILogger<CatalogVerifyService> log) =>
             state.Run(log, "Verify", svc.VerifyAsync));
 
-        // Sync emulator compatibility (RPCS3 export) in the background (single-flight).
+        // Sync every registered emulator's compatibility list in the background (single-flight).
         app.MapPost("/api/catalog/compat/sync", (CompatSyncService svc, CatalogCompatState state,
             ILogger<CompatSyncService> log) =>
             state.Run(log, "Compatibility sync", svc.SyncAsync));
+
+        // Emulators with ingested compatibility — drives the Library emulator/status filter.
+        app.MapGet("/api/catalog/emulators", () =>
+            Emulators.All.Select(e => new EmulatorDto(e.Id, e.Name, e.Console, Emulators.Token(e.MatchKind))).ToList());
 
         // Scan completed/ and record which catalog games are present on disk (background, single-flight).
         app.MapPost("/api/catalog/scan", (CatalogScanService scanner, CatalogScanState state,
@@ -57,14 +61,16 @@ static class CatalogEndpoints
         app.MapGet("/api/catalog/consoles", async (CatalogRepository repo) => await repo.GetConsolesAsync());
 
         // Paged game browse, filtered by console and/or name, plus 1G1R / English-only / hide-demos
-        // curation. ?mode= selects the name match: substring (default) | glob | regex.
+        // curation. ?mode= selects the name match: substring (default) | glob | regex. ?emulator= (and
+        // optional ?compat= status) narrows to games with that emulator's compatibility entry.
         app.MapGet("/api/catalog/games", async (string? console, string? q, string? local, bool? dedupe,
-            bool? english, bool? excludeCategories, string? mode, int? page, int? pageSize, CatalogRepository repo) =>
+            bool? english, bool? excludeCategories, string? mode, string? emulator, string? compat,
+            int? page, int? pageSize, CatalogRepository repo) =>
         {
             var ps = Math.Clamp(pageSize ?? 100, 1, 200);
             var p = Math.Max(0, page ?? 0);
             var (total, games) = await repo.GetGamesAsync(console, q, local ?? "all", dedupe ?? false,
-                english ?? false, excludeCategories ?? false, mode ?? "substring", p, ps);
+                english ?? false, excludeCategories ?? false, mode ?? "substring", p, ps, emulator, compat);
             return new CatalogGamesResponse(total, p, ps, games);
         });
 

@@ -127,11 +127,11 @@ class CatalogRepository : ICatalogStore
                     gName.Value = g.Name;
                     gRegion.Value = (object?)g.Region ?? DBNull.Value;
                     gSerial.Value = (object?)g.Serial ?? DBNull.Value;
-                    // Normalize with the SAME function the compat table uses (RpcsCompat.NormalizeSerial),
-                    // so catalog_game.serial_key and catalog_compat.serial_key join symmetrically (#48).
+                    // Normalize with the SAME function the compat sources use (CompatKeys.NormalizeSerial),
+                    // so catalog_game.serial_key and a serial-keyed catalog_compat.match_key join symmetrically (#48).
                     gSkey.Value = string.IsNullOrEmpty(g.Serial)
                         ? DBNull.Value
-                        : RpcsCompat.NormalizeSerial(g.Serial);
+                        : CompatKeys.NormalizeSerial(g.Serial);
                     gLangs.Value = g.Languages.Count > 0 ? string.Join(',', g.Languages) : DBNull.Value;
                     gTkey.Value = Dedup.TitleKey(g.Name);   // is_parent is set in the 1G1R post-pass below
                     gCkey.Value = (object?)key ?? DBNull.Value;
@@ -327,8 +327,12 @@ class CatalogRepository : ICatalogStore
         await tx.CommitAsync(ct);
     }
 
-    /// <summary>Replace an emulator's compatibility entries wholesale (normalized serial → status).</summary>
-    public async Task ReplaceCompatAsync(string emulator, IReadOnlyList<(string Serial, string Status)> entries, CancellationToken ct)
+    /// <summary>
+    /// Replace an emulator's compatibility entries wholesale (normalized match key → status). The
+    /// <paramref name="matchKind"/> (serial | title_id | name) records how these keys join to a
+    /// catalog game, so emulators keyed differently can coexist in the one table.
+    /// </summary>
+    public async Task ReplaceCompatAsync(string emulator, string matchKind, IReadOnlyList<CompatEntry> entries, CancellationToken ct)
     {
         await using var db = await OpenAsync();
         await using var tx = (SqliteTransaction)await db.BeginTransactionAsync(ct);
@@ -343,13 +347,14 @@ class CatalogRepository : ICatalogStore
         await using (var ins = db.CreateCommand())
         {
             ins.Transaction = tx;
-            ins.CommandText = "INSERT OR REPLACE INTO catalog_compat (emulator, serial_key, status) VALUES ($e, $s, $st)";
+            ins.CommandText = "INSERT OR REPLACE INTO catalog_compat (emulator, match_kind, match_key, status) VALUES ($e, $k, $mk, $st)";
             ins.Parameters.AddWithValue("$e", emulator);
-            var ps = ins.Parameters.Add("$s", SqliteType.Text);
+            ins.Parameters.AddWithValue("$k", matchKind);
+            var pmk = ins.Parameters.Add("$mk", SqliteType.Text);
             var pst = ins.Parameters.Add("$st", SqliteType.Text);
-            foreach (var (serial, status) in entries)
+            foreach (var (matchKey, status) in entries)
             {
-                ps.Value = serial;
+                pmk.Value = matchKey;
                 pst.Value = status;
                 await ins.ExecuteNonQueryAsync(ct);
             }
@@ -580,11 +585,13 @@ class CatalogRepository : ICatalogStore
     /// <summary>
     /// Paged game list, filtered by console and/or a case-insensitive name substring, and by
     /// local availability (<paramref name="local"/> = all | owned | remote). Each row carries an
-    /// <c>owned</c> flag, a best-effort emulator <c>compat</c> status, and a <c>verified</c> result.
+    /// <c>owned</c> flag, its per-emulator <c>compat</c> statuses, and a <c>verified</c> result.
+    /// Optionally filtered to games with a compat entry for <paramref name="emulator"/> (and, when
+    /// given, that emulator's <paramref name="compatStatus"/>).
     /// </summary>
     public async Task<(int Total, List<CatalogGameDto> Games)> GetGamesAsync(
         string? console, string? query, string local, bool dedupe, bool english, bool excludeCategories,
-        string searchMode, int page, int pageSize)
+        string searchMode, int page, int pageSize, string? emulator = null, string? compatStatus = null)
     {
         pageSize = Math.Clamp(pageSize, 1, 200);
         page = Math.Max(0, page);
@@ -592,6 +599,8 @@ class CatalogRepository : ICatalogStore
         searchMode = searchMode is "glob" or "regex" ? searchMode : "substring";
         var q = query?.Trim();
         bool hasQuery = !string.IsNullOrEmpty(q);
+        var emu = string.IsNullOrWhiteSpace(emulator) ? null : emulator.Trim();
+        var compatFilterStatus = string.IsNullOrWhiteSpace(compatStatus) ? null : compatStatus.Trim();
 
         // English-only (E3a): keep rows whose language list contains "en", or whose region — or the
         // region tag embedded in the name when region is empty — is Western. Built from
@@ -624,15 +633,22 @@ class CatalogRepository : ICatalogStore
         if (hasQuery && searchMode == "substring") { nameParam = "%" + q + "%"; nameClause = " AND g.name LIKE $name"; }
         else if (hasQuery && searchMode == "glob") { nameParam = GlobToLike(q!); nameClause = " AND g.name LIKE $name ESCAPE '\\'"; }
 
+        // Emulator/status filter: keep rows with a compat entry for the chosen emulator (and, when
+        // given, that exact status). Joins via the same CompatMatch fragment as the projection.
+        var compatClause = emu is null
+            ? ""
+            : $" AND EXISTS(SELECT 1 FROM catalog_compat c WHERE ({CompatMatch}) AND c.emulator = $emu"
+              + (compatFilterStatus is null ? "" : " AND c.status = $cstatus") + ")";
+
         var filterWhere = $"""
             WHERE ($console IS NULL OR s.console = $console)
               AND ($local = 'all'
                    OR ($local = 'owned'  AND     EXISTS(SELECT 1 FROM catalog_owned o WHERE o.game_id = g.id))
                    OR ($local = 'remote' AND NOT EXISTS(SELECT 1 FROM catalog_owned o WHERE o.game_id = g.id)))
-              AND ($dedupe = 0 OR g.is_parent = 1){englishClause}{categoryClause}
+              AND ($dedupe = 0 OR g.is_parent = 1){englishClause}{categoryClause}{compatClause}
             """;
 
-        // Bind every WHERE parameter; the optional english/category/name params only when present.
+        // Bind every WHERE parameter; the optional english/category/name/compat params only when present.
         void BindFilters(SqliteCommand cmd)
         {
             cmd.Parameters.AddWithValue("$console", (object?)console ?? DBNull.Value);
@@ -645,6 +661,9 @@ class CatalogRepository : ICatalogStore
             if (excludeCategories)
                 for (int i = 0; i < Dedup.ExcludedCategoryTags.Length; i++)
                     cmd.Parameters.AddWithValue($"$cat{i}", Dedup.ExcludedCategoryTags[i]);
+            if (emu is not null) cmd.Parameters.AddWithValue("$emu", emu);
+            // $cstatus is only referenced inside the emu clause, so bind it only when that clause is present.
+            if (emu is not null && compatFilterStatus is not null) cmd.Parameters.AddWithValue("$cstatus", compatFilterStatus);
         }
 
         await using var db = await OpenAsync();
@@ -676,12 +695,20 @@ class CatalogRepository : ICatalogStore
         return (total, games);
     }
 
+    // How a catalog_compat row (aliased c) matches a catalog_game (aliased g). Single-sourced so the
+    // compat projection and the emulator/status filter join identically. F1 is serial-only; F3 adds
+    // a title_id branch and F4 a name branch by extending this one fragment (e.g.
+    // "(c.match_kind='serial' AND c.match_key=g.serial_key) OR (c.match_kind='title_id' AND c.match_key=g.title_id)").
+    private const string CompatMatch = "c.match_kind = 'serial' AND c.match_key = g.serial_key";
+
     // The full per-row projection, shared by the normal paged query and the regex page hydration.
-    private const string GameColumns = """
+    // compat is GROUP_CONCAT'd as "emulator=status" pairs (joined by '|') so a game can carry a badge
+    // per emulator; MapGame splits it back into a list.
+    private const string GameColumns = $"""
         g.id, g.name, s.console, g.region, g.serial, g.languages,
         (SELECT COALESCE(SUM(r.size), 0) FROM catalog_rom r WHERE r.game_id = g.id) AS size,
         EXISTS(SELECT 1 FROM catalog_owned o WHERE o.game_id = g.id) AS owned,
-        (SELECT c.status FROM catalog_compat c WHERE c.serial_key = g.serial_key LIMIT 1) AS compat,
+        (SELECT GROUP_CONCAT(c.emulator || '=' || c.status, '|') FROM catalog_compat c WHERE {CompatMatch}) AS compat,
         (SELECT o.verified FROM catalog_owned o WHERE o.game_id = g.id) AS verified,
         g.vimm_match AS vimm_match,
         (SELECT GROUP_CONCAT(f.alt) FROM catalog_vimm_format f WHERE f.game_id = g.id) AS avail_formats,
@@ -698,7 +725,7 @@ class CatalogRepository : ICatalogStore
         r.IsDBNull(5) ? null : r.GetString(5),
         r.GetInt64(6),
         r.GetInt32(7) != 0,
-        r.IsDBNull(8) ? null : r.GetString(8),
+        ParseCompat(r.IsDBNull(8) ? null : r.GetString(8)),
         r.IsDBNull(9) ? null : r.GetInt32(9) != 0,
         r.IsDBNull(10) ? null : r.GetString(10),
         ParseIntCsv(r.IsDBNull(11) ? null : r.GetString(11)),
@@ -778,6 +805,21 @@ class CatalogRepository : ICatalogStore
         ? []
         : csv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
              .Distinct().ToList();
+
+    /// <summary>Parse the compat projection ("emulator=status" pairs joined by '|') into a per-emulator list.</summary>
+    private static List<CompatStatus> ParseCompat(string? concat)
+    {
+        if (string.IsNullOrEmpty(concat)) return [];
+        var list = new List<CompatStatus>();
+        foreach (var pair in concat.Split('|', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var eq = pair.IndexOf('=');
+            if (eq > 0 && eq < pair.Length - 1)
+                list.Add(new CompatStatus(pair[..eq], pair[(eq + 1)..]));
+        }
+        list.Sort((a, b) => string.CompareOrdinal(a.Emulator, b.Emulator));
+        return list;
+    }
 
     // --- download sets ---
 

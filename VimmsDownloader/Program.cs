@@ -112,8 +112,8 @@ builder.Services.AddHttpClient("datbundle")
         c.DefaultRequestHeaders.Add("User-Agent", "vimm-dl");
     });
 
-// RPCS3 compatibility API — requires a browser User-Agent (403s otherwise).
-builder.Services.AddHttpClient("rpcs3")
+// Emulator compatibility sources (RPCS3, …) — a browser User-Agent avoids 403s from sites like rpcs3.net.
+builder.Services.AddHttpClient("compat")
     .ConfigureHttpClient(c =>
     {
         c.Timeout = TimeSpan.FromMinutes(5);
