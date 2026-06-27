@@ -49,7 +49,7 @@ public class CopyTests : SyncTestBase
 
         await Service.CopyFileAsync("Game.iso");
 
-        Assert.AreEqual(1, Bridge.CompletedEvents.Count);
+        Assert.HasCount(1, Bridge.CompletedEvents);
         Assert.IsTrue(Bridge.LastCompleted!.Success);
         Assert.AreEqual("Game.iso", Bridge.LastCompleted.Filename);
         Assert.IsNull(Bridge.LastCompleted.Error);
@@ -90,7 +90,7 @@ public class CopyTests : SyncTestBase
 
         await svc.CopyFileAsync("Game.iso");
 
-        Assert.AreEqual(1, Bridge.CompletedEvents.Count);
+        Assert.HasCount(1, Bridge.CompletedEvents);
         Assert.IsFalse(Bridge.LastCompleted!.Success);
         StringAssert.Contains(Bridge.LastCompleted.Error, "not configured");
     }

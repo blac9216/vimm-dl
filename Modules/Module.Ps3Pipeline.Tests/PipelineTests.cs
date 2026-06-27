@@ -73,7 +73,7 @@ public class PipelineTests : Ps3PipelineTestBase
         pipeline.MarkConverted("b.7z");
 
         var statuses = pipeline.GetStatuses();
-        Assert.AreEqual(2, statuses.Count);
+        Assert.HasCount(2, statuses);
     }
 
     [TestMethod]
@@ -83,6 +83,6 @@ public class PipelineTests : Ps3PipelineTestBase
 
         pipeline.MarkConverted("test.7z");
         Assert.IsTrue(pipeline.IsConverted("test.7z"));
-        Assert.AreEqual(1, pipeline.GetStatuses().Count);
+        Assert.HasCount(1, pipeline.GetStatuses());
     }
 }

@@ -45,7 +45,7 @@ public class SyncEdgeCaseTests : SyncTestBase
             Assert.AreEqual(0.0, Service.CurrentProgress, $"Progress should be 0 after copy {i}");
         }
 
-        Assert.AreEqual(10, Bridge.CompletedEvents.Count);
+        Assert.HasCount(10, Bridge.CompletedEvents);
         Assert.IsTrue(Bridge.CompletedEvents.All(e => e.Success));
     }
 
@@ -82,9 +82,9 @@ public class SyncEdgeCaseTests : SyncTestBase
 
         var result = Service.Compare();
 
-        Assert.AreEqual(50, result.New.Count);
-        Assert.AreEqual(50, result.Synced.Count);
-        Assert.AreEqual(50, result.TargetOnly.Count);
+        Assert.HasCount(50, result.New);
+        Assert.HasCount(50, result.Synced);
+        Assert.HasCount(50, result.TargetOnly);
         Assert.IsNull(result.Error);
     }
 
@@ -97,8 +97,8 @@ public class SyncEdgeCaseTests : SyncTestBase
 
         var result = Service.Compare();
 
-        Assert.AreEqual(0, result.New.Count);
-        Assert.AreEqual(1, result.Synced.Count);
+        Assert.IsEmpty(result.New);
+        Assert.HasCount(1, result.Synced);
     }
 
     [TestMethod]
@@ -110,8 +110,8 @@ public class SyncEdgeCaseTests : SyncTestBase
 
         var result = Service.Compare();
 
-        Assert.AreEqual(0, result.New.Count);
-        Assert.AreEqual(1, result.Synced.Count);
+        Assert.IsEmpty(result.New);
+        Assert.HasCount(1, result.Synced);
     }
 
     [TestMethod]
@@ -123,9 +123,9 @@ public class SyncEdgeCaseTests : SyncTestBase
 
         var result = Service.Compare();
 
-        Assert.AreEqual(0, result.New.Count);
-        Assert.AreEqual(0, result.Synced.Count);
-        Assert.AreEqual(0, result.TargetOnly.Count);
+        Assert.IsEmpty(result.New);
+        Assert.IsEmpty(result.Synced);
+        Assert.IsEmpty(result.TargetOnly);
     }
 
     [TestMethod]
@@ -135,7 +135,7 @@ public class SyncEdgeCaseTests : SyncTestBase
 
         var result = Service.Compare();
 
-        Assert.AreEqual(1, result.New.Count);
+        Assert.HasCount(1, result.New);
         Assert.AreEqual(".hidden.iso", result.New[0].Name);
     }
 
@@ -149,7 +149,7 @@ public class SyncEdgeCaseTests : SyncTestBase
 
         // Verify both show as new
         var before = Service.Compare();
-        Assert.AreEqual(2, before.New.Count);
+        Assert.HasCount(2, before.New);
 
         // Delete one file — CopyAllNewAsync calls Compare() internally,
         // so it will only see 1 file
@@ -158,7 +158,7 @@ public class SyncEdgeCaseTests : SyncTestBase
         await Service.CopyAllNewAsync();
 
         var successes = Bridge.Of<SyncCompletedEvent>().Where(e => e.Success).ToList();
-        Assert.AreEqual(1, successes.Count);
+        Assert.HasCount(1, successes);
         Assert.IsTrue(File.Exists(Path.Combine(TargetDir, "exists.iso")));
         Assert.IsFalse(File.Exists(Path.Combine(TargetDir, "vanishes.iso")));
     }
@@ -173,7 +173,7 @@ public class SyncEdgeCaseTests : SyncTestBase
         // This test verifies that each file gets its own completed event
         await Service.CopyAllNewAsync();
 
-        Assert.AreEqual(2, Bridge.Of<SyncCompletedEvent>().Count);
+        Assert.HasCount(2, Bridge.Of<SyncCompletedEvent>());
     }
 
     // --- Copy content edge cases ---
@@ -229,7 +229,7 @@ public class SyncEdgeCaseTests : SyncTestBase
         await Service.CopyFileAsync("tiny.iso");
 
         var copied = File.ReadAllBytes(Path.Combine(TargetDir, "tiny.iso"));
-        Assert.AreEqual(1, copied.Length);
+        Assert.HasCount(1, copied);
         Assert.AreEqual(0x42, copied[0]);
     }
 
@@ -254,8 +254,8 @@ public class SyncEdgeCaseTests : SyncTestBase
     {
         await Service.CopyFileAsync("missing.iso");
 
-        Assert.AreEqual(0, Bridge.Of<SyncProgressEvent>().Count);
-        Assert.AreEqual(1, Bridge.Of<SyncCompletedEvent>().Count);
+        Assert.IsEmpty(Bridge.Of<SyncProgressEvent>());
+        Assert.HasCount(1, Bridge.Of<SyncCompletedEvent>());
     }
 
     // --- SetSyncPath while operating ---
@@ -267,7 +267,7 @@ public class SyncEdgeCaseTests : SyncTestBase
         CreateFile(TargetDir, "game.iso", 1024);
 
         var result1 = Service.Compare();
-        Assert.AreEqual(1, result1.Synced.Count);
+        Assert.HasCount(1, result1.Synced);
 
         // Change target to a new empty dir
         var newTarget = Path.Combine(Path.GetTempPath(), "SyncTest_newtarget_" + Guid.NewGuid().ToString("N")[..8]);
@@ -278,8 +278,8 @@ public class SyncEdgeCaseTests : SyncTestBase
             var result2 = Service.Compare();
 
             // Same source file is now "new" since new target is empty
-            Assert.AreEqual(1, result2.New.Count);
-            Assert.AreEqual(0, result2.Synced.Count);
+            Assert.HasCount(1, result2.New);
+            Assert.IsEmpty(result2.Synced);
         }
         finally
         {
@@ -297,8 +297,8 @@ public class SyncEdgeCaseTests : SyncTestBase
         var result = Service.Compare();
 
         Assert.IsNotNull(result.Source);
-        Assert.IsTrue(result.Source.FreeSpace <= result.Source.TotalSpace);
-        Assert.IsTrue(result.Source.FreeSpace >= 0);
+        Assert.IsLessThanOrEqualTo(result.Source.TotalSpace, result.Source.FreeSpace);
+        Assert.IsGreaterThanOrEqualTo(0, result.Source.FreeSpace);
     }
 
     [TestMethod]

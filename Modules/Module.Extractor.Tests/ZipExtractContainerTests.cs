@@ -191,6 +191,6 @@ public class ZipExtractContainerTests : ExtractorTestBase
         await _container!.ExecAsync(
             ["7z", "x", C(archivePath), $"-o{C(outDir)}", "-y"]);
 
-        Assert.AreEqual(0, Directory.GetFiles(outDir).Length);
+        Assert.IsEmpty(Directory.GetFiles(outDir));
     }
 }

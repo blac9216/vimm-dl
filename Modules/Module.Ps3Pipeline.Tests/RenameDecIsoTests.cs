@@ -43,7 +43,7 @@ public class RenameDecIsoTests : Ps3PipelineTestBase
         await pipeline.RenameDecIsoAsync(Path.Combine(dir, "Game.iso"));
 
         Assert.IsTrue(File.Exists(Path.Combine(dir, "Game.iso")));
-        Assert.AreEqual(0, Bridge.StatusEvents.Count);
+        Assert.IsEmpty(Bridge.StatusEvents);
     }
 
     [TestMethod]

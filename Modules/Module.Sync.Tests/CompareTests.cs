@@ -13,9 +13,9 @@ public class CompareTests : SyncTestBase
         var result = svc.Compare();
 
         Assert.IsFalse(result.PathExists);
-        Assert.AreEqual(0, result.New.Count);
-        Assert.AreEqual(0, result.Synced.Count);
-        Assert.AreEqual(0, result.TargetOnly.Count);
+        Assert.IsEmpty(result.New);
+        Assert.IsEmpty(result.Synced);
+        Assert.IsEmpty(result.TargetOnly);
         Assert.IsNull(result.Source);
         Assert.IsNull(result.Target);
         Assert.IsNull(result.Error);
@@ -56,8 +56,8 @@ public class CompareTests : SyncTestBase
             var result = svc.Compare();
 
             Assert.IsTrue(result.PathExists);
-            Assert.AreEqual(0, result.New.Count);
-            Assert.AreEqual(0, result.Synced.Count);
+            Assert.IsEmpty(result.New);
+            Assert.IsEmpty(result.Synced);
             Assert.IsNull(result.Source);
             Assert.IsNotNull(result.Target);
             Assert.IsNull(result.Error);
@@ -76,9 +76,9 @@ public class CompareTests : SyncTestBase
         var result = Service.Compare();
 
         Assert.IsTrue(result.PathExists);
-        Assert.AreEqual(0, result.New.Count);
-        Assert.AreEqual(0, result.Synced.Count);
-        Assert.AreEqual(0, result.TargetOnly.Count);
+        Assert.IsEmpty(result.New);
+        Assert.IsEmpty(result.Synced);
+        Assert.IsEmpty(result.TargetOnly);
         Assert.IsNull(result.Error);
     }
 
@@ -90,9 +90,9 @@ public class CompareTests : SyncTestBase
 
         var result = Service.Compare();
 
-        Assert.AreEqual(2, result.New.Count);
-        Assert.AreEqual(0, result.Synced.Count);
-        Assert.AreEqual(0, result.TargetOnly.Count);
+        Assert.HasCount(2, result.New);
+        Assert.IsEmpty(result.Synced);
+        Assert.IsEmpty(result.TargetOnly);
         Assert.IsTrue(result.New.Any(f => f.Name == "Game1.iso"));
         Assert.IsTrue(result.New.Any(f => f.Name == "Game2.iso"));
     }
@@ -105,8 +105,8 @@ public class CompareTests : SyncTestBase
 
         var result = Service.Compare();
 
-        Assert.AreEqual(0, result.New.Count);
-        Assert.AreEqual(1, result.Synced.Count);
+        Assert.IsEmpty(result.New);
+        Assert.HasCount(1, result.Synced);
         Assert.AreEqual("Game1.iso", result.Synced[0].Name);
     }
 
@@ -117,9 +117,9 @@ public class CompareTests : SyncTestBase
 
         var result = Service.Compare();
 
-        Assert.AreEqual(0, result.New.Count);
-        Assert.AreEqual(0, result.Synced.Count);
-        Assert.AreEqual(1, result.TargetOnly.Count);
+        Assert.IsEmpty(result.New);
+        Assert.IsEmpty(result.Synced);
+        Assert.HasCount(1, result.TargetOnly);
         Assert.AreEqual("OldGame.iso", result.TargetOnly[0].Name);
     }
 
@@ -133,9 +133,9 @@ public class CompareTests : SyncTestBase
 
         var result = Service.Compare();
 
-        Assert.AreEqual(1, result.New.Count);
-        Assert.AreEqual(1, result.Synced.Count);
-        Assert.AreEqual(1, result.TargetOnly.Count);
+        Assert.HasCount(1, result.New);
+        Assert.HasCount(1, result.Synced);
+        Assert.HasCount(1, result.TargetOnly);
         Assert.AreEqual("NewGame.iso", result.New[0].Name);
         Assert.AreEqual("SharedGame.iso", result.Synced[0].Name);
         Assert.AreEqual("OldGame.iso", result.TargetOnly[0].Name);
@@ -154,13 +154,13 @@ public class CompareTests : SyncTestBase
         // On Windows: same file → 1 synced
         if (OperatingSystem.IsWindows())
         {
-            Assert.AreEqual(0, result.New.Count);
-            Assert.AreEqual(1, result.Synced.Count);
+            Assert.IsEmpty(result.New);
+            Assert.HasCount(1, result.Synced);
         }
         else
         {
             // Case-sensitive FS: names don't match at file level
-            Assert.IsTrue(result.New.Count + result.Synced.Count + result.TargetOnly.Count >= 1);
+            Assert.IsGreaterThanOrEqualTo(1, result.New.Count + result.Synced.Count + result.TargetOnly.Count);
         }
     }
 
@@ -174,9 +174,9 @@ public class CompareTests : SyncTestBase
 
         var result = Service.Compare();
 
-        Assert.AreEqual(1, result.New.Count);
+        Assert.HasCount(1, result.New);
         Assert.AreEqual("Game.iso", result.New[0].Name);
-        Assert.AreEqual(0, result.TargetOnly.Count);
+        Assert.IsEmpty(result.TargetOnly);
     }
 
     [TestMethod]
@@ -186,7 +186,7 @@ public class CompareTests : SyncTestBase
 
         var result = Service.Compare();
 
-        Assert.AreEqual(1, result.New.Count);
+        Assert.HasCount(1, result.New);
         Assert.AreEqual(12345, result.New[0].Size);
     }
 
@@ -204,9 +204,9 @@ public class CompareTests : SyncTestBase
         Assert.IsNotNull(result.Target);
         Assert.AreEqual(1, result.Source.IsoCount);
         Assert.AreEqual(1024, result.Source.IsoTotalSize);
-        Assert.IsTrue(result.Source.FreeSpace > 0);
-        Assert.IsTrue(result.Source.TotalSpace > 0);
-        Assert.IsTrue(result.Source.Label.Length > 0);
+        Assert.IsGreaterThan(0, result.Source.FreeSpace);
+        Assert.IsGreaterThan(0, result.Source.TotalSpace);
+        Assert.IsGreaterThan(0, result.Source.Label.Length);
         Assert.AreEqual(1, result.Target.IsoCount);
         Assert.AreEqual(2048, result.Target.IsoTotalSize);
     }
