@@ -155,7 +155,7 @@ export function useCatalogStatus() {
     // Poll while any catalog job is running so the UI advances; idle otherwise.
     refetchInterval: q => {
       const s = q.state.data
-      return s?.syncing || s?.scanning || s?.compatSyncing || s?.verifying || s?.vimmSyncing || s?.importing ? 2000 : false
+      return s?.syncing || s?.scanning || s?.compatSyncing || s?.verifying || s?.vimmSyncing || s?.importing || s?.igdbSyncing ? 2000 : false
     },
   })
 }
@@ -207,6 +207,15 @@ export function useSyncVimm() {
   return useMutation({
     mutationFn: (console?: string) =>
       postJson('/api/catalog/vimm-sync' + (console ? `?console=${encodeURIComponent(console)}` : '')),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['catalog-status'] }),
+  })
+}
+
+// Sync game descriptions from IGDB (Twitch OAuth). No-ops server-side without configured creds.
+export function useSyncIgdb() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => postJson('/api/catalog/igdb-sync'),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['catalog-status'] }),
   })
 }

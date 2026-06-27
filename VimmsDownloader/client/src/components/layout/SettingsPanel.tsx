@@ -275,6 +275,45 @@ export function SettingsPanel() {
             </div>
           </div>
 
+          {/* IGDB (game descriptions) */}
+          <div>
+            <div className="text-[10px] text-text-3 tracking-wide uppercase mb-3">
+              IGDB (descriptions)
+            </div>
+            <div className="space-y-3 border border-border/20 rounded p-3 bg-card/30">
+              <div className="text-[10px] text-text-4">
+                Twitch app credentials for the IGDB API, used to fetch game descriptions. Create an app
+                at <span className="text-accent/70">dev.twitch.tv/console/apps</span>. Both empty → the
+                description sync is disabled.
+              </div>
+              <div>
+                <div className="text-[10px] text-text-4 mb-1">Client ID</div>
+                <input
+                  type="text"
+                  autoComplete="off"
+                  spellCheck={false}
+                  defaultValue={settings.igdbClientId}
+                  onBlur={e => saveText('igdb_client_id', e.target.value, settings.igdbClientId)}
+                  className={inputCls}
+                />
+              </div>
+              <div>
+                <div className="text-[10px] text-text-4 mb-1">Client secret</div>
+                <input
+                  type="password"
+                  autoComplete="off"
+                  spellCheck={false}
+                  defaultValue={settings.igdbClientSecret}
+                  onBlur={e => saveText('igdb_client_secret', e.target.value, settings.igdbClientSecret)}
+                  className={inputCls}
+                />
+              </div>
+            </div>
+            <div className="mt-2 text-[10px] text-text-4">
+              Then run the IGDB sync from the Library toolbar to populate descriptions.
+            </div>
+          </div>
+
           {/* Catalog */}
           <div>
             <div className="text-[10px] text-text-3 tracking-wide uppercase mb-3">
