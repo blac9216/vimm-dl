@@ -42,6 +42,9 @@ builder.Services.AddSingleton<CatalogResolveService>();
 builder.Services.AddSingleton<MediaService>();
 builder.Services.AddSingleton<CompatSyncService>();
 builder.Services.AddSingleton<CatalogCompatState>();
+builder.Services.AddSingleton<IgdbClient>();
+builder.Services.AddSingleton<IgdbSyncService>();
+builder.Services.AddSingleton<CatalogIgdbState>();
 builder.Services.AddSingleton<CatalogVerifyService>();
 builder.Services.AddSingleton<CatalogVerifyState>();
 builder.Services.AddSingleton<VimmSyncService>();
@@ -146,6 +149,15 @@ builder.Services.AddHttpClient("compat")
 // libretro-thumbnails CDN (catalog box art / title screens, epic #122) — plain HTTPS, no auth; the
 // images are static, so a short-ish timeout is fine and misses (404s) come back fast.
 builder.Services.AddHttpClient("thumbnails")
+    .ConfigureHttpClient(c =>
+    {
+        c.Timeout = TimeSpan.FromMinutes(2);
+        c.DefaultRequestHeaders.Add("User-Agent", "vimm-dl");
+    });
+
+// IGDB metadata API (epic #122 / M2) — the Twitch OAuth token request and the Apicalypse game queries
+// both go through this one client (different hosts, so no BaseAddress). Plain HTTPS; creds per request.
+builder.Services.AddHttpClient("igdb")
     .ConfigureHttpClient(c =>
     {
         c.Timeout = TimeSpan.FromMinutes(2);

@@ -36,4 +36,9 @@ static class SettingsKeys
     // Wii U decryption (epic #104). The 16-byte common key as 32 hex chars; supplied by the user, never
     // bundled. Empty → the Wii U pipeline stops at a "keys required" state. Active immediately on save.
     public const string WiiUCommonKey = "wiiu_common_key";
+
+    // IGDB metadata (epic #122 / M2). User-provided Twitch app credentials for the IGDB API (client
+    // credentials OAuth). Both empty → the IGDB description sync no-ops. Read fresh at each sync.
+    public const string IgdbClientId = "igdb_client_id";
+    public const string IgdbClientSecret = "igdb_client_secret";
 }

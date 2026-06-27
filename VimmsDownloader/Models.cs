@@ -45,12 +45,13 @@ record SettingsResponse(string Platform, string OsDescription, string Hostname, 
     int ArchiveParallelism, int ArchiveRetries, int ArchiveIdle,
     string ArchiveS3Access, string ArchiveS3Secret,
     string ImportPath, string RejectedPath,
-    string WiiUCommonKey);
+    string WiiUCommonKey,
+    string IgdbClientId, string IgdbClientSecret);
 
 // Catalog (No-Intro / Redump canonical game list)
 record CatalogSystemStatus(string DatName, string Console, string Source,
     string? DatVersion, int GameCount, string? SyncedAt);
-record CatalogStatusResponse(bool Syncing, bool Scanning, bool CompatSyncing, bool Verifying, bool VimmSyncing, bool Importing, int TotalGames, List<CatalogSystemStatus> Systems);
+record CatalogStatusResponse(bool Syncing, bool Scanning, bool CompatSyncing, bool Verifying, bool VimmSyncing, bool Importing, bool IgdbSyncing, int TotalGames, List<CatalogSystemStatus> Systems);
 record CatalogConsole(string Console, int GameCount, int OwnedCount);
 // One emulator's playability verdict for a game (e.g. "rpcs3" → "Playable"). A game carries one per
 // emulator that targets its console and has a compat entry.
