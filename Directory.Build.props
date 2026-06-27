@@ -1,0 +1,17 @@
+<Project>
+
+  <!--
+    Centralized analyzer/warning policy (#211).
+
+    MSTEST0001 asks each test assembly to declare an explicit parallelization stance. We opt every
+    *.Tests project out of parallel execution: the suite already ran sequentially (the prior,
+    unconfigured MSTest default), and many tests use real file I/O, temp SQLite files, and
+    Testcontainers, so cross-test parallelism would risk resource contention. Making it explicit
+    silences MSTEST0001 without changing behavior. Scoped to test projects by name so production
+    assemblies (and Module.Core.Testing, a library) are untouched.
+  -->
+  <ItemGroup Condition="$(MSBuildProjectName.EndsWith('.Tests'))">
+    <AssemblyAttribute Include="Microsoft.VisualStudio.TestTools.UnitTesting.DoNotParallelizeAttribute" />
+  </ItemGroup>
+
+</Project>

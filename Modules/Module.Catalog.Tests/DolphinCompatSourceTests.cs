@@ -22,7 +22,7 @@ public class DolphinCompatSourceTests
     {
         var first = DolphinCompatSource.BuildUrl(5, null);
         StringAssert.Contains(first, "cmtitle=Category%3A5%20stars%20%28Rating%29");
-        Assert.IsFalse(first.Contains("cmcontinue"));
+        Assert.DoesNotContain("cmcontinue", first);
 
         var next = DolphinCompatSource.BuildUrl(5, "page|abc|123");
         StringAssert.Contains(next, "cmcontinue=page%7Cabc%7C123"); // '|' → %7C

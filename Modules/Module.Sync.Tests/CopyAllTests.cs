@@ -20,7 +20,7 @@ public class CopyAllTests : SyncTestBase
         Assert.IsTrue(File.Exists(Path.Combine(TargetDir, "TargetOnly.iso")));
 
         var successes = Bridge.CompletedEvents.Where(e => e.Success).ToList();
-        Assert.AreEqual(2, successes.Count);
+        Assert.HasCount(2, successes);
     }
 
     [TestMethod]
@@ -76,7 +76,7 @@ public class CopyAllTests : SyncTestBase
         await svc.CopyAllNewAsync();
 
         var errors = Bridge.CompletedEvents.Where(e => !e.Success).ToList();
-        Assert.IsTrue(errors.Count > 0);
+        Assert.IsNotEmpty(errors);
         Assert.IsTrue(errors.Any(e => e.Error is not null));
     }
 
@@ -88,7 +88,7 @@ public class CopyAllTests : SyncTestBase
 
         await Service.CopyAllNewAsync();
 
-        Assert.AreEqual(2, Bridge.CompletedEvents.Count);
+        Assert.HasCount(2, Bridge.CompletedEvents);
         Assert.IsTrue(Bridge.CompletedEvents.All(e => e.Success));
     }
 }

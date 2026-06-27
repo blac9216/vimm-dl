@@ -36,8 +36,8 @@ public class EdgeCaseTests : SyncTestBase
 
         var result = Service.Compare();
 
-        Assert.AreEqual(0, result.New.Count);
-        Assert.AreEqual(1, result.Synced.Count);
+        Assert.IsEmpty(result.New);
+        Assert.HasCount(1, result.Synced);
     }
 
     [TestMethod]
@@ -47,7 +47,7 @@ public class EdgeCaseTests : SyncTestBase
 
         var result = Service.Compare();
 
-        Assert.AreEqual(1, result.New.Count);
+        Assert.HasCount(1, result.New);
     }
 
     [TestMethod]
@@ -58,7 +58,7 @@ public class EdgeCaseTests : SyncTestBase
 
         var result = Service.Compare();
 
-        Assert.AreEqual(1, result.Synced.Count);
+        Assert.HasCount(1, result.Synced);
     }
 
     // --- Zero-byte files ---
@@ -70,7 +70,7 @@ public class EdgeCaseTests : SyncTestBase
 
         var result = Service.Compare();
 
-        Assert.AreEqual(1, result.New.Count);
+        Assert.HasCount(1, result.New);
         Assert.AreEqual(0, result.New[0].Size);
     }
 
@@ -98,7 +98,7 @@ public class EdgeCaseTests : SyncTestBase
         await Service.CopyFileAsync("Large.iso");
 
         var destContent = File.ReadAllBytes(Path.Combine(TargetDir, "Large.iso"));
-        Assert.AreEqual(content.Length, destContent.Length);
+        Assert.HasCount(content.Length, destContent);
         Assert.AreEqual(content[0], destContent[0]);
         Assert.AreEqual(content[size / 2], destContent[size / 2]);
         Assert.AreEqual(content[^1], destContent[^1]);
@@ -117,9 +117,9 @@ public class EdgeCaseTests : SyncTestBase
         Assert.IsNotNull(info);
         Assert.AreEqual(2, info.IsoCount);
         Assert.AreEqual(3000, info.IsoTotalSize);
-        Assert.IsTrue(info.FreeSpace > 0);
-        Assert.IsTrue(info.TotalSpace > 0);
-        Assert.IsTrue(info.FreeSpace <= info.TotalSpace);
+        Assert.IsGreaterThan(0, info.FreeSpace);
+        Assert.IsGreaterThan(0, info.TotalSpace);
+        Assert.IsLessThanOrEqualTo(info.TotalSpace, info.FreeSpace);
     }
 
     [TestMethod]
@@ -222,7 +222,7 @@ public class EdgeCaseTests : SyncTestBase
     public void GetCompletedDir_UsesConfiguredPath()
     {
         var dir = Service.GetCompletedDir();
-        Assert.IsTrue(dir.EndsWith(Path.Combine("completed")));
+        Assert.EndsWith(Path.Combine("completed"), dir);
         StringAssert.Contains(dir, BaseDir);
     }
 

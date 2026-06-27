@@ -11,7 +11,7 @@ public class BridgeTests
 
         await bridge.SendAsync(new SyncProgressEvent("f.iso", 50.0, 100, 200));
 
-        Assert.AreEqual(1, bridge.ProgressEvents.Count);
+        Assert.HasCount(1, bridge.ProgressEvents);
         Assert.AreEqual("f.iso", bridge.ProgressEvents[0].Filename);
         Assert.AreEqual(50.0, bridge.ProgressEvents[0].Percent);
     }
@@ -23,7 +23,7 @@ public class BridgeTests
 
         await bridge.SendAsync(new SyncCompletedEvent("f.iso", true, null));
 
-        Assert.AreEqual(1, bridge.CompletedEvents.Count);
+        Assert.HasCount(1, bridge.CompletedEvents);
         Assert.IsTrue(bridge.LastCompleted!.Success);
     }
 
@@ -37,7 +37,7 @@ public class BridgeTests
 
         await Task.WhenAll(tasks);
 
-        Assert.AreEqual(50, bridge.CompletedEvents.Count);
+        Assert.HasCount(50, bridge.CompletedEvents);
     }
 
     [TestMethod]
@@ -49,7 +49,7 @@ public class BridgeTests
 
         bridge.Clear();
 
-        Assert.AreEqual(0, bridge.AllEvents.Count);
+        Assert.IsEmpty(bridge.AllEvents);
         Assert.IsNull(bridge.LastCompleted);
     }
 
@@ -62,8 +62,8 @@ public class BridgeTests
         await bridge.SendAsync(new SyncCompletedEvent("a.iso", true, null));
         await bridge.SendAsync(new SyncProgressEvent("b.iso", 25, 50, 200));
 
-        Assert.AreEqual(3, bridge.AllEvents.Count);
-        Assert.AreEqual(2, bridge.ProgressEvents.Count);
-        Assert.AreEqual(1, bridge.CompletedEvents.Count);
+        Assert.HasCount(3, bridge.AllEvents);
+        Assert.HasCount(2, bridge.ProgressEvents);
+        Assert.HasCount(1, bridge.CompletedEvents);
     }
 }
