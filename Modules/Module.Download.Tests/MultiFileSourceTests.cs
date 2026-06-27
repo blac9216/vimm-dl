@@ -64,6 +64,48 @@ public class MultiFileSourceTests
         new(url, name, "Wii U", name, null, 0, null);
 
     [TestMethod]
+    public async Task MultiFile_ExpectedSha1_Match_Completes()
+    {
+        var body = Bytes(64);
+        var sha = Convert.ToHexString(System.Security.Cryptography.SHA1.HashData(body));
+        var handler = new MapHandler(new() { ["http://m/f"] = body });
+        var resolution = new MultiFileResolution("T", "Wii U",
+            [new ResolvedDownload("http://m/f", "f", "Wii U", "f.bin", null, 0, null, ExpectedSha1: sha)],
+            SubFolder: "T1");
+        var source = new FakeMultiSource(_ => Result<MultiFileResolution>.Ok(resolution));
+        var provider = new CapturingProvider(new DownloadItem(1, "t", 0) { Source = "fake-multi" });
+        var (svc, _) = NewService(handler, source);
+
+        svc.Start(provider);
+        await WaitFor(() => provider.Completions.Count >= 1);
+        svc.Stop();
+
+        Assert.HasCount(1, provider.Completions);
+        Assert.IsEmpty(provider.Removed);
+    }
+
+    [TestMethod]
+    public async Task MultiFile_ExpectedSha1_Mismatch_FailsItem()
+    {
+        var handler = new MapHandler(new() { ["http://m/f"] = Bytes(64) });
+        var resolution = new MultiFileResolution("T", "Wii U",
+            [new ResolvedDownload("http://m/f", "f", "Wii U", "f.bin", null, 0, null,
+                ExpectedSha1: "0000000000000000000000000000000000000000")],
+            SubFolder: "T1");
+        var source = new FakeMultiSource(_ => Result<MultiFileResolution>.Ok(resolution));
+        var provider = new CapturingProvider(new DownloadItem(1, "t", 0) { Source = "fake-multi" });
+        var (svc, _) = NewService(handler, source);
+
+        svc.Start(provider);
+        await WaitFor(() => provider.Removed.Count >= 1);
+        svc.Stop();
+
+        Assert.IsEmpty(provider.Completions);
+        CollectionAssert.Contains(provider.Removed, 1);
+        Assert.IsTrue(_bridge.ErrorEvents.Any(e => e.Message.Contains("SHA-1")));
+    }
+
+    [TestMethod]
     public async Task MultiFile_DownloadsAllFiles_IntoSubfolder_OneCompletion()
     {
         const string titleId = "0005000010123400";
