@@ -165,6 +165,11 @@ export interface CatalogVimm {
   formats: CatalogVimmFormat[]
 }
 
+// A game's IGDB description (M3 detail panel), from GET /api/catalog/games/{id}/description (404 → none).
+export interface CatalogGameDescription {
+  description: string
+}
+
 export interface CatalogSystemStatus {
   datName: string
   console: string

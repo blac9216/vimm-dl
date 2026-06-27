@@ -135,6 +135,16 @@ static class CatalogEndpoints
             return Results.File(path, "image/png");
         });
 
+        // A game's IGDB description for the Library detail panel, or 404 when none is stored (the panel
+        // shows a "no description" placeholder). Populated by POST /api/catalog/igdb-sync.
+        app.MapGet("/api/catalog/games/{id:int}/description", async (int id, CatalogRepository repo) =>
+        {
+            var description = await repo.GetDescriptionAsync(id);
+            return string.IsNullOrWhiteSpace(description)
+                ? Results.NotFound()
+                : Results.Ok(new CatalogGameDescription(description));
+        });
+
         // A game's Vimm download options (vault id + available formats) for the download format
         // picker, or 404 when the game has no Vimm match.
         app.MapGet("/api/catalog/games/{id:int}/vimm", async (int id, CatalogRepository repo) =>

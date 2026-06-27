@@ -1066,6 +1066,16 @@ class CatalogRepository : ICatalogStore
         await tx.CommitAsync(ct);
     }
 
+    /// <summary>A game's stored description (IGDB), or null when it has none.</summary>
+    public async Task<string?> GetDescriptionAsync(int gameId)
+    {
+        await using var db = await OpenAsync();
+        await using var cmd = db.CreateCommand();
+        cmd.CommandText = "SELECT description FROM catalog_game WHERE id = $id";
+        cmd.Parameters.AddWithValue("$id", gameId);
+        return await cmd.ExecuteScalarAsync() as string;
+    }
+
     private static async Task<List<CatalogSetDto>> ReadSetsAsync(SqliteConnection db, string? console)
     {
         var order = new List<(int Id, string Name, string Console)>();
