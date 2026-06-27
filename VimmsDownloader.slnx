@@ -16,4 +16,6 @@
   <Project Path="Modules/Module.Download.Tests/Module.Download.Tests.csproj" />
   <Project Path="Modules/Module.Catalog/Module.Catalog.csproj" />
   <Project Path="Modules/Module.Catalog.Tests/Module.Catalog.Tests.csproj" />
+  <Project Path="Modules/Module.WiiUTools/Module.WiiUTools.csproj" />
+  <Project Path="Modules/Module.WiiUTools.Tests/Module.WiiUTools.Tests.csproj" />
 </Solution>
