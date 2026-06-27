@@ -123,4 +123,17 @@ public class DedupTests
         var games = new (string, string?)[] { ("Sukeban Deka (Japan)", null), ("Sukeban Deka (Europe)", "Europe") };
         Assert.AreEqual(1, Dedup.SelectParent(games));
     }
+
+    [TestMethod]
+    public void IsEnglishAndRegionRank_AgreeOnWesternTokens()
+    {
+        // #201: new zealand / ireland / scandinavia are accepted by IsEnglish, so RegionRank must also
+        // treat them as Western (rank 1) — i.e. ahead of a Japan variant (rank 2) in 1G1R selection.
+        foreach (var region in new[] { "New Zealand", "Ireland", "Scandinavia" })
+        {
+            Assert.IsTrue(Dedup.IsEnglish(region, null, $"Game ({region})"), $"{region} should be English");
+            var games = new (string, string?)[] { ("Game (Japan)", "Japan"), ($"Game ({region})", region) };
+            Assert.AreEqual(1, Dedup.SelectParent(games), $"{region} should win 1G1R over Japan");
+        }
+    }
 }
