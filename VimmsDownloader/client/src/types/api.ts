@@ -256,6 +256,7 @@ export interface SettingsResponse {
   archiveS3Secret: string
   importPath: string
   rejectedPath: string
+  wiiuCommonKey: string
 }
 
 export interface CheckPathResponse {

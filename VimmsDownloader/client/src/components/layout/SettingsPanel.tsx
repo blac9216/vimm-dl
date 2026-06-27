@@ -247,6 +247,34 @@ export function SettingsPanel() {
             </div>
           </div>
 
+          {/* Wii U */}
+          <div>
+            <div className="text-[10px] text-text-3 tracking-wide uppercase mb-3">
+              Wii U
+            </div>
+            <div className="space-y-3 border border-border/20 rounded p-3 bg-card/30">
+              <div>
+                <div className="text-xs text-text mb-1">Common key</div>
+                <div className="text-[10px] text-text-4 mb-2">
+                  The 16-byte Wii U common key (32 hex chars), used to decrypt downloaded titles.
+                  You supply it — it is never bundled. Without it, Wii U downloads still land
+                  (encrypted) but the pipeline stops at a "keys required" state.
+                </div>
+                <input
+                  type="password"
+                  autoComplete="off"
+                  spellCheck={false}
+                  defaultValue={settings.wiiuCommonKey}
+                  onBlur={e => saveText('wiiu_common_key', e.target.value, settings.wiiuCommonKey)}
+                  className={inputCls}
+                />
+              </div>
+            </div>
+            <div className="mt-2 text-[10px] text-text-4">
+              Applies immediately on save (no restart). 32 hexadecimal characters.
+            </div>
+          </div>
+
           {/* Catalog */}
           <div>
             <div className="text-[10px] text-text-3 tracking-wide uppercase mb-3">
