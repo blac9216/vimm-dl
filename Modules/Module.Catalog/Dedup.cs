@@ -19,10 +19,19 @@ public static class Dedup
     private static readonly string[] BadTagPrefixes =
         [.. ExcludedCategoryTags, "(pirate", "(aftermarket", "(debug"];
 
-    // Region/name tokens (lowercased) that indicate an English/Western release, for the English-only
-    // Library filter (E3a). Mirrors the region buckets in RegionRank below.
-    public static readonly string[] EnglishRegionTokens =
-        ["usa", "world", "europe", "uk", "australia", "canada", "new zealand", "ireland", "scandinavia"];
+    // Region tokens (lowercased) by rank bucket, shared by RegionRank (1G1R parent selection) and the
+    // English-only Library filter so the two can't drift (#201). Rank 0 = NTSC-U / global English;
+    // rank 1 = other Western/English regions — both count as English. Rank 2 = Japan / Asia.
+    private static readonly string[] GlobalEnglishRegions = ["usa", "world"];
+    private static readonly string[] WesternRegions =
+        ["europe", "uk", "australia", "canada", "new zealand", "ireland", "scandinavia"];
+    private static readonly string[] AsianRegions = ["japan", "asia", "korea", "china"];
+
+    /// <summary>
+    /// Region tokens that mark an English/Western release, for the English-only Library filter (E3a) —
+    /// exactly RegionRank's rank-0 and rank-1 buckets. The SQL mirror in GetGamesAsync derives from this.
+    /// </summary>
+    public static readonly string[] EnglishRegionTokens = [.. GlobalEnglishRegions, .. WesternRegions];
 
     /// <summary>Strip all (…) and […] tags from a name and normalize, so all variants share a key.</summary>
     public static string TitleKey(string name)
@@ -90,9 +99,7 @@ public static class Dedup
         if (!string.IsNullOrEmpty(languages) && languages.Contains("en", StringComparison.OrdinalIgnoreCase))
             return true;
         var s = (string.IsNullOrEmpty(region) ? name : region).ToLowerInvariant();
-        foreach (var token in EnglishRegionTokens)
-            if (HasRegionToken(s, token)) return true;
-        return false;
+        return MatchesAny(s, EnglishRegionTokens);
     }
 
     /// <summary>
@@ -109,12 +116,20 @@ public static class Dedup
         return padded.Contains(" " + token + " ", StringComparison.Ordinal);
     }
 
+    /// <summary>True if any of <paramref name="tokens"/> matches as a boundary-bounded region tag.</summary>
+    private static bool MatchesAny(string lowered, string[] tokens)
+    {
+        foreach (var token in tokens)
+            if (HasRegionToken(lowered, token)) return true;
+        return false;
+    }
+
     private static int RegionRank((string Name, string? Region) g)
     {
         var s = (string.IsNullOrEmpty(g.Region) ? g.Name : g.Region).ToLowerInvariant();
-        if (HasRegionToken(s, "usa") || HasRegionToken(s, "world")) return 0;   // English, NTSC-U / global
-        if (HasRegionToken(s, "europe") || HasRegionToken(s, "uk") || HasRegionToken(s, "australia") || HasRegionToken(s, "canada")) return 1;
-        if (HasRegionToken(s, "japan") || HasRegionToken(s, "asia") || HasRegionToken(s, "korea") || HasRegionToken(s, "china")) return 2;
+        if (MatchesAny(s, GlobalEnglishRegions)) return 0;   // English, NTSC-U / global
+        if (MatchesAny(s, WesternRegions)) return 1;         // other Western/English (PAL, English-speaking)
+        if (MatchesAny(s, AsianRegions)) return 2;           // Japan / Asia
         return 3;
     }
 
