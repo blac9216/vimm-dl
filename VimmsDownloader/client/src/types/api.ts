@@ -186,6 +186,7 @@ export interface CatalogStatus {
   verifying: boolean
   vimmSyncing: boolean
   importing: boolean
+  igdbSyncing: boolean
   totalGames: number
   systems: CatalogSystemStatus[]
 }
@@ -262,6 +263,8 @@ export interface SettingsResponse {
   importPath: string
   rejectedPath: string
   wiiuCommonKey: string
+  igdbClientId: string
+  igdbClientSecret: string
 }
 
 export interface CheckPathResponse {

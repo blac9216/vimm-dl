@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useCatalogConsoles, useCatalogGames, useCatalogStatus, useEmulators, useSyncCatalog, useScanCatalog, useSyncCompat, useVerifyCatalog, useSyncVimm, useQueueCatalogGame, useQueueCatalogGamesBatch, fetchGameVimm } from '../../api/queries'
+import { useCatalogConsoles, useCatalogGames, useCatalogStatus, useEmulators, useSyncCatalog, useScanCatalog, useSyncCompat, useVerifyCatalog, useSyncVimm, useSyncIgdb, useQueueCatalogGame, useQueueCatalogGamesBatch, fetchGameVimm } from '../../api/queries'
 import type { CatalogGame, CatalogVimmFormat } from '../../types/api'
 import { CatalogThumb } from '../shared/CatalogThumb'
 import { GameDetail } from './GameDetail'
@@ -103,6 +103,7 @@ export function LibraryPanel() {
   const compatMutation = useSyncCompat()
   const verifyMutation = useVerifyCatalog()
   const vimmMutation = useSyncVimm()
+  const igdbMutation = useSyncIgdb()
   const queueGame = useQueueCatalogGame()
   const batchQueue = useQueueCatalogGamesBatch()
   const { data: gamesResp, isFetching } = useCatalogGames(selectedConsole || null, query, local, dedupe, english, excludeCategories, searchMode, page, PAGE_SIZE, emulator, compatStatus)
@@ -115,7 +116,8 @@ export function LibraryPanel() {
   const compatSyncing = status?.compatSyncing ?? false
   const verifying = status?.verifying ?? false
   const vimmSyncing = status?.vimmSyncing ?? false
-  const busy = syncing || scanning || compatSyncing || verifying || vimmSyncing
+  const igdbSyncing = status?.igdbSyncing ?? false
+  const busy = syncing || scanning || compatSyncing || verifying || vimmSyncing || igdbSyncing
   const totalInCatalog = status?.totalGames ?? 0
 
   // When a sync or scan finishes, refresh the catalog views so new games/counts/owned appear.
@@ -339,6 +341,12 @@ export function LibraryPanel() {
           className="px-3 py-1 text-xs font-medium rounded bg-surface-2/40 text-text-3
             border border-border/30 hover:bg-surface-2/70 hover:text-text disabled:opacity-40 shrink-0">
           {vimmSyncing ? 'Vimm…' : 'Vimm'}
+        </button>
+        <button onClick={() => igdbMutation.mutate()} disabled={busy}
+          title="Sync game descriptions from IGDB (needs Twitch credentials in Settings → IGDB)"
+          className="px-3 py-1 text-xs font-medium rounded bg-surface-2/40 text-text-3
+            border border-border/30 hover:bg-surface-2/70 hover:text-text disabled:opacity-40 shrink-0">
+          {igdbSyncing ? 'IGDB…' : 'IGDB'}
         </button>
         <button onClick={() => syncMutation.mutate()} disabled={busy} title="Re-sync from No-Intro / Redump"
           className="px-3 py-1 text-xs font-medium rounded bg-surface-2/40 text-text-3
