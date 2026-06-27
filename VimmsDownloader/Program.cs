@@ -7,6 +7,12 @@ builder.Services.AddSignalR()
 builder.Services.AddSingleton<QueueRepository>();
 builder.Services.AddSingleton<Module.Ps3Pipeline.Bridge.IPs3PipelineBridge, SignalRPs3PipelineBridge>();
 builder.Services.AddSingleton<Module.Ps3Pipeline.Ps3ConversionPipeline>();
+// Wii U pipeline (epic #104): user-configured key provider (one singleton behind the module interface),
+// the SignalR bridge, and the decrypt → extract → package pipeline.
+builder.Services.AddSingleton<WiiUTitleKeyProvider>();
+builder.Services.AddSingleton<Module.WiiUTools.ITitleKeyProvider>(sp => sp.GetRequiredService<WiiUTitleKeyProvider>());
+builder.Services.AddSingleton<Module.WiiUPipeline.Bridge.IWiiUPipelineBridge, SignalRWiiUPipelineBridge>();
+builder.Services.AddSingleton<Module.WiiUPipeline.WiiUConversionPipeline>();
 builder.Services.AddSingleton<Module.Download.Bridge.IDownloadBridge, SignalRDownloadBridge>();
 builder.Services.AddSingleton<Module.Download.Sources.IDownloadSource, Module.Download.Sources.VimmSource>();
 builder.Services.AddSingleton<Module.Download.Sources.IDownloadSource, Module.Download.Sources.ArchiveSource>();
@@ -163,6 +169,9 @@ if (await repo.GetSettingAsync(SettingsKeys.DefaultSetsSeeded) != "true")
     app.Services.GetRequiredService<ArchiveAuth>().Set(
         all.GetValueOrDefault(SettingsKeys.ArchiveS3Access),
         all.GetValueOrDefault(SettingsKeys.ArchiveS3Secret));
+    // Load the user's Wii U common key (if set) so titles decrypt from the first download; refreshed on save.
+    app.Services.GetRequiredService<WiiUTitleKeyProvider>().SetCommonKey(
+        all.GetValueOrDefault(SettingsKeys.WiiUCommonKey));
 }
 
 // Prune old events (7-day retention, 50k max rows)
@@ -193,6 +202,12 @@ await repo.PruneEventsAsync();
     ps3Pipeline.SeedConverted(convertedNames);
 
     ps3Pipeline.CleanupOrphans(dlBase);
+
+    // Wii U pipeline: same converted-set seeding (titles already decrypted won't re-run) + worker count.
+    var wiiuPipeline = app.Services.GetRequiredService<Module.WiiUPipeline.WiiUConversionPipeline>();
+    wiiuPipeline.Configure(parallelism);
+    wiiuPipeline.SeedConverted(convertedNames);
+
     app.Services.GetRequiredService<Module.Sync.SyncService>().Configure(dlBase, await repo.GetSyncPathAsync());
 }
 

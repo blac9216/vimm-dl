@@ -20,4 +20,6 @@
   <Project Path="Modules/Module.WiiUTools.Tests/Module.WiiUTools.Tests.csproj" />
   <Project Path="Modules/Module.WiiUSource/Module.WiiUSource.csproj" />
   <Project Path="Modules/Module.WiiUSource.Tests/Module.WiiUSource.Tests.csproj" />
+  <Project Path="Modules/Module.WiiUPipeline/Module.WiiUPipeline.csproj" />
+  <Project Path="Modules/Module.WiiUPipeline.Tests/Module.WiiUPipeline.Tests.csproj" />
 </Solution>

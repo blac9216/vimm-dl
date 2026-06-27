@@ -51,7 +51,8 @@ static class SettingsEndpoints
             );
         });
 
-        app.MapPost("/api/settings", async (SettingRequest req, QueueRepository repo, ArchiveAuth auth) =>
+        app.MapPost("/api/settings", async (SettingRequest req, QueueRepository repo, ArchiveAuth auth,
+            WiiUTitleKeyProvider wiiuKeys) =>
         {
             await repo.SaveSettingAsync(req.Key, req.Value);
             // Refresh the live archive.org auth header when either S3 credential changes.
@@ -61,6 +62,9 @@ static class SettingsEndpoints
                 auth.Set(all.GetValueOrDefault(SettingsKeys.ArchiveS3Access),
                          all.GetValueOrDefault(SettingsKeys.ArchiveS3Secret));
             }
+            // Apply a Wii U common key change immediately so the next title decrypts without a restart.
+            if (req.Key == SettingsKeys.WiiUCommonKey)
+                wiiuKeys.SetCommonKey(req.Value);
             return Results.Ok();
         });
 
