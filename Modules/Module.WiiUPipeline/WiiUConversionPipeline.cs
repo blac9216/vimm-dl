@@ -166,8 +166,12 @@ public class WiiUConversionPipeline : IPipeline
             }
         }
 
-        // --- Extracting: pull files out of any decrypted U8 archives ---
+        // --- Extracting: assemble the real file layout (FST), and pull files out of any U8 archives ---
         await _state.EmitStatus(key, WiiUPhase.Extracting, "Extracting files…");
+
+        // FST-driven layout: if a content is an FST, lay the title's files out at their real paths (#223).
+        var assembled = AssembleFromFst(tmd, decryptedDir, ct);
+
         var extracted = 0;
         foreach (var content in tmd.Contents)
         {
@@ -183,21 +187,92 @@ public class WiiUConversionPipeline : IPipeline
 
         // --- Packaging: the decrypted folder is the deliverable ---
         await _state.EmitStatus(key, WiiUPhase.Packaging,
-            $"Assembling decrypted title ({tmd.Contents.Count} content(s), {extracted} file(s) extracted)…");
+            $"Assembling decrypted title ({tmd.Contents.Count} content(s), {assembled} FST file(s), {extracted} U8 file(s))…");
 
         await _state.EmitStatus(key, WiiUPhase.Done, $"Decrypted: {key}", DecryptedDirName);
         _state.AddToConvertedList(key);
         _state.Log.LogInformation("Wii U title decrypted: {Title} -> {Dir}", key, decryptedDir);
     }
 
+    /// <summary>
+    /// If a decrypted content is an FST (filesystem table — magic <c>FST\0</c>), parse it (W3) and assemble
+    /// the title's real files into the decrypted folder at their FST paths, reading each entry from the
+    /// decrypted content its secondary index points at (offset × offset-factor). Returns the file count.
+    ///
+    /// Additive + best-effort: returns 0 (leaving the raw .app files in place) when there's no FST or it
+    /// can't be resolved, so nothing regresses. Clean-room from the FST structure (W3); the offset/section
+    /// semantics are synthetic-validated — real-title confirmation (and hashed-content support) is tracked
+    /// in #231, so hashed source content is skipped here.
+    /// </summary>
+    private int AssembleFromFst(Tmd tmd, string decryptedDir, CancellationToken ct)
+    {
+        string? fstPath = null;
+        foreach (var c in tmd.Contents)
+        {
+            if (c.IsHashed) continue;
+            var p = Path.Combine(decryptedDir, $"{c.ContentIdHex}.app");
+            if (IsFst(p)) { fstPath = p; break; }
+        }
+        if (fstPath == null) return 0;
+
+        var parsed = Fst.Parse(File.ReadAllBytes(fstPath));
+        if (!parsed.IsOk) { _state.Log.LogWarning("FST parse failed: {Error}", parsed.Error); return 0; }
+        var fst = parsed.Value!;
+
+        var count = 0;
+        foreach (var entry in fst.Entries)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (entry.IsDirectory) continue;
+            if (entry.SecondaryIndex >= tmd.Contents.Count) continue; // unknown section — skip
+            var source = tmd.Contents[entry.SecondaryIndex];
+            if (source.IsHashed) continue; // raw hashed source not yet de-hashed (#231)
+            var sourcePath = Path.Combine(decryptedDir, $"{source.ContentIdHex}.app");
+            if (!File.Exists(sourcePath)) continue;
+
+            var byteOffset = (long)entry.Offset * fst.OffsetFactor;
+            var dest = Path.Combine(decryptedDir, entry.Path.Replace('/', Path.DirectorySeparatorChar));
+            try
+            {
+                using var src = File.OpenRead(sourcePath);
+                if (byteOffset + entry.Size > src.Length) continue; // out of range — skip defensively
+                Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
+                src.Seek(byteOffset, SeekOrigin.Begin);
+                using var dst = File.Create(dest);
+                CopyExactly(src, dst, entry.Size);
+                count++;
+            }
+            catch (Exception ex) { _state.Log.LogWarning("FST extract {Path} failed: {Error}", entry.Path, ex.Message); }
+        }
+        return count;
+    }
+
+    private static void CopyExactly(Stream src, Stream dst, uint count)
+    {
+        var buffer = new byte[81920];
+        var remaining = (long)count;
+        while (remaining > 0)
+        {
+            var read = src.Read(buffer, 0, (int)Math.Min(buffer.Length, remaining));
+            if (read == 0) break;
+            dst.Write(buffer, 0, read);
+            remaining -= read;
+        }
+    }
+
+    /// <summary>True if the file begins with the FST magic (0x46535400, "FST\0").</summary>
+    private static bool IsFst(string path) => HasMagic(path, 0x46535400);
+
     /// <summary>True if the file begins with the U8 magic (0x55AA382D).</summary>
-    private static bool IsU8(string path)
+    private static bool IsU8(string path) => HasMagic(path, 0x55AA382D);
+
+    private static bool HasMagic(string path, uint magic)
     {
         try
         {
-            Span<byte> magic = stackalloc byte[4];
+            Span<byte> head = stackalloc byte[4];
             using var fs = File.OpenRead(path);
-            return fs.Read(magic) == 4 && BinaryPrimitives.ReadUInt32BigEndian(magic) == 0x55AA382D;
+            return fs.Read(head) == 4 && BinaryPrimitives.ReadUInt32BigEndian(head) == magic;
         }
         catch { return false; }
     }
