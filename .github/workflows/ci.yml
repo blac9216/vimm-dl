@@ -87,3 +87,37 @@ jobs:
       # A build-breaking threshold gate is intentionally NOT enabled yet (issue #187, optional AC): it
       # needs a maintainer-agreed baseline read off the merged report this job now publishes. To enable,
       # add a step that fails when CoverageReport/Cobertura.xml's top-level line-rate drops below the floor.
+
+  # Frontend gating (#93): the test job only covers the backend, so TS/lint breaks and a stale committed
+  # wwwroot bundle previously slipped through CI. Build + lint the client, then assert the committed
+  # bundle matches a fresh build. bun is pinned so that assertion is deterministic.
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.11
+
+      - name: Install dependencies
+        working-directory: VimmsDownloader/client
+        run: bun install --frozen-lockfile
+
+      - name: Build
+        working-directory: VimmsDownloader/client
+        run: bun run build
+
+      - name: Lint
+        working-directory: VimmsDownloader/client
+        run: bun run lint
+
+      - name: Verify the committed wwwroot bundle is in sync with the client source
+        run: |
+          if [ -n "$(git status --porcelain VimmsDownloader/wwwroot)" ]; then
+            echo "::error::VimmsDownloader/wwwroot is stale — run 'bun run build' in VimmsDownloader/client and commit the result."
+            git status --porcelain VimmsDownloader/wwwroot
+            git --no-pager diff -- VimmsDownloader/wwwroot
+            exit 1
+          fi
+          echo "wwwroot is in sync with the client source."
