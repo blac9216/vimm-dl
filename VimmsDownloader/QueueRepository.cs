@@ -20,6 +20,7 @@ class QueueRepository
             var dbPath = configConnStr.Replace("Data Source=", "").Trim();
             var dbDir = Path.GetDirectoryName(dbPath);
             if (!string.IsNullOrEmpty(dbDir)) Directory.CreateDirectory(dbDir);
+            _dataPath = string.IsNullOrEmpty(dbDir) ? "." : dbDir;
 
             // Derive download path from DB location: data/ and downloads/ are siblings
             // e.g., /vimms/data/queue.db → /vimms/downloads
@@ -68,9 +69,13 @@ class QueueRepository
     }
 
     private string? _downloadPath;
+    private string? _dataPath;
 
     public string GetDownloadPath() => _downloadPath
         ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+
+    /// <summary>The data directory (where queue.db lives); host caches such as media/ sit under it.</summary>
+    public string GetDataPath() => _dataPath ?? ".";
 
     public async Task<string> GetSyncPathAsync() => await GetSettingAsync("sync_path") ?? "";
 

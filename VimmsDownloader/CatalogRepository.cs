@@ -976,6 +976,57 @@ class CatalogRepository : ICatalogStore
         return (vaultId, formats);
     }
 
+    // --- catalog media (box art / title screens, epic #122 / M1) ---
+
+    /// <summary>A game's libretro-thumbnails lookup key: its system DAT name, console, and exact name.</summary>
+    public async Task<(string DatName, string Console, string Name)?> GetGameMediaKeyAsync(int gameId)
+    {
+        await using var db = await OpenAsync();
+        await using var cmd = db.CreateCommand();
+        cmd.CommandText = """
+            SELECT s.dat_name, s.console, g.name
+            FROM catalog_game g JOIN catalog_system s ON s.id = g.system_id
+            WHERE g.id = $id
+            """;
+        cmd.Parameters.AddWithValue("$id", gameId);
+        await using var r = await cmd.ExecuteReaderAsync();
+        if (!await r.ReadAsync()) return null;
+        return (r.GetString(0), r.GetString(1), r.GetString(2));
+    }
+
+    /// <summary>The cached media record for a (game, type), or null when never fetched.</summary>
+    public async Task<(string Status, string? Path)?> GetMediaAsync(int gameId, string type)
+    {
+        await using var db = await OpenAsync();
+        await using var cmd = db.CreateCommand();
+        cmd.CommandText = "SELECT status, path FROM catalog_media WHERE game_id = $id AND type = $type";
+        cmd.Parameters.AddWithValue("$id", gameId);
+        cmd.Parameters.AddWithValue("$type", type);
+        await using var r = await cmd.ExecuteReaderAsync();
+        if (!await r.ReadAsync()) return null;
+        return (r.GetString(0), r.IsDBNull(1) ? null : r.GetString(1));
+    }
+
+    /// <summary>Record a media fetch outcome — a cached image ('ok' + path) or a negative-cache miss ('missing').</summary>
+    public async Task UpsertMediaAsync(int gameId, string type, string source, string status, string? path)
+    {
+        await using var db = await OpenAsync();
+        await using var cmd = db.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO catalog_media (game_id, type, source, status, path, fetched_at)
+            VALUES ($id, $type, $source, $status, $path, datetime('now'))
+            ON CONFLICT(game_id, type) DO UPDATE SET
+                source = excluded.source, status = excluded.status,
+                path = excluded.path, fetched_at = excluded.fetched_at
+            """;
+        cmd.Parameters.AddWithValue("$id", gameId);
+        cmd.Parameters.AddWithValue("$type", type);
+        cmd.Parameters.AddWithValue("$source", source);
+        cmd.Parameters.AddWithValue("$status", status);
+        cmd.Parameters.AddWithValue("$path", (object?)path ?? DBNull.Value);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
     private static async Task<List<CatalogSetDto>> ReadSetsAsync(SqliteConnection db, string? console)
     {
         var order = new List<(int Id, string Name, string Console)>();
