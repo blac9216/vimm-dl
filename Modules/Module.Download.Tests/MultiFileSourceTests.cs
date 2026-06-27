@@ -217,23 +217,52 @@ public class MultiFileSourceTests
     }
 
     [TestMethod]
-    public async Task MultiFile_NoSubfolder_LandsInConsoleRoot()
+    public async Task MultiFile_NoSubfolder_DerivesPerItemSubfolder()
     {
+        // With no SubFolder the loop derives a stable per-item folder from the title + queue id (#218),
+        // so the set no longer collapses into the shared console dir.
         var contents = new Dictionary<string, byte[]> { ["http://nus/n/a.bin"] = Bytes(100) };
         var handler = new MapHandler(contents);
         var resolution = new MultiFileResolution("NoSub", "Wii U",
             [File("http://nus/n/a.bin", "a.bin")], SubFolder: null);
         var source = new FakeMultiSource(_ => Result<MultiFileResolution>.Ok(resolution));
-        var provider = new CapturingProvider(new DownloadItem(1, "id", 0) { Source = "fake-multi" });
+        var provider = new CapturingProvider(new DownloadItem(7, "id", 0) { Source = "fake-multi" });
         var (svc, _) = NewService(handler, source);
 
         svc.Start(provider);
         await WaitFor(() => provider.Completions.Count >= 1);
         svc.Stop();
 
-        var consoleRoot = Path.Combine(_tmp.Root, "completed", "wiiu");
-        Assert.IsTrue(System.IO.File.Exists(Path.Combine(consoleRoot, "a.bin")));
-        Assert.AreEqual(consoleRoot, provider.Completions[0].Filepath);
+        var expected = Path.Combine(_tmp.Root, "completed", "wiiu", "NoSub-7"); // {Title}-{id}
+        Assert.AreEqual(expected, provider.Completions[0].Filepath);
+        Assert.AreEqual("NoSub-7", provider.Completions[0].Filename);
+        Assert.IsTrue(System.IO.File.Exists(Path.Combine(expected, "a.bin")));
+    }
+
+    [TestMethod]
+    public async Task MultiFile_TwoNoSubfolderItems_DoNotCollide()
+    {
+        // Two distinct no-SubFolder items on the same console must land in distinct folders (#218).
+        var contents = new Dictionary<string, byte[]>
+        {
+            ["http://nus/a/f.bin"] = Bytes(50),
+            ["http://nus/b/f.bin"] = Bytes(60),
+        };
+        var handler = new MapHandler(contents);
+        var source = new FakeMultiSource(sourceId => Result<MultiFileResolution>.Ok(
+            new MultiFileResolution("Game", "Wii U",
+                [File($"http://nus/{sourceId}/f.bin", "f.bin")], SubFolder: null)));
+        var provider = new CapturingProvider(
+            new DownloadItem(1, "a", 0) { Source = "fake-multi" },
+            new DownloadItem(2, "b", 0) { Source = "fake-multi" });
+        var (svc, _) = NewService(handler, source);
+
+        svc.Start(provider);
+        await WaitFor(() => provider.Completions.Count >= 2);
+        svc.Stop();
+
+        var paths = provider.Completions.Select(c => c.Filepath).Distinct().ToList();
+        Assert.HasCount(2, paths); // distinct Filepaths — no collision (Game-1 vs Game-2)
     }
 
     [TestMethod]
