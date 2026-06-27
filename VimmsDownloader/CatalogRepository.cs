@@ -1,3 +1,6 @@
+using System.Data.Common;
+using System.Text;
+using System.Text.RegularExpressions;
 using Microsoft.Data.Sqlite;
 using Module.Catalog;
 
@@ -581,12 +584,14 @@ class CatalogRepository : ICatalogStore
     /// </summary>
     public async Task<(int Total, List<CatalogGameDto> Games)> GetGamesAsync(
         string? console, string? query, string local, bool dedupe, bool english, bool excludeCategories,
-        int page, int pageSize)
+        string searchMode, int page, int pageSize)
     {
         pageSize = Math.Clamp(pageSize, 1, 200);
         page = Math.Max(0, page);
-        var like = string.IsNullOrWhiteSpace(query) ? null : "%" + query.Trim() + "%";
         local = local is "owned" or "remote" ? local : "all";
+        searchMode = searchMode is "glob" or "regex" ? searchMode : "substring";
+        var q = query?.Trim();
+        bool hasQuery = !string.IsNullOrEmpty(q);
 
         // English-only (E3a): keep rows whose language list contains "en", or whose region — or the
         // region tag embedded in the name when region is empty — is Western. Built from
@@ -607,22 +612,28 @@ class CatalogRepository : ICatalogStore
               + ")"
             : "";
 
-        var where = $"""
+        // Name search (E3b): substring (LIKE %q%, unchanged), glob (*,? → LIKE %,_ with ESCAPE), or
+        // regex (evaluated in C# below — SQLite has no REGEXP). Empty query → no name filter.
+        string? nameParam = null;
+        var nameClause = "";
+        if (hasQuery && searchMode == "substring") { nameParam = "%" + q + "%"; nameClause = " AND g.name LIKE $name"; }
+        else if (hasQuery && searchMode == "glob") { nameParam = GlobToLike(q!); nameClause = " AND g.name LIKE $name ESCAPE '\\'"; }
+
+        var filterWhere = $"""
             WHERE ($console IS NULL OR s.console = $console)
-              AND ($like IS NULL OR g.name LIKE $like)
               AND ($local = 'all'
                    OR ($local = 'owned'  AND     EXISTS(SELECT 1 FROM catalog_owned o WHERE o.game_id = g.id))
                    OR ($local = 'remote' AND NOT EXISTS(SELECT 1 FROM catalog_owned o WHERE o.game_id = g.id)))
               AND ($dedupe = 0 OR g.is_parent = 1){englishClause}{categoryClause}
             """;
 
-        // Bind every WHERE parameter; the optional english/category tokens only when their clause is present.
+        // Bind every WHERE parameter; the optional english/category/name params only when present.
         void BindFilters(SqliteCommand cmd)
         {
             cmd.Parameters.AddWithValue("$console", (object?)console ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("$like", (object?)like ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$local", local);
             cmd.Parameters.AddWithValue("$dedupe", dedupe ? 1 : 0);
+            if (nameParam != null) cmd.Parameters.AddWithValue("$name", nameParam);
             if (english)
                 for (int i = 0; i < Dedup.EnglishRegionTokens.Length; i++)
                     cmd.Parameters.AddWithValue($"$eng{i}", Dedup.EnglishRegionTokens[i]);
@@ -632,6 +643,12 @@ class CatalogRepository : ICatalogStore
         }
 
         await using var db = await OpenAsync();
+
+        // Regex search runs in C# (AOT-safe interpreted Regex); the other filters still run in SQL.
+        if (hasQuery && searchMode == "regex")
+            return await QueryGamesByRegexAsync(db, filterWhere, BindFilters, q!, page, pageSize);
+
+        var where = filterWhere + nameClause;
 
         int total;
         await using (var cnt = db.CreateCommand())
@@ -644,43 +661,103 @@ class CatalogRepository : ICatalogStore
         var games = new List<CatalogGameDto>();
         await using (var cmd = db.CreateCommand())
         {
-            cmd.CommandText = $"""
-                SELECT g.id, g.name, s.console, g.region, g.serial, g.languages,
-                       (SELECT COALESCE(SUM(r.size), 0) FROM catalog_rom r WHERE r.game_id = g.id) AS size,
-                       EXISTS(SELECT 1 FROM catalog_owned o WHERE o.game_id = g.id) AS owned,
-                       (SELECT c.status FROM catalog_compat c WHERE c.serial_key = g.serial_key LIMIT 1) AS compat,
-                       (SELECT o.verified FROM catalog_owned o WHERE o.game_id = g.id) AS verified,
-                       g.vimm_match AS vimm_match,
-                       -- Phase C (C5): consolidate this game's formats/sources into the one row.
-                       (SELECT GROUP_CONCAT(f.alt) FROM catalog_vimm_format f WHERE f.game_id = g.id) AS avail_formats,
-                       (SELECT GROUP_CONCAT(DISTINCT cu.format) FROM completed_urls cu WHERE cu.game_id = g.id) AS owned_formats,
-                       (SELECT GROUP_CONCAT(DISTINCT cu.source) FROM completed_urls cu WHERE cu.game_id = g.id) AS owned_sources,
-                       -- D2b-2 (#167): the DAT-source origin(s) that contributed this game (libretro / daily-bundle).
-                       (SELECT GROUP_CONCAT(DISTINCT gs.origin) FROM catalog_game_source gs WHERE gs.game_id = g.id) AS origins
-                FROM catalog_game g JOIN catalog_system s ON s.id = g.system_id
-                {where}
-                ORDER BY g.name
-                LIMIT $limit OFFSET $offset
-                """;
+            cmd.CommandText = $"SELECT {GameColumns} FROM catalog_game g JOIN catalog_system s ON s.id = g.system_id {where} ORDER BY g.name LIMIT $limit OFFSET $offset";
             BindFilters(cmd);
             cmd.Parameters.AddWithValue("$limit", pageSize);
             cmd.Parameters.AddWithValue("$offset", page * pageSize);
             await using var r = await cmd.ExecuteReaderAsync();
+            while (await r.ReadAsync()) games.Add(MapGame(r));
+        }
+        return (total, games);
+    }
+
+    // The full per-row projection, shared by the normal paged query and the regex page hydration.
+    private const string GameColumns = """
+        g.id, g.name, s.console, g.region, g.serial, g.languages,
+        (SELECT COALESCE(SUM(r.size), 0) FROM catalog_rom r WHERE r.game_id = g.id) AS size,
+        EXISTS(SELECT 1 FROM catalog_owned o WHERE o.game_id = g.id) AS owned,
+        (SELECT c.status FROM catalog_compat c WHERE c.serial_key = g.serial_key LIMIT 1) AS compat,
+        (SELECT o.verified FROM catalog_owned o WHERE o.game_id = g.id) AS verified,
+        g.vimm_match AS vimm_match,
+        (SELECT GROUP_CONCAT(f.alt) FROM catalog_vimm_format f WHERE f.game_id = g.id) AS avail_formats,
+        (SELECT GROUP_CONCAT(DISTINCT cu.format) FROM completed_urls cu WHERE cu.game_id = g.id) AS owned_formats,
+        (SELECT GROUP_CONCAT(DISTINCT cu.source) FROM completed_urls cu WHERE cu.game_id = g.id) AS owned_sources,
+        (SELECT GROUP_CONCAT(DISTINCT gs.origin) FROM catalog_game_source gs WHERE gs.game_id = g.id) AS origins
+        """;
+
+    /// <summary>Build a <see cref="CatalogGameDto"/> from a row selected with <see cref="GameColumns"/>.</summary>
+    private static CatalogGameDto MapGame(DbDataReader r) => new(
+        r.GetInt32(0), r.GetString(1), r.GetString(2),
+        r.IsDBNull(3) ? null : r.GetString(3),
+        r.IsDBNull(4) ? null : r.GetString(4),
+        r.IsDBNull(5) ? null : r.GetString(5),
+        r.GetInt64(6),
+        r.GetInt32(7) != 0,
+        r.IsDBNull(8) ? null : r.GetString(8),
+        r.IsDBNull(9) ? null : r.GetInt32(9) != 0,
+        r.IsDBNull(10) ? null : r.GetString(10),
+        ParseIntCsv(r.IsDBNull(11) ? null : r.GetString(11)),
+        ParseIntCsv(r.IsDBNull(12) ? null : r.GetString(12)),
+        ParseStrCsv(r.IsDBNull(13) ? null : r.GetString(13)),
+        ParseStrCsv(r.IsDBNull(14) ? null : r.GetString(14)));
+
+    /// <summary>
+    /// Translate a user glob (<c>*</c>, <c>?</c>) into a SQLite LIKE pattern (<c>%</c>, <c>_</c>),
+    /// escaping LIKE's own metacharacters with <c>\</c> (paired with <c>ESCAPE '\'</c>). Case-insensitive,
+    /// like substring search.
+    /// </summary>
+    private static string GlobToLike(string glob)
+    {
+        var sb = new StringBuilder(glob.Length + 4);
+        foreach (var c in glob)
+            switch (c)
+            {
+                case '*': sb.Append('%'); break;
+                case '?': sb.Append('_'); break;
+                case '%' or '_' or '\\': sb.Append('\\').Append(c); break;
+                default: sb.Append(c); break;
+            }
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Regex search path: SQLite has no REGEXP, so the (AOT-safe, interpreted) Regex runs in C#. Pass 1
+    /// streams (id, name) for every row passing the non-name filters and keeps the matches — with a
+    /// per-row match timeout so a pathological pattern can't hang a row; pass 2 hydrates only the page.
+    /// An invalid pattern yields an empty result rather than an error.
+    /// </summary>
+    private async Task<(int Total, List<CatalogGameDto> Games)> QueryGamesByRegexAsync(
+        SqliteConnection db, string filterWhere, Action<SqliteCommand> bindFilters, string pattern, int page, int pageSize)
+    {
+        Regex rx;
+        try { rx = new Regex(pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(250)); }
+        catch (ArgumentException) { return (0, []); }   // invalid pattern → graceful empty result
+
+        var matchedIds = new List<long>();
+        await using (var cmd = db.CreateCommand())
+        {
+            cmd.CommandText = $"SELECT g.id, g.name FROM catalog_game g JOIN catalog_system s ON s.id = g.system_id {filterWhere} ORDER BY g.name";
+            bindFilters(cmd);
+            await using var r = await cmd.ExecuteReaderAsync();
             while (await r.ReadAsync())
-                games.Add(new CatalogGameDto(
-                    r.GetInt32(0), r.GetString(1), r.GetString(2),
-                    r.IsDBNull(3) ? null : r.GetString(3),
-                    r.IsDBNull(4) ? null : r.GetString(4),
-                    r.IsDBNull(5) ? null : r.GetString(5),
-                    r.GetInt64(6),
-                    r.GetInt32(7) != 0,
-                    r.IsDBNull(8) ? null : r.GetString(8),
-                    r.IsDBNull(9) ? null : r.GetInt32(9) != 0,
-                    r.IsDBNull(10) ? null : r.GetString(10),
-                    ParseIntCsv(r.IsDBNull(11) ? null : r.GetString(11)),
-                    ParseIntCsv(r.IsDBNull(12) ? null : r.GetString(12)),
-                    ParseStrCsv(r.IsDBNull(13) ? null : r.GetString(13)),
-                    ParseStrCsv(r.IsDBNull(14) ? null : r.GetString(14))));
+            {
+                try { if (rx.IsMatch(r.GetString(1))) matchedIds.Add(r.GetInt64(0)); }
+                catch (RegexMatchTimeoutException) { /* skip a row the pattern can't evaluate in time */ }
+            }
+        }
+
+        int total = matchedIds.Count;
+        var pageIds = matchedIds.Skip(page * pageSize).Take(pageSize).ToList();
+        if (pageIds.Count == 0) return (total, []);
+
+        var games = new List<CatalogGameDto>(pageIds.Count);
+        await using (var cmd = db.CreateCommand())
+        {
+            var inList = string.Join(", ", Enumerable.Range(0, pageIds.Count).Select(i => $"$id{i}"));
+            cmd.CommandText = $"SELECT {GameColumns} FROM catalog_game g JOIN catalog_system s ON s.id = g.system_id WHERE g.id IN ({inList}) ORDER BY g.name";
+            for (int i = 0; i < pageIds.Count; i++) cmd.Parameters.AddWithValue($"$id{i}", pageIds[i]);
+            await using var r = await cmd.ExecuteReaderAsync();
+            while (await r.ReadAsync()) games.Add(MapGame(r));
         }
         return (total, games);
     }

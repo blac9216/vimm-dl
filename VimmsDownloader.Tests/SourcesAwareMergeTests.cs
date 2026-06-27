@@ -163,7 +163,7 @@ public class SourcesAwareMergeTests
             [Game("Beta", sha1: "b2"), Game("Gamma", sha1: "c3")], "vd", default);
 
         var (_, rows) = await _repo.GetGamesAsync("snes", null, "all", dedupe: false,
-            english: false, excludeCategories: false, page: 0, pageSize: 50);
+            english: false, excludeCategories: false, searchMode: "substring", page: 0, pageSize: 50);
         var byName = rows.ToDictionary(g => g.Name);
         CollectionAssert.AreEqual(new[] { "libretro" }, byName["Alpha"].Origins);
         CollectionAssert.AreEqual(new[] { "daily-bundle", "libretro" }, byName["Beta"].Origins.OrderBy(x => x).ToArray());
