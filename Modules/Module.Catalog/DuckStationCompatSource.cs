@@ -15,12 +15,12 @@ namespace Module.Catalog;
 /// rating → normalized status: NoIssues → Playable · GraphicalAudioIssues / CrashesInGame → Ingame ·
 /// CrashesInIntro → Intro · DoesntBoot → Nothing · Unknown (or unexpected) → no badge.
 /// </summary>
-public sealed class DuckStationCompatSource : ICompatSource
+public sealed class DuckStationCompatSource : SingleUrlCompatSource
 {
-    public string EmulatorId => "duckstation";
-    public string Url => "https://raw.githubusercontent.com/stenzek/duckstation/master/data/resources/gamedb.yaml";
+    public override string EmulatorId => "duckstation";
+    public override string Url => "https://raw.githubusercontent.com/stenzek/duckstation/master/data/resources/gamedb.yaml";
 
-    public IEnumerable<CompatEntry> Parse(string payload)
+    public override IEnumerable<CompatEntry> Parse(string payload)
     {
         string? serial = null;
         foreach (var line in YamlScanner.Scan(payload))

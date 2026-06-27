@@ -9,12 +9,12 @@ namespace Module.Catalog;
 /// normalized (alphanumeric, upper) so the dash-less RPCS3 keys (<c>BLES00932</c>) match the Redump
 /// serials (<c>BLES-00932</c>) stored in the catalog. Pure/AOT-safe (JsonDocument). Data is GPLv2.
 /// </summary>
-public sealed class Rpcs3CompatSource : ICompatSource
+public sealed class Rpcs3CompatSource : SingleUrlCompatSource
 {
-    public string EmulatorId => "rpcs3";
-    public string Url => "https://rpcs3.net/compatibility?api=v1&export";
+    public override string EmulatorId => "rpcs3";
+    public override string Url => "https://rpcs3.net/compatibility?api=v1&export";
 
-    public IEnumerable<CompatEntry> Parse(string payload)
+    public override IEnumerable<CompatEntry> Parse(string payload)
     {
         using var doc = JsonDocument.Parse(payload);
         if (!doc.RootElement.TryGetProperty("results", out var results) || results.ValueKind != JsonValueKind.Object)
