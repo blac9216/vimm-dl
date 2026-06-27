@@ -56,14 +56,15 @@ static class CatalogEndpoints
         // Consoles with counts — for the Library filter.
         app.MapGet("/api/catalog/consoles", async (CatalogRepository repo) => await repo.GetConsolesAsync());
 
-        // Paged game browse, filtered by console and/or name, plus 1G1R / English-only / hide-demos curation.
+        // Paged game browse, filtered by console and/or name, plus 1G1R / English-only / hide-demos
+        // curation. ?mode= selects the name match: substring (default) | glob | regex.
         app.MapGet("/api/catalog/games", async (string? console, string? q, string? local, bool? dedupe,
-            bool? english, bool? excludeCategories, int? page, int? pageSize, CatalogRepository repo) =>
+            bool? english, bool? excludeCategories, string? mode, int? page, int? pageSize, CatalogRepository repo) =>
         {
             var ps = Math.Clamp(pageSize ?? 100, 1, 200);
             var p = Math.Max(0, page ?? 0);
             var (total, games) = await repo.GetGamesAsync(console, q, local ?? "all", dedupe ?? false,
-                english ?? false, excludeCategories ?? false, p, ps);
+                english ?? false, excludeCategories ?? false, mode ?? "substring", p, ps);
             return new CatalogGamesResponse(total, p, ps, games);
         });
 
@@ -135,6 +136,35 @@ static class CatalogEndpoints
             await queue.AddToQueueAsync(url, fmt, source);
             if (!downloadQueue.IsRunning) await downloadQueue.StartAsync(null);
             return Results.Ok(new CatalogQueueResponse(url, source));
+        });
+
+        // Batch-queue several catalog games at once (E3b "queue selected"): each id goes through the
+        // same resolve path as the single-queue endpoint (archive-preferred, Vimm fallback, default
+        // format). Partial success — already-queued/unavailable ids are reported, not fatal.
+        app.MapPost("/api/catalog/games/queue", async (CatalogQueueBatchRequest req, CatalogRepository repo,
+            CatalogResolveService resolver, QueueRepository queue, DownloadQueue downloadQueue, CancellationToken ct) =>
+        {
+            var ids = (req.Ids ?? []).Distinct().ToList();
+            if (ids.Count == 0) return Results.BadRequest("No game ids provided");
+
+            int queued = 0, skipped = 0, failed = 0;
+            var results = new List<CatalogQueueResultDto>(ids.Count);
+            foreach (var id in ids)
+            {
+                var game = await repo.GetGameByIdAsync(id);
+                if (game is null) { failed++; results.Add(new(id, "unknown", null)); continue; }
+
+                var resolved = await resolver.ResolveForQueueAsync(id, game.Value.Console, game.Value.Name, req.Format, ct);
+                if (resolved is null) { failed++; results.Add(new(id, "unavailable", null)); continue; }
+                var (url, source, fmt) = resolved.Value;
+
+                if ((await queue.CheckDuplicatesAsync([url])).Count > 0) { skipped++; results.Add(new(id, "duplicate", source)); continue; }
+
+                await queue.AddToQueueAsync(url, fmt, source);
+                queued++; results.Add(new(id, "queued", source));
+            }
+            if (queued > 0 && !downloadQueue.IsRunning) await downloadQueue.StartAsync(null);
+            return Results.Ok(new CatalogQueueBatchResponse(queued, skipped, failed, results));
         });
     }
 }

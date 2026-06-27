@@ -4,6 +4,7 @@ import type {
   QueueImportResponse, Ps3ConvertResponse, SyncCompareResponse, QueueExportItem,
   EventsResponse, MetricsResponse, AddResponse, SourceInfo,
   CatalogConsole, CatalogGamesResponse, CatalogStatus, CatalogSet, CatalogVimm,
+  CatalogQueueBatchResponse,
 } from '../types/api'
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -118,7 +119,7 @@ export function useCatalogConsoles() {
   })
 }
 
-export function useCatalogGames(console: string | null, q: string, local: string, dedupe: boolean, english: boolean, excludeCategories: boolean, page: number, pageSize = 100) {
+export function useCatalogGames(console: string | null, q: string, local: string, dedupe: boolean, english: boolean, excludeCategories: boolean, searchMode: string, page: number, pageSize = 100) {
   const params = new URLSearchParams()
   if (console) params.set('console', console)
   if (q) params.set('q', q)
@@ -126,10 +127,11 @@ export function useCatalogGames(console: string | null, q: string, local: string
   if (dedupe) params.set('dedupe', 'true')
   if (english) params.set('english', 'true')
   if (excludeCategories) params.set('excludeCategories', 'true')
+  if (searchMode && searchMode !== 'substring') params.set('mode', searchMode)
   params.set('page', page.toString())
   params.set('pageSize', pageSize.toString())
   return useQuery({
-    queryKey: ['catalog-games', console, q, local, dedupe, english, excludeCategories, page, pageSize],
+    queryKey: ['catalog-games', console, q, local, dedupe, english, excludeCategories, searchMode, page, pageSize],
     queryFn: () => fetchJson<CatalogGamesResponse>(`/api/catalog/games?${params}`),
     staleTime: 60 * 1000,
   })
@@ -246,6 +248,16 @@ export function useQueueCatalogGame() {
     mutationFn: ({ id, format }: { id: number; format?: number }) =>
       postJson<{ url: string; source: string }>(
         `/api/catalog/games/${id}/queue${format != null ? `?format=${format}` : ''}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['data'] }),
+  })
+}
+
+// E3b: batch-queue the bulk-selected games in one request (default format resolution).
+export function useQueueCatalogGamesBatch() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ ids, format }: { ids: number[]; format?: number }) =>
+      postJson<CatalogQueueBatchResponse>('/api/catalog/games/queue', { ids, format }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['data'] }),
   })
 }

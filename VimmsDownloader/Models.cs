@@ -57,6 +57,11 @@ record CatalogGamesResponse(int Total, int Page, int PageSize, List<CatalogGameD
 record CatalogSetDto(int Id, string Name, string Console, List<string> Links);
 record AddSetRequest(string Name, string Console, List<string> Links);
 record CatalogQueueResponse(string Url, string Source);
+// E3b batch queue: resolve + queue many catalog games at once, reporting each id's outcome
+// ("queued" | "duplicate" | "unavailable" | "unknown").
+record CatalogQueueBatchRequest(List<int> Ids, int? Format);
+record CatalogQueueBatchResponse(int Queued, int Skipped, int Failed, List<CatalogQueueResultDto> Results);
+record CatalogQueueResultDto(int Id, string Status, string? Source);
 // A game's Vimm download options (for the format picker), or null when not bound.
 record CatalogVimmDto(long VaultId, List<CatalogVimmFormatDto> Formats);
 record CatalogVimmFormatDto(int Alt, string Label, long SizeBytes, string? SizeText);

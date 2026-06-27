@@ -122,6 +122,22 @@ export interface CatalogGamesResponse {
   games: CatalogGame[]
 }
 
+// Library name-search mode (E3b): substring (default), glob (*,?), or regex.
+export type SearchMode = 'substring' | 'glob' | 'regex'
+
+// Result of a batch queue (E3b "queue selected"): one entry per requested game id.
+export interface CatalogQueueResult {
+  id: number
+  status: string         // 'queued' | 'duplicate' | 'unavailable' | 'unknown'
+  source: string | null
+}
+export interface CatalogQueueBatchResponse {
+  queued: number
+  skipped: number
+  failed: number
+  results: CatalogQueueResult[]
+}
+
 // A game's Vimm download options (for the format picker), from GET /api/catalog/games/{id}/vimm.
 export interface CatalogVimmFormat {
   alt: number
