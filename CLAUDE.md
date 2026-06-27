@@ -28,7 +28,7 @@ All modules follow the convention in `Modules/MODULE_GUIDE.md`. Each module is a
 - **Module.Core** — `IModuleBridge<TEvent>` interface, `Result<T>` (generic result type + `FileOps` safe I/O helpers), `SharedConstants` (`FileExtensions`, `Platforms`), `ConsoleDirectories` (platform name → EmuDeck folder, e.g. "PlayStation 3" → `ps3`, "GameCube" → `gc`; null for unknown), and `Pipeline/` infrastructure (`IPipeline`, `PipelineState`, `PipelinePhase`, `PipelineStatusEvent`, `PipelineFlowInfo`, `DuplicateCheckResult`). Every module references this.
 - **Module.Core.Testing** — Shared test infrastructure: `FakeBridge<T>`, `TempDirectory`, `ToolsContainer` (Testcontainers with `ghcr.io/eduvhc/vimm-dl-tools`).
 - **Module.Download** — Download service + the **source seam**: `DownloadService` (download loop, resume, progress, Result-based error handling, `StreamDownload` with per-source headers), `VaultPageParser` (Vimm HTML parsing + format resolution with fallback). `Sources/` holds `IDownloadSource` (`ResolveAsync` → `ResolvedDownload`), `ISourceRegistry`, `ICatalogSource` (browse/search), and the concrete `VimmSource` (wraps `VaultPageParser`) + `ArchiveSource` (archive.org direct + listing). `IDownloadItemProvider` (async, host provides queue items keyed by `(source, source_id, format)`). Bridge: `IDownloadBridge` emitting `DownloadStatusEvent`, `DownloadProgressEvent`, `DownloadCompletedEvent`, `DownloadErrorEvent`, `DownloadDoneEvent`.
-- **Module.Catalog** — The canonical catalog + Vimm binding (web-free; persists via `ICatalogStore`). `ClrMameProParser` + `CatalogSyncService` (fetch No-Intro/Redump DATs from the libretro-database mirror), `CatalogSystems` (the consoles synced — DAT name + group + EmuDeck folder), `CatalogMatcher` (name normalization / file match), `Dedup` (1G1R title-key + parent selection), `RpcsCompat` (RPCS3 compat JSON, `NormalizeSerial`), `Crc32`, and the Vimm layer: `VimmSystems` (catalog console → Vimm vault code) + `VimmVaultParser` (list rows, inline `media` JSON hashes, `hashes2.php`, `dl_format`).
+- **Module.Catalog** — The canonical catalog + Vimm binding (web-free; persists via `ICatalogStore`). `ClrMameProParser` + `CatalogSyncService` (fetch No-Intro/Redump DATs from the libretro-database mirror), `CatalogSystems` (the consoles synced — DAT name + group + EmuDeck folder), `CatalogMatcher` (name normalization / file match), `Dedup` (1G1R title-key + parent selection), the **compat seam** (`ICompatSource` + `CompatSources` registry, `Emulators` registry with a per-emulator `CompatMatchKind`, `Rpcs3CompatSource`, `CompatKeys.NormalizeSerial`), `Crc32`, and the Vimm layer: `VimmSystems` (catalog console → Vimm vault code) + `VimmVaultParser` (list rows, inline `media` JSON hashes, `hashes2.php`, `dl_format`).
 - **Module.Extractor** — 7z wrapper (`ZipExtract.QuickCheckAsync`, `ExtractAsync` returning `Result<bool>`). Auto-detects `7z` on PATH or `C:\Program Files\7-Zip\7z.exe` on Windows.
 - **Module.Ps3IsoTools** — Pure PS3 tools, no pipeline: `ParamSfo` (PARAM.SFO binary parser), `Ps3IsoConverter` (makeps3iso + patchps3iso + `FindJbFolder`, returns `Result<string>`), `IsoFilenameFormatter` (serial/The-fix/region rename with `IsoRenameOptions`).
 - **Module.Ps3Pipeline** — PS3 pipeline orchestration, implements `IPipeline`: `Ps3ConversionPipeline` (facade with `BuildFlow`, `CheckDuplicate`, `GetStepDurations`), `Ps3JbFolderPipeline` (extract→convert workers), `Ps3DecIsoPipeline` (rename/extract .dec.iso, optional archive preservation). Uses `PipelineState` from Module.Core. Bridge: `IPs3PipelineBridge : IModuleBridge<PipelineStatusEvent>`.
@@ -37,8 +37,8 @@ All modules follow the convention in `Modules/MODULE_GUIDE.md`. Each module is a
 ### Host (VimmsDownloader/)
 
 - **SRP file structure** — `Program.cs` (startup/DI), `Models.cs` (records + PathHelpers), `AppJsonContext.cs` (JSON source gen), `QueueRepository.cs`, `SettingsKeys.cs`, `DatabaseMigrator.cs` (embedded SQL migrations), `DownloadHub.cs`, `DownloadQueue.cs`, `QueueItemProvider.cs`, `MetadataFetcher.cs`.
-- **Catalog/source host services** — `CatalogRepository.cs` (implements `ICatalogStore`, all catalog SQL incl. the Vimm binding), `CatalogSyncService` (wired in `Program.cs` over the `libretro` client), `CatalogScanService` (owned scan of `completed/`), `CatalogVerifyService` (CRC32 verify), `CompatSyncService` (RPCS3 compat), `CatalogResolveService` (archive→Vimm download resolution), `VimmSyncService` (per-console Vimm hash scrape/binding), `DefaultSets.cs` (seeded RomGoGetter archive sets), `ArchiveAuth.cs` (Internet Archive S3 "LOW" auth via a `DelegatingHandler`). The concrete `SourceRegistry` lives in Module.Download/Sources, built from DI.
-- **Endpoints/** — `FileEndpoints` (merged `/api/data` with pipeline trace), `DownloadEndpoints`, `MetadataEndpoints`, `SourceEndpoints`, `CatalogEndpoints` (+ the `BackgroundJobGate` single-flight base & `Catalog*State` markers), `Ps3Endpoints`, `SyncEndpoints`, `SettingsEndpoints`, `EventEndpoints`, `MetricsEndpoints`. **38 endpoints total.**
+- **Catalog/source host services** — `CatalogRepository.cs` (implements `ICatalogStore`, all catalog SQL incl. the Vimm binding), `CatalogSyncService` (wired in `Program.cs` over the `libretro` client), `CatalogScanService` (owned scan of `completed/`), `CatalogVerifyService` (CRC32 verify), `CompatSyncService` (per-emulator compat via `CompatSources`), `CatalogResolveService` (archive→Vimm download resolution), `VimmSyncService` (per-console Vimm hash scrape/binding), `DefaultSets.cs` (seeded RomGoGetter archive sets), `ArchiveAuth.cs` (Internet Archive S3 "LOW" auth via a `DelegatingHandler`). The concrete `SourceRegistry` lives in Module.Download/Sources, built from DI.
+- **Endpoints/** — `FileEndpoints` (merged `/api/data` with pipeline trace), `DownloadEndpoints`, `MetadataEndpoints`, `SourceEndpoints`, `CatalogEndpoints` (+ the `BackgroundJobGate` single-flight base & `Catalog*State` markers), `Ps3Endpoints`, `SyncEndpoints`, `SettingsEndpoints`, `EventEndpoints`, `MetricsEndpoints`. **39 endpoints total.**
 - **SignalR bridges** — `SignalRPs3PipelineBridge.cs`, `SignalRSyncNotifier.cs`, `SignalRDownloadBridge.cs` route module events to SignalR + append to the events table. Pipeline bridge also updates the `completed_urls` projection for terminal states.
 - **AOT-ready** — `PublishAot=true`, raw ADO.NET (Microsoft.Data.Sqlite), JSON source generator (`AppJsonContext`), all modules `IsAotCompatible`. JSON in the catalog parsers uses `JsonDocument` (DOM, no reflection).
 - **QueueRepository / CatalogRepository** — singletons, all async SQLite operations. Database initialized via `DatabaseMigrator` with embedded SQL files; both repositories share `queue.db`.
@@ -61,7 +61,7 @@ All modules follow the convention in `Modules/MODULE_GUIDE.md`. Each module is a
 
 ### Database Migrator
 
-- `DatabaseMigrator.cs` — runs embedded SQL files from `Migrations/*.sql` in order (auto-discovered by manifest-resource name; currently through **021**)
+- `DatabaseMigrator.cs` — runs embedded SQL files from `Migrations/*.sql` in order (auto-discovered by manifest-resource name; currently through **026**)
 - Tracks executed migrations in `schema_migrations` table
 - Each migration is idempotent (catches "duplicate column" / "already exists" errors)
 - Migrations split into individual statements for SQLite compatibility
@@ -84,7 +84,7 @@ SQLite, file `queue.db` in `data/` subdirectory (derived from connection string)
 - `catalog_rom` (id, game_id, name, size, crc, md5, sha1) — file(s) per game (disc titles carry several; indexed on sha1)
 - `catalog_owned` (game_id, filepath, verified) — which catalog games are present on disk
 - `catalog_set` (id, name, console, …) + `catalog_set_link` (id, set_id, url, position) — per-console archive.org download sets
-- `catalog_compat` (serial_key, status, …) — emulator (RPCS3) compatibility, joined by serial_key
+- `catalog_compat` (emulator, match_kind, match_key, status; PK (emulator, match_kind, match_key)) — per-emulator compatibility, joined to a game by serial | title_id | name (the emulator's `match_kind`)
 - `catalog_vimm_format` (id, game_id, alt, label, size_bytes, size_text) — Vimm download formats for a bound game
 
 ### Settings Keys
@@ -109,7 +109,7 @@ SQLite, file `queue.db` in `data/` subdirectory (derived from connection string)
 The catalog is the identity layer; sources bind onto it. (See ROADMAP.md.)
 
 - **Catalog sync** (`POST /api/catalog/sync`) — `CatalogSyncService` fetches the No-Intro/Redump DATs for every console in `CatalogSystems.All` from the libretro-database mirror (`metadat/{no-intro|redump}/{DatName}.dat`), parses via `ClrMameProParser`, and replaces each system's games/roms. Console tags = EmuDeck folders. 1G1R parent selection (`Dedup`) marks one variant per title as `is_parent`.
-- **Owned + verify + compat** — `CatalogScanService` records which games exist under `completed/` (`catalog_owned`); `CatalogVerifyService` checks file CRC32 against `catalog_rom`; `CompatSyncService` imports RPCS3 compatibility joined by `serial_key`.
+- **Owned + verify + compat** — `CatalogScanService` records which games exist under `completed/` (`catalog_owned`); `CatalogVerifyService` checks file CRC32 against `catalog_rom`; `CompatSyncService` imports each registered emulator's compatibility (`CompatSources`), joined to a game by serial/title_id/name per the emulator's `match_kind`.
 - **Download sets** — a "set" is a named, per-console list of archive.org links (`catalog_set` + `catalog_set_link`). Defaults are seeded once from `DefaultSets` (ported from RomGoGetter). Managed via `/api/catalog/sets` CRUD (and the Library "Sources" dialog / Settings → Archive).
 - **Vimm hash binding** (`POST /api/catalog/vimm-sync?console=`) — `VimmSyncService` scrapes Vimm per console (list sections A–Z+number → each vault page), reads the Redump/No-Intro hash triple (inline `GoodHash`/`GoodMd5`/`GoodSha1`, or `vault/ajax/hashes2.php` for multi-disc), and **matches by hash SHA1→MD5→CRC** against `catalog_rom`. On a match it binds `catalog_game.vault_id` + the available `catalog_vimm_format` rows; unmatched games on a scraped console are flagged `vimm_match='none'` (the "no Vimm match" badge). Throttled, per-console, cancellable (`CatalogVimmState : BackgroundJobGate`).
 - **Download resolution** (`CatalogResolveService.ResolveForQueueAsync`, used by `POST /api/catalog/games/{id}/queue?format=`) — prefer archive.org sets (match a game's file across the console's set links); if none, fall back to the bound Vimm vault URL (`https://vimm.net/vault/{vault_id}`) with the requested format if Vimm offers it, else the first available. Queues `(url, format, source)`; archive uses format 0. Returns 404 when neither source has it.
@@ -201,7 +201,7 @@ Two scoped pipelines sharing `PipelineState` from Module.Core:
 - Two tiers: Beta (Library, Sync) and Developer (Events)
 - Metrics tab is always visible — not behind a flag
 
-## API Endpoints (38 total)
+## API Endpoints (39 total)
 
 | Method | Path | Purpose |
 |--------|------|---------|
@@ -226,13 +226,14 @@ Two scoped pipelines sharing `PipelineState` from Module.Core:
 | GET | `/api/sources/{source}/files` | List files in a source set |
 | GET | `/api/catalog/status` | Per-console counts/versions + running background jobs |
 | GET | `/api/catalog/consoles` | Consoles with counts (Library filter) |
-| GET | `/api/catalog/games` | Paged/filtered game browse (carries `vimmMatch`) |
+| GET | `/api/catalog/games` | Paged/filtered game browse (carries `vimmMatch` + per-emulator `compat`; `?emulator=&compat=` filter) |
+| GET | `/api/catalog/emulators` | Emulators with ingested compat (Library filter) |
 | GET | `/api/catalog/games/{id}/vimm` | A game's Vimm vault id + formats (picker) |
 | POST | `/api/catalog/games/{id}/queue` | Resolve + queue (archive → Vimm fallback, `?format=`) |
 | POST | `/api/catalog/sync` | Sync No-Intro/Redump DATs (background) |
 | POST | `/api/catalog/scan` | Scan `completed/` for owned games (background) |
 | POST | `/api/catalog/verify` | Verify owned files' CRC32 (background) |
-| POST | `/api/catalog/compat/sync` | Sync RPCS3 compatibility (background) |
+| POST | `/api/catalog/compat/sync` | Sync every registered emulator's compatibility (background) |
 | POST | `/api/catalog/vimm-sync` | Hash-bind catalog ↔ Vimm (`?console=`, background) |
 | GET | `/api/catalog/sets` | List download sets |
 | POST | `/api/catalog/sets` | Add a set (name + console + links) |
@@ -279,7 +280,7 @@ Single bind mount: `-v ~/vimm:/vimms`
 - 128 Download (state management, file recovery, vault parser, source seam, platform extraction, EmuDeck console-folder mapping, format resolution, duplicate detection, edge cases)
 - 87 Sync (real file I/O, disk simulation, edge cases)
 - 87 Host `VimmsDownloader.Tests` (real `DatabaseMigrator`/repositories, catalog query, sets, resolve + archive→Vimm fallback, `ArchiveAuth`, Vimm binding/scrape, source identity)
-- 62 Catalog (ClrMamePro parser, sync service, matcher, dedup, RpcsCompat, Crc32, `CatalogSystems`, `VimmSystems`, `VimmVaultParser`)
+- 62 Catalog (ClrMamePro parser, sync service, matcher, dedup, compat sources + registry, Crc32, `CatalogSystems`, `VimmSystems`, `VimmVaultParser`)
 - 25 Extractor (7z via Testcontainers — container tests skip when Docker is unavailable)
 - 17 Ps3Pipeline (pipeline state, rename, extract, abort, IPipeline contract)
 - 10 Ps3IsoTools (ParamSfo, FindJbFolder, IsoFilenameFormatter)

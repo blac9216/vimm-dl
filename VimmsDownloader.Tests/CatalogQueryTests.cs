@@ -25,6 +25,7 @@ public class CatalogQueryTests
         await ApplyMigration("016_catalog_compat.sql");
         await ApplyMigration("017_catalog_verified.sql");
         await ApplyMigration("019_catalog_serial_key.sql");
+        await ApplyMigration("026_catalog_compat_match_kind.sql"); // generalize compat join (serial|title_id|name)
 
         // Two systems: SNES (no-intro) and PS3 (redump).
         await Exec("INSERT INTO catalog_system (id, dat_name, console, source, game_count) VALUES (1, 'Nintendo - Super Nintendo Entertainment System', 'snes', 'no-intro', 3)");
@@ -131,10 +132,10 @@ public class CatalogQueryTests
     [TestMethod]
     public async Task Games_Compat_JoinedByNormalizedSerial()
     {
-        // Heavy Title's serial is "BLUS-1" → normalized "BLUS1"; seed an RPCS3 entry for it.
-        await Exec("INSERT INTO catalog_compat (emulator, serial_key, status) VALUES ('rpcs3', 'BLUS1', 'Playable')");
+        // Heavy Title's serial is "BLUS-1" → normalized "BLUS1"; seed a serial-keyed RPCS3 entry for it.
+        await Exec("INSERT INTO catalog_compat (emulator, match_kind, match_key, status) VALUES ('rpcs3', 'serial', 'BLUS1', 'Playable')");
         var (_, games) = await Games("ps3", null, 0, 100);
-        Assert.AreEqual("Playable", games.Single().Compat);
+        Assert.AreEqual("rpcs3=Playable", games.Single().Compat); // projection is "emulator=status" pairs
 
         var (_, snes) = await Games("snes", null, 0, 100);
         Assert.IsTrue(snes.All(g => g.Compat is null)); // no compat for non-matching serials
@@ -146,9 +147,20 @@ public class CatalogQueryTests
         // #48: a serial whose normalized form requires stripping a non-dash char (a space here) must
         // still join. The old inline UPPER(REPLACE(serial,'-','')) kept the space and missed this.
         await AddGame(2, "Spacey (USA)", "USA", "BLUS 30443", null, [("s.iso", 10)]);
-        await Exec("INSERT INTO catalog_compat (emulator, serial_key, status) VALUES ('rpcs3', 'BLUS30443', 'Ingame')");
+        await Exec("INSERT INTO catalog_compat (emulator, match_kind, match_key, status) VALUES ('rpcs3', 'serial', 'BLUS30443', 'Ingame')");
         var (_, games) = await Games("ps3", "Spacey", 0, 100);
-        Assert.AreEqual("Ingame", games.Single().Compat);
+        Assert.AreEqual("rpcs3=Ingame", games.Single().Compat);
+    }
+
+    [TestMethod]
+    public async Task Games_Compat_TitleIdAndNameKeyedEntriesDoNotJoinBySerial()
+    {
+        // Only serial-keyed entries join in F1. A title_id/name entry sharing the serial's text must
+        // NOT leak onto the serial join — it waits for the F3/F4 branches + their catalog columns.
+        await Exec("INSERT INTO catalog_compat (emulator, match_kind, match_key, status) VALUES ('azahar', 'title_id', 'BLUS1', 'Playable')");
+        await Exec("INSERT INTO catalog_compat (emulator, match_kind, match_key, status) VALUES ('dolphin', 'name', 'BLUS1', 'Playable')");
+        var (_, games) = await Games("ps3", null, 0, 100);
+        Assert.IsNull(games.Single().Compat); // serial join ignores non-serial match kinds
     }
 
     [TestMethod]
@@ -310,7 +322,7 @@ public class CatalogQueryTests
                 SELECT g.id, g.name, s.console, g.region, g.serial, g.languages,
                        (SELECT COALESCE(SUM(r.size), 0) FROM catalog_rom r WHERE r.game_id = g.id) AS size,
                        EXISTS(SELECT 1 FROM catalog_owned o WHERE o.game_id = g.id) AS owned,
-                       (SELECT c.status FROM catalog_compat c WHERE c.serial_key = g.serial_key LIMIT 1) AS compat,
+                       (SELECT GROUP_CONCAT(c.emulator || '=' || c.status, '|') FROM catalog_compat c WHERE c.match_kind = 'serial' AND c.match_key = g.serial_key) AS compat,
                        (SELECT o.verified FROM catalog_owned o WHERE o.game_id = g.id) AS verified
                 FROM catalog_game g JOIN catalog_system s ON s.id = g.system_id
                 {where}
@@ -342,7 +354,7 @@ public class CatalogQueryTests
         await using (var ig = _db.CreateCommand())
         {
             // Populate serial_key the same way CatalogRepository.ReplaceSystemGamesAsync does, so the
-            // compat join (c.serial_key = g.serial_key) is exercised against realistic data.
+            // serial-keyed compat join (c.match_key = g.serial_key) is exercised against realistic data.
             ig.CommandText = """
                 INSERT INTO catalog_game (system_id, name, region, serial, serial_key, languages)
                 VALUES ($sid, $name, $region, $serial, $skey, $langs) RETURNING id
@@ -373,7 +385,7 @@ public class CatalogQueryTests
         await cmd.ExecuteNonQueryAsync();
     }
 
-    // Mirrors Module.Catalog RpcsCompat.NormalizeSerial: strip non-alphanumerics, uppercase.
+    // Mirrors Module.Catalog CompatKeys.NormalizeSerial: strip non-alphanumerics, uppercase.
     private static string NormalizeSerial(string serial)
         => new(serial.Where(char.IsLetterOrDigit).Select(char.ToUpperInvariant).ToArray());
 

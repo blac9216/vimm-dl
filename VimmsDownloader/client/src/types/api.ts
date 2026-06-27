@@ -96,6 +96,20 @@ export interface CatalogConsole {
   ownedCount: number
 }
 
+// One emulator's playability verdict for a game (e.g. { emulator: 'rpcs3', status: 'Playable' }).
+export interface CompatStatus {
+  emulator: string
+  status: string
+}
+
+// An emulator whose compatibility is ingested — for the Library emulator/status filter.
+export interface Emulator {
+  id: string
+  name: string
+  console: string
+  matchKind: string   // how it joins to a game: 'serial' | 'title_id' | 'name'
+}
+
 export interface CatalogGame {
   id: number
   name: string
@@ -105,7 +119,7 @@ export interface CatalogGame {
   languages: string | null
   size: number
   owned: boolean
-  compat: string | null
+  compat: CompatStatus[]     // per-emulator playability (may be empty)
   verified: boolean | null
   vimmMatch: string | null   // 'sha1' | 'md5' | 'crc' (matched) | 'none' (no match) | null (unscraped)
   // Phase C (C5): the game's formats/sources consolidated into one row.

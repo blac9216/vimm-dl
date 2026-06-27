@@ -1,20 +1,38 @@
 using Module.Catalog;
 
 /// <summary>
-/// Fetches the RPCS3 compatibility export and stores it (normalized serial → status) so PS3
-/// catalog games can show a compatibility badge. Other emulators will follow the same shape.
+/// Fetches each registered emulator's compatibility list (<see cref="CompatSources.All"/>) and stores
+/// it (normalized match key → status) under the emulator's match kind, so catalog games can show a
+/// per-emulator compatibility badge. Adding an emulator is an adapter in Module.Catalog, not a change
+/// here. One source failing (network/parse) is logged and skipped so the rest still ingest.
 /// </summary>
 class CompatSyncService(CatalogRepository catalog, IHttpClientFactory httpFactory, ILogger<CompatSyncService> log)
 {
-    private const string Rpcs3Export = "https://rpcs3.net/compatibility?api=v1&export";
-
     public async Task<int> SyncAsync(CancellationToken ct)
     {
-        var http = httpFactory.CreateClient("rpcs3");
-        var json = await http.GetStringAsync(Rpcs3Export, ct);
-        var entries = RpcsCompat.Parse(json).ToList();
-        await catalog.ReplaceCompatAsync("rpcs3", entries, ct);
-        log.LogInformation("Compat: rpcs3 → {Count} entries", entries.Count);
-        return entries.Count;
+        var http = httpFactory.CreateClient("compat");
+        var total = 0;
+        foreach (var source in CompatSources.All)
+        {
+            var emulator = Emulators.ById(source.EmulatorId);
+            if (emulator is null)
+            {
+                log.LogWarning("Compat: source {Id} has no registered emulator — skipping", source.EmulatorId);
+                continue;
+            }
+            try
+            {
+                var payload = await http.GetStringAsync(source.Url, ct);
+                var entries = source.Parse(payload).ToList();
+                await catalog.ReplaceCompatAsync(emulator.Id, Emulators.Token(emulator.MatchKind), entries, ct);
+                log.LogInformation("Compat: {Emulator} → {Count} entries", emulator.Id, entries.Count);
+                total += entries.Count;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                log.LogWarning(ex, "Compat: {Emulator} sync failed — skipping", emulator.Id);
+            }
+        }
+        return total;
     }
 }

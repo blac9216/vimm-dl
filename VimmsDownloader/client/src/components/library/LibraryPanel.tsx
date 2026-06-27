@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useCatalogConsoles, useCatalogGames, useCatalogStatus, useSyncCatalog, useScanCatalog, useSyncCompat, useVerifyCatalog, useSyncVimm, useQueueCatalogGame, useQueueCatalogGamesBatch, fetchGameVimm } from '../../api/queries'
+import { useCatalogConsoles, useCatalogGames, useCatalogStatus, useEmulators, useSyncCatalog, useScanCatalog, useSyncCompat, useVerifyCatalog, useSyncVimm, useQueueCatalogGame, useQueueCatalogGamesBatch, fetchGameVimm } from '../../api/queries'
 import type { CatalogGame, CatalogVimmFormat } from '../../types/api'
 import { PlatformIcon } from '../shared/PlatformIcon'
 import { SetsDialog } from './SetsDialog'
@@ -17,7 +17,11 @@ function useDebounced<T>(value: T, ms: number): T {
   return debounced
 }
 
-// Color an emulator compatibility status (RPCS3-style: Playable/Ingame/Intro/Loadable/Nothing).
+// The canonical (RPCS3-derived) compat status vocabulary, best → worst; other emulators normalize
+// into it. Drives the status-filter options and the badge coloring.
+const COMPAT_STATUSES = ['Playable', 'Ingame', 'Intro', 'Loadable', 'Nothing']
+
+// Color a normalized compatibility status (Playable/Ingame/Intro/Loadable/Nothing).
 function compatClass(status: string): string {
   switch (status) {
     case 'Playable': return 'bg-ps-triangle/15 text-ps-triangle border-ps-triangle/25'
@@ -70,8 +74,8 @@ const PAGE_SIZE = 100
 
 // Persist Library filters so they survive tab navigation (the panel unmounts on tab change).
 const FILTERS_KEY = 'vimm:library-filters'
-interface LibraryFilters { console: string; search: string; local: string; dedupe: boolean; english: boolean; excludeCategories: boolean; searchMode: string; page: number }
-const DEFAULT_FILTERS: LibraryFilters = { console: '', search: '', local: 'all', dedupe: false, english: false, excludeCategories: false, searchMode: 'substring', page: 0 }
+interface LibraryFilters { console: string; search: string; local: string; dedupe: boolean; english: boolean; excludeCategories: boolean; searchMode: string; emulator: string; compatStatus: string; page: number }
+const DEFAULT_FILTERS: LibraryFilters = { console: '', search: '', local: 'all', dedupe: false, english: false, excludeCategories: false, searchMode: 'substring', emulator: '', compatStatus: '', page: 0 }
 function loadFilters(): LibraryFilters {
   try {
     const raw = localStorage.getItem(FILTERS_KEY)
@@ -90,6 +94,8 @@ export function LibraryPanel() {
   const [english, setEnglish] = useState(persisted.english) // English/Western releases only
   const [excludeCategories, setExcludeCategories] = useState(persisted.excludeCategories) // hide demos/protos
   const [searchMode, setSearchMode] = useState(persisted.searchMode) // substring | glob | regex
+  const [emulator, setEmulator] = useState(persisted.emulator) // '' = any emulator
+  const [compatStatus, setCompatStatus] = useState(persisted.compatStatus) // '' = any status (needs an emulator)
   const [page, setPage] = useState(persisted.page)
   const query = useDebounced(searchInput, 350)
 
@@ -102,6 +108,7 @@ export function LibraryPanel() {
 
   const qc = useQueryClient()
   const { data: consoles } = useCatalogConsoles()
+  const { data: emulators } = useEmulators()
   const { data: status } = useCatalogStatus()
   const syncMutation = useSyncCatalog()
   const scanMutation = useScanCatalog()
@@ -110,7 +117,10 @@ export function LibraryPanel() {
   const vimmMutation = useSyncVimm()
   const queueGame = useQueueCatalogGame()
   const batchQueue = useQueueCatalogGamesBatch()
-  const { data: gamesResp, isFetching } = useCatalogGames(selectedConsole || null, query, local, dedupe, english, excludeCategories, searchMode, page, PAGE_SIZE)
+  const { data: gamesResp, isFetching } = useCatalogGames(selectedConsole || null, query, local, dedupe, english, excludeCategories, searchMode, page, PAGE_SIZE, emulator, compatStatus)
+
+  // Map an emulator id to its display name (e.g. 'rpcs3' → 'RPCS3'); falls back to the id.
+  const emuName = (id: string) => emulators?.find(e => e.id === id)?.name ?? id.toUpperCase()
 
   const syncing = status?.syncing ?? false
   const scanning = status?.scanning ?? false
@@ -134,15 +144,18 @@ export function LibraryPanel() {
   useEffect(() => {
     try {
       localStorage.setItem(FILTERS_KEY, JSON.stringify(
-        { console: selectedConsole, search: searchInput, local, dedupe, english, excludeCategories, searchMode, page }))
+        { console: selectedConsole, search: searchInput, local, dedupe, english, excludeCategories, searchMode, emulator, compatStatus, page }))
     } catch { /* ignore storage write errors */ }
-  }, [selectedConsole, searchInput, local, dedupe, english, excludeCategories, searchMode, page])
+  }, [selectedConsole, searchInput, local, dedupe, english, excludeCategories, searchMode, emulator, compatStatus, page])
 
   // Changing any result-defining filter returns to page 0 and drops the now-stale bulk selection.
   function resetView() { setPage(0); setSelectedIds(new Set()) }
   function pickConsole(c: string) { setSelectedConsole(c); resetView() }
   function onSearch(v: string) { setSearchInput(v); resetView() }
   function pickLocal(v: string) { setLocal(v); resetView() }
+  // Picking "any emulator" also clears the status (status only applies to a chosen emulator).
+  function pickEmulator(v: string) { setEmulator(v); if (!v) setCompatStatus(''); resetView() }
+  function pickCompatStatus(v: string) { setCompatStatus(v); resetView() }
 
   // Download: if the game is hash-bound to Vimm with more than one format, let the user choose first;
   // otherwise queue straight away (archive-preferred, single-format, or no Vimm binding).
@@ -286,6 +299,26 @@ export function LibraryPanel() {
           <option value="glob">Glob</option>
           <option value="regex">Regex</option>
         </select>
+        {emulators && emulators.length > 0 && (
+          <select value={emulator} onChange={e => pickEmulator(e.target.value)} title="Filter by emulator compatibility"
+            className="bg-surface/80 border border-border/60 rounded px-2 py-1 text-xs text-text-3
+              focus:outline-none focus:border-accent/40 shrink-0">
+            <option value="">Any emulator</option>
+            {emulators.map(e => (
+              <option key={e.id} value={e.id}>{e.name}</option>
+            ))}
+          </select>
+        )}
+        {emulator && (
+          <select value={compatStatus} onChange={e => pickCompatStatus(e.target.value)} title="Filter by playability status"
+            className="bg-surface/80 border border-border/60 rounded px-2 py-1 text-xs text-text-3
+              focus:outline-none focus:border-accent/40 shrink-0">
+            <option value="">Any status</option>
+            {COMPAT_STATUSES.map(s => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+        )}
         <input type="text" value={searchInput} onChange={e => onSearch(e.target.value)}
           placeholder={searchPlaceholder}
           className="flex-1 bg-surface/60 border border-border/40 rounded px-3 py-1 text-sm text-text
@@ -306,7 +339,7 @@ export function LibraryPanel() {
             border border-border/30 hover:bg-surface-2/70 hover:text-text disabled:opacity-40 shrink-0">
           {verifying ? 'Verifying…' : 'Verify'}
         </button>
-        <button onClick={() => compatMutation.mutate()} disabled={busy} title="Sync emulator compatibility (RPCS3)"
+        <button onClick={() => compatMutation.mutate()} disabled={busy} title="Sync emulator compatibility lists"
           className="px-3 py-1 text-xs font-medium rounded bg-surface-2/40 text-text-3
             border border-border/30 hover:bg-surface-2/70 hover:text-text disabled:opacity-40 shrink-0">
           {compatSyncing ? 'Compat…' : 'Compat'}
@@ -382,10 +415,10 @@ export function LibraryPanel() {
                 {g.serial && <span className="font-mono">{g.serial}</span>}
               </div>
             </div>
-            {g.compat && (
-              <span className={`text-[9px] px-1.5 py-0.5 rounded border shrink-0 ${compatClass(g.compat)}`}
-                title={`RPCS3: ${g.compat}`}>{g.compat}</span>
-            )}
+            {g.compat.map(c => (
+              <span key={c.emulator} className={`text-[9px] px-1.5 py-0.5 rounded border shrink-0 ${compatClass(c.status)}`}
+                title={`${emuName(c.emulator)}: ${c.status}`}>{c.status}</span>
+            ))}
             {g.vimmMatch && g.vimmMatch !== 'none' && (
               <span className="text-[9px] px-1.5 py-0.5 rounded bg-ps-cross/10 text-[#7eb3e0]
                 border border-ps-cross/25 shrink-0" title={`Matched to a Vimm vault entry by ${g.vimmMatch.toUpperCase()}`}>Vimm</span>

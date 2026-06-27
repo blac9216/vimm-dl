@@ -51,7 +51,13 @@ record CatalogSystemStatus(string DatName, string Console, string Source,
     string? DatVersion, int GameCount, string? SyncedAt);
 record CatalogStatusResponse(bool Syncing, bool Scanning, bool CompatSyncing, bool Verifying, bool VimmSyncing, bool Importing, int TotalGames, List<CatalogSystemStatus> Systems);
 record CatalogConsole(string Console, int GameCount, int OwnedCount);
-record CatalogGameDto(int Id, string Name, string Console, string? Region, string? Serial, string? Languages, long Size, bool Owned, string? Compat, bool? Verified, string? VimmMatch,
+// One emulator's playability verdict for a game (e.g. "rpcs3" → "Playable"). A game carries one per
+// emulator that targets its console and has a compat entry.
+record CompatStatus(string Emulator, string Status);
+// An emulator whose compatibility is ingested — for the Library emulator/status filter. MatchKind is
+// how it joins to a game (serial | title_id | name).
+record EmulatorDto(string Id, string Name, string Console, string MatchKind);
+record CatalogGameDto(int Id, string Name, string Console, string? Region, string? Serial, string? Languages, long Size, bool Owned, List<CompatStatus> Compat, bool? Verified, string? VimmMatch,
     List<int> AvailableFormats, List<int> OwnedFormats, List<string> OwnedSources, List<string> Origins);
 record CatalogGamesResponse(int Total, int Page, int PageSize, List<CatalogGameDto> Games);
 record CatalogSetDto(int Id, string Name, string Console, List<string> Links);

@@ -4,7 +4,7 @@ import type {
   QueueImportResponse, Ps3ConvertResponse, SyncCompareResponse, QueueExportItem,
   EventsResponse, MetricsResponse, AddResponse, SourceInfo,
   CatalogConsole, CatalogGamesResponse, CatalogStatus, CatalogSet, CatalogVimm,
-  CatalogQueueBatchResponse,
+  CatalogQueueBatchResponse, Emulator,
 } from '../types/api'
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -119,7 +119,16 @@ export function useCatalogConsoles() {
   })
 }
 
-export function useCatalogGames(console: string | null, q: string, local: string, dedupe: boolean, english: boolean, excludeCategories: boolean, searchMode: string, page: number, pageSize = 100) {
+// Emulators with ingested compatibility — populates the Library emulator/status filter.
+export function useEmulators() {
+  return useQuery({
+    queryKey: ['catalog-emulators'],
+    queryFn: () => fetchJson<Emulator[]>('/api/catalog/emulators'),
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
+export function useCatalogGames(console: string | null, q: string, local: string, dedupe: boolean, english: boolean, excludeCategories: boolean, searchMode: string, page: number, pageSize = 100, emulator = '', compat = '') {
   const params = new URLSearchParams()
   if (console) params.set('console', console)
   if (q) params.set('q', q)
@@ -128,10 +137,12 @@ export function useCatalogGames(console: string | null, q: string, local: string
   if (english) params.set('english', 'true')
   if (excludeCategories) params.set('excludeCategories', 'true')
   if (searchMode && searchMode !== 'substring') params.set('mode', searchMode)
+  if (emulator) params.set('emulator', emulator)
+  if (emulator && compat) params.set('compat', compat)
   params.set('page', page.toString())
   params.set('pageSize', pageSize.toString())
   return useQuery({
-    queryKey: ['catalog-games', console, q, local, dedupe, english, excludeCategories, searchMode, page, pageSize],
+    queryKey: ['catalog-games', console, q, local, dedupe, english, excludeCategories, searchMode, page, pageSize, emulator, compat],
     queryFn: () => fetchJson<CatalogGamesResponse>(`/api/catalog/games?${params}`),
     staleTime: 60 * 1000,
   })
