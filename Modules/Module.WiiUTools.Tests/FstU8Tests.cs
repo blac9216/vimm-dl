@@ -100,6 +100,29 @@ public class FstU8Tests
     }
 
     [TestMethod]
+    public void U8_Parse_SiblingAfterNestedDir_PopsBackToRoot()
+    {
+        // A root-level file *after* a nested directory's children forces the directory-stack to pop
+        // (dirA's exclusive end = 3, reached at node 3), so top.bin must land at the root, not under dirA.
+        var u8 = BuildU8(
+        [
+            (1, "", 0, 4),              // root, count = 4
+            (1, "dirA", 0, 3),          // dir, exclusive end = 3 (child: node 2 only)
+            (0, "child.bin", 0x100, 5), // file inside dirA
+            (0, "top.bin", 0x200, 6),   // root-level sibling after dirA's children → pop
+        ]);
+
+        var e = U8Archive.Parse(u8).Value!.Entries;
+        Assert.HasCount(3, e);
+        Assert.AreEqual("dirA", e[0].Path);
+        Assert.IsTrue(e[0].IsDirectory);
+        Assert.AreEqual("dirA/child.bin", e[1].Path);
+        Assert.AreEqual("top.bin", e[2].Path); // popped back to root — no "dirA/" prefix
+        Assert.IsFalse(e[2].IsDirectory);
+        Assert.AreEqual(0x200u, e[2].Offset);
+    }
+
+    [TestMethod]
     public void U8_Parse_BadMagic_Fails()
     {
         var buf = new byte[0x40];
@@ -220,6 +243,30 @@ public class FstU8Tests
         Assert.AreEqual("data/movie.bin", f.Entries[1].Path);
         Assert.AreEqual((ushort)1, f.Entries[1].SecondaryIndex);
         Assert.AreEqual("data/map.dat", f.Entries[2].Path);
+    }
+
+    [TestMethod]
+    public void Fst_Parse_SiblingAfterNestedDir_PopsBackToRoot()
+    {
+        // A root-level entry after a nested directory's children forces the directory-stack to pop
+        // (dirA's exclusive end = 3, reached at entry 3), so root.bin must land at the root, not under dirA.
+        var fst = BuildFst(0x20,
+            sections: [(0u, 0u, 0UL, 0u)],
+            entries:
+            [
+                (1, "", 0, 4, 0),                  // root, count = 4
+                (1, "dirA", 0, 3, 0),              // dir, exclusive end = 3 (child: entry 2 only)
+                (0, "child.bin", 0x4, 0x100, 0),   // file inside dirA
+                (0, "root.bin", 0x8, 0x200, 0),    // root-level sibling after dirA's children → pop
+            ]);
+
+        var f = Fst.Parse(fst).Value!;
+        Assert.HasCount(3, f.Entries);
+        Assert.AreEqual("dirA", f.Entries[0].Path);
+        Assert.IsTrue(f.Entries[0].IsDirectory);
+        Assert.AreEqual("dirA/child.bin", f.Entries[1].Path);
+        Assert.AreEqual("root.bin", f.Entries[2].Path); // popped back to root — no "dirA/" prefix
+        Assert.IsFalse(f.Entries[2].IsDirectory);
     }
 
     [TestMethod]
