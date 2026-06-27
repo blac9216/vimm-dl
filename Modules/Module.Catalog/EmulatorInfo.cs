@@ -25,6 +25,8 @@ public static class Emulators
     public static readonly IReadOnlyList<EmulatorInfo> All =
     [
         new("rpcs3", "RPCS3", "ps3", CompatMatchKind.Serial),
+        new("pcsx2", "PCSX2", "ps2", CompatMatchKind.Serial),
+        new("duckstation", "DuckStation", "psx", CompatMatchKind.Serial),
     ];
 
     /// <summary>Look up an emulator by its id (case-insensitive); null when unknown.</summary>
