@@ -50,4 +50,54 @@ public class DedupTests
         var games = new (string, string?)[] { ("Game", "Japan"), ("Game", "USA") };
         Assert.AreEqual(1, Dedup.SelectParent(games));
     }
+
+    [TestMethod]
+    public void SelectParent_AvoidsKiosk_NowTreatedAsBadDump()
+    {
+        // (Kiosk) joined the non-final category set, so a kiosk build never wins over a retail release.
+        var games = new (string, string?)[] { ("Game (USA) (Kiosk)", "USA"), ("Game (Europe)", "Europe") };
+        Assert.AreEqual(1, Dedup.SelectParent(games));
+    }
+
+    [TestMethod]
+    public void IsExcludedVariant_DetectsNonFinalCategories()
+    {
+        Assert.IsTrue(Dedup.IsExcludedVariant("Game (USA) (Demo)"));
+        Assert.IsTrue(Dedup.IsExcludedVariant("Game (Europe) (Beta)"));
+        Assert.IsTrue(Dedup.IsExcludedVariant("Game (Japan) (Proto)"));
+        Assert.IsTrue(Dedup.IsExcludedVariant("Game (World) (Prototype)")); // "(proto" covers "(prototype)"
+        Assert.IsTrue(Dedup.IsExcludedVariant("Game (USA) (Sample)"));
+        Assert.IsTrue(Dedup.IsExcludedVariant("Game (USA) (Kiosk)"));
+    }
+
+    [TestMethod]
+    public void IsExcludedVariant_AllowsRetailReleases()
+    {
+        Assert.IsFalse(Dedup.IsExcludedVariant("Game (USA)"));
+        Assert.IsFalse(Dedup.IsExcludedVariant("Game (Europe) (Rev 1)"));
+    }
+
+    [TestMethod]
+    public void IsEnglish_TrueForWesternRegion()
+    {
+        Assert.IsTrue(Dedup.IsEnglish("USA", null, "Game (USA)"));
+        Assert.IsTrue(Dedup.IsEnglish("Europe", null, "Game (Europe)"));
+        Assert.IsTrue(Dedup.IsEnglish("World", null, "Game (World)"));
+        Assert.IsTrue(Dedup.IsEnglish("Australia", null, "Game (Australia)"));
+    }
+
+    [TestMethod]
+    public void IsEnglish_TrueWhenLanguagesIncludeEn_EvenForJapanRegion()
+        => Assert.IsTrue(Dedup.IsEnglish("Japan", "En,Ja", "Game (Japan) (En,Ja)"));
+
+    [TestMethod]
+    public void IsEnglish_FalseForJapanOnly()
+    {
+        Assert.IsFalse(Dedup.IsEnglish("Japan", "Ja", "Game (Japan)"));
+        Assert.IsFalse(Dedup.IsEnglish("Japan", null, "Game (Japan)"));
+    }
+
+    [TestMethod]
+    public void IsEnglish_FallsBackToNameRegionTag_WhenRegionEmpty()
+        => Assert.IsTrue(Dedup.IsEnglish(null, null, "Game (USA)"));
 }

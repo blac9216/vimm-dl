@@ -580,21 +580,56 @@ class CatalogRepository : ICatalogStore
     /// <c>owned</c> flag, a best-effort emulator <c>compat</c> status, and a <c>verified</c> result.
     /// </summary>
     public async Task<(int Total, List<CatalogGameDto> Games)> GetGamesAsync(
-        string? console, string? query, string local, bool dedupe, int page, int pageSize)
+        string? console, string? query, string local, bool dedupe, bool english, bool excludeCategories,
+        int page, int pageSize)
     {
         pageSize = Math.Clamp(pageSize, 1, 200);
         page = Math.Max(0, page);
         var like = string.IsNullOrWhiteSpace(query) ? null : "%" + query.Trim() + "%";
         local = local is "owned" or "remote" ? local : "all";
 
-        const string where = """
+        // English-only (E3a): keep rows whose language list contains "en", or whose region — or the
+        // region tag embedded in the name when region is empty — is Western. Built from
+        // Dedup.EnglishRegionTokens so the SQL stays single-sourced with Dedup.IsEnglish.
+        var englishClause = english
+            ? " AND (instr(lower(coalesce(g.languages, '')), 'en') > 0"
+              + string.Concat(Enumerable.Range(0, Dedup.EnglishRegionTokens.Length)
+                    .Select(i => $" OR instr(lower(coalesce(g.region, g.name)), $eng{i}) > 0"))
+              + ")"
+            : "";
+
+        // Hide demos/protos (E3a): drop rows whose name carries a non-final category tag. Built from
+        // Dedup.ExcludedCategoryTags — the same list Dedup.IsExcludedVariant uses.
+        var categoryClause = excludeCategories
+            ? " AND NOT ("
+              + string.Join(" OR ", Enumerable.Range(0, Dedup.ExcludedCategoryTags.Length)
+                    .Select(i => $"instr(lower(g.name), $cat{i}) > 0"))
+              + ")"
+            : "";
+
+        var where = $"""
             WHERE ($console IS NULL OR s.console = $console)
               AND ($like IS NULL OR g.name LIKE $like)
               AND ($local = 'all'
                    OR ($local = 'owned'  AND     EXISTS(SELECT 1 FROM catalog_owned o WHERE o.game_id = g.id))
                    OR ($local = 'remote' AND NOT EXISTS(SELECT 1 FROM catalog_owned o WHERE o.game_id = g.id)))
-              AND ($dedupe = 0 OR g.is_parent = 1)
+              AND ($dedupe = 0 OR g.is_parent = 1){englishClause}{categoryClause}
             """;
+
+        // Bind every WHERE parameter; the optional english/category tokens only when their clause is present.
+        void BindFilters(SqliteCommand cmd)
+        {
+            cmd.Parameters.AddWithValue("$console", (object?)console ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$like", (object?)like ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$local", local);
+            cmd.Parameters.AddWithValue("$dedupe", dedupe ? 1 : 0);
+            if (english)
+                for (int i = 0; i < Dedup.EnglishRegionTokens.Length; i++)
+                    cmd.Parameters.AddWithValue($"$eng{i}", Dedup.EnglishRegionTokens[i]);
+            if (excludeCategories)
+                for (int i = 0; i < Dedup.ExcludedCategoryTags.Length; i++)
+                    cmd.Parameters.AddWithValue($"$cat{i}", Dedup.ExcludedCategoryTags[i]);
+        }
 
         await using var db = await OpenAsync();
 
@@ -602,10 +637,7 @@ class CatalogRepository : ICatalogStore
         await using (var cnt = db.CreateCommand())
         {
             cnt.CommandText = $"SELECT COUNT(*) FROM catalog_game g JOIN catalog_system s ON s.id = g.system_id {where}";
-            cnt.Parameters.AddWithValue("$console", (object?)console ?? DBNull.Value);
-            cnt.Parameters.AddWithValue("$like", (object?)like ?? DBNull.Value);
-            cnt.Parameters.AddWithValue("$local", local);
-            cnt.Parameters.AddWithValue("$dedupe", dedupe ? 1 : 0);
+            BindFilters(cnt);
             total = Convert.ToInt32(await cnt.ExecuteScalarAsync());
         }
 
@@ -630,10 +662,7 @@ class CatalogRepository : ICatalogStore
                 ORDER BY g.name
                 LIMIT $limit OFFSET $offset
                 """;
-            cmd.Parameters.AddWithValue("$console", (object?)console ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("$like", (object?)like ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("$local", local);
-            cmd.Parameters.AddWithValue("$dedupe", dedupe ? 1 : 0);
+            BindFilters(cmd);
             cmd.Parameters.AddWithValue("$limit", pageSize);
             cmd.Parameters.AddWithValue("$offset", page * pageSize);
             await using var r = await cmd.ExecuteReaderAsync();

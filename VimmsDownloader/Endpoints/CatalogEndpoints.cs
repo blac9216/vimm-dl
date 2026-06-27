@@ -56,13 +56,14 @@ static class CatalogEndpoints
         // Consoles with counts — for the Library filter.
         app.MapGet("/api/catalog/consoles", async (CatalogRepository repo) => await repo.GetConsolesAsync());
 
-        // Paged game browse, filtered by console and/or name.
+        // Paged game browse, filtered by console and/or name, plus 1G1R / English-only / hide-demos curation.
         app.MapGet("/api/catalog/games", async (string? console, string? q, string? local, bool? dedupe,
-            int? page, int? pageSize, CatalogRepository repo) =>
+            bool? english, bool? excludeCategories, int? page, int? pageSize, CatalogRepository repo) =>
         {
             var ps = Math.Clamp(pageSize ?? 100, 1, 200);
             var p = Math.Max(0, page ?? 0);
-            var (total, games) = await repo.GetGamesAsync(console, q, local ?? "all", dedupe ?? false, p, ps);
+            var (total, games) = await repo.GetGamesAsync(console, q, local ?? "all", dedupe ?? false,
+                english ?? false, excludeCategories ?? false, p, ps);
             return new CatalogGamesResponse(total, p, ps, games);
         });
 
