@@ -126,6 +126,15 @@ public static class WiiUCrypto
         if (titleKey.Length != KeySize)
             return Result.Fail($"Title key must be {KeySize} bytes, got {titleKey.Length}.");
 
+        // Pre-validate alignment when the length is known (mirrors the buffer overload's clear error),
+        // rather than relying on CryptoStream throwing a vaguer "incomplete block" at the end (#216).
+        if (input.CanSeek)
+        {
+            var remaining = input.Length - input.Position;
+            if (remaining % BlockSize != 0)
+                return Result.Fail($"Content length {remaining} is not a multiple of the {BlockSize}-byte AES block size.");
+        }
+
         try
         {
             using var aes = Aes.Create();
@@ -136,12 +145,9 @@ public static class WiiUCrypto
             await crypto.CopyToAsync(output, ct);
             return Result.Ok();
         }
-        catch (OperationCanceledException)
+        catch (CryptographicException ex)
         {
-            throw;
-        }
-        catch (Exception ex)
-        {
+            // Non-seekable, non-block-aligned input surfaces here (e.g. a network stream).
             return Result.Fail($"Content decryption failed: {ex.Message}");
         }
     }

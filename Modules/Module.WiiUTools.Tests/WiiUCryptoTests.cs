@@ -187,6 +187,18 @@ public class WiiUCryptoTests
         using var output = new MemoryStream();
         var r = await WiiUCrypto.DecryptContentAsync(input, output, TestKey(), 0);
         Assert.IsFalse(r.IsOk);
+        // Seekable input is pre-validated, giving the same clear message as the buffer overload (#216).
+        StringAssert.Contains(r.Error, "block size");
+    }
+
+    [TestMethod]
+    public async Task DecryptContentAsync_NonSeekableNonAligned_Fails()
+    {
+        // A non-seekable stream can't be pre-checked; the cipher's incomplete-block error is surfaced.
+        using var input = new NonSeekableStream(new byte[20]);
+        using var output = new MemoryStream();
+        var r = await WiiUCrypto.DecryptContentAsync(input, output, TestKey(), 0);
+        Assert.IsFalse(r.IsOk);
     }
 
     [TestMethod]
@@ -198,4 +210,10 @@ public class WiiUCryptoTests
         Assert.IsFalse(r.IsOk);
         StringAssert.Contains(r.Error, "Title key");
     }
+}
+
+/// <summary>A read-only stream that reports CanSeek=false, to exercise the non-seekable decrypt path.</summary>
+file sealed class NonSeekableStream(byte[] data) : MemoryStream(data)
+{
+    public override bool CanSeek => false;
 }
