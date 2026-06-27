@@ -351,12 +351,19 @@ public class DownloadService
             return;
         }
 
-        // Land the set in completed/{console}/{SubFolder}/ — console from the platform, SubFolder an
-        // optional per-item folder (e.g. a Wii U title ID). Unknown platform → completed/ root.
+        // Land the set in completed/{console}/{subFolder}/ — console from the platform. The set ALWAYS
+        // gets its own per-item subfolder so two multi-file items can't collide on the shared console dir
+        // (#218): SubFolder when the source supplies one (e.g. a Wii U title ID), otherwise a stable name
+        // derived from the title + the queue id. completionName is what the host records as the "filename"
+        // — the raw SubFolder when present (unchanged), else the derived folder name.
+        var subFolderName = !string.IsNullOrWhiteSpace(set.SubFolder)
+            ? SanitizeFolder(set.SubFolder)
+            : SanitizeFolder($"{set.Title}-{id}");
+        var completionName = !string.IsNullOrWhiteSpace(set.SubFolder) ? set.SubFolder! : subFolderName;
+
         var consoleDir = ConsoleDirectories.Resolve(set.Platform);
         var itemCompletedPath = consoleDir != null ? Path.Combine(completedPath, consoleDir) : completedPath;
-        if (!string.IsNullOrWhiteSpace(set.SubFolder))
-            itemCompletedPath = Path.Combine(itemCompletedPath, SanitizeFolder(set.SubFolder));
+        itemCompletedPath = Path.Combine(itemCompletedPath, subFolderName);
         Directory.CreateDirectory(itemCompletedPath);
 
         await Emit(new DownloadStatusEvent(
@@ -401,14 +408,13 @@ public class DownloadService
 
         active.State = "done";
 
-        // One completion for the whole set: the folder is the "filepath", its name the "filename".
-        var setName = !string.IsNullOrWhiteSpace(set.SubFolder) ? set.SubFolder! : set.Title;
-        await provider.CompleteAsync(id, url, setName, itemCompletedPath, format);
-        await Emit(new DownloadCompletedEvent(url, setName, itemCompletedPath));
-        _log.LogInformation("Downloaded {Count} file(s) for {Name} -> completed/", set.Files.Count, setName);
+        // One completion for the whole set: the per-item folder is the "filepath", its name the "filename".
+        await provider.CompleteAsync(id, url, completionName, itemCompletedPath, format);
+        await Emit(new DownloadCompletedEvent(url, completionName, itemCompletedPath));
+        _log.LogInformation("Downloaded {Count} file(s) for {Name} -> completed/", set.Files.Count, completionName);
 
         if (OnPostDownload != null)
-            await OnPostDownload(url, setName, itemCompletedPath, format);
+            await OnPostDownload(url, completionName, itemCompletedPath, format);
     }
 
     /// <summary>Strip path-invalid characters from a per-item subfolder name (defensive; title IDs are hex).</summary>

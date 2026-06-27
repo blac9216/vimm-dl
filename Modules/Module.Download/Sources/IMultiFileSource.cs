@@ -28,9 +28,11 @@ public interface IMultiFileSource : IDownloadSource
 
 /// <summary>
 /// A multi-file source's answer for one queue item: the shared title/platform plus the concrete files to
-/// fetch. All files land together in <c>completed/{console}/{SubFolder}/</c> (the console folder is
-/// derived from <see cref="Platform"/>; <see cref="SubFolder"/> is an optional per-item subfolder such as
-/// a Wii U title ID). The whole set produces a single queue completion and one post-download callback.
+/// fetch. All files land together in their own per-item subfolder under the console folder —
+/// <c>completed/{console}/{subfolder}/</c> (the console folder is derived from <see cref="Platform"/>).
+/// <see cref="SubFolder"/> names that subfolder (e.g. a Wii U title ID); when it is null/blank the loop
+/// derives a stable one from <see cref="Title"/> + the queue id, so two no-SubFolder items never collide
+/// on the shared console dir. The whole set produces a single queue completion and one post-download.
 /// </summary>
 public record MultiFileResolution(
     string Title,
