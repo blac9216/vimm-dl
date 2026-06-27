@@ -10,12 +10,12 @@ namespace Module.Catalog;
 /// 6 Perfect / 5 Playable → Playable · 4 Ingame → Ingame · 3 Menu → Intro · 2 Intro → Loadable ·
 /// 1 Nothing → Nothing · 0 Unknown (or unexpected) → no badge.
 /// </summary>
-public sealed class Pcsx2CompatSource : ICompatSource
+public sealed class Pcsx2CompatSource : SingleUrlCompatSource
 {
-    public string EmulatorId => "pcsx2";
-    public string Url => "https://raw.githubusercontent.com/PCSX2/pcsx2/master/bin/resources/GameIndex.yaml";
+    public override string EmulatorId => "pcsx2";
+    public override string Url => "https://raw.githubusercontent.com/PCSX2/pcsx2/master/bin/resources/GameIndex.yaml";
 
-    public IEnumerable<CompatEntry> Parse(string payload)
+    public override IEnumerable<CompatEntry> Parse(string payload)
     {
         string? serial = null;
         foreach (var line in YamlScanner.Scan(payload))

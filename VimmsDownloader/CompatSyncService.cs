@@ -22,8 +22,7 @@ class CompatSyncService(CatalogRepository catalog, IHttpClientFactory httpFactor
             }
             try
             {
-                var payload = await http.GetStringAsync(source.Url, ct);
-                var entries = source.Parse(payload).ToList();
+                var entries = await source.LoadAsync((url, c) => http.GetStringAsync(url, c), ct);
                 await catalog.ReplaceCompatAsync(emulator.Id, Emulators.Token(emulator.MatchKind), entries, ct);
                 log.LogInformation("Compat: {Emulator} → {Count} entries", emulator.Id, entries.Count);
                 total += entries.Count;

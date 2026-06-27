@@ -108,10 +108,40 @@ public class CatalogCompatTests
 
     // --- seeding helpers ---
 
+    [TestMethod]
+    public async Task NameKeyedCompat_JoinsByTitleKey_ConsoleGatedToTheEmulatorsConsoles()
+    {
+        // A GameCube game and a PS2 game share a title (→ same title_key). Dolphin (name-keyed, gc/wii)
+        // must badge the GameCube game but NOT the PS2 one — name keys collide across consoles, unlike
+        // globally-unique serials.
+        var gc = await ScalarLong("INSERT INTO catalog_system (dat_name, console, source) VALUES ('DAT gc', 'gc', 'redump') RETURNING id");
+        var ps2 = await ScalarLong("INSERT INTO catalog_system (dat_name, console, source) VALUES ('DAT ps2', 'ps2', 'redump') RETURNING id");
+        await AddNamedGame(gc, "Need for Speed Carbon (USA)");
+        await AddNamedGame(ps2, "Need for Speed Carbon (USA)");
+
+        await _repo.ReplaceCompatAsync("dolphin", "name",
+            [new CompatEntry(Dedup.TitleKey("Need for Speed Carbon"), "Playable")], CancellationToken.None);
+
+        var (_, gcGames) = await GamesOn("gc");
+        Assert.AreEqual("dolphin", gcGames.Single().Compat.Single().Emulator); // GameCube → badged
+        Assert.AreEqual("Playable", gcGames.Single().Compat.Single().Status);
+
+        var (_, ps2Games) = await GamesOn("ps2");
+        Assert.IsEmpty(ps2Games.Single().Compat); // PS2 shares the title but Dolphin doesn't run it → no badge
+    }
+
+    private Task<(int Total, List<CatalogGameDto> Games)> GamesOn(string console) =>
+        _repo.GetGamesAsync(console, null, "all", false, false, false, "substring", 0, 100);
+
     private async Task AddGame(long systemId, string name, string serial) =>
         await ExecAsync(
             "INSERT INTO catalog_game (system_id, name, serial, serial_key) VALUES ($sid, $name, $serial, $skey)",
             ("$sid", systemId), ("$name", name), ("$serial", serial), ("$skey", CompatKeys.NormalizeSerial(serial)));
+
+    private async Task AddNamedGame(long systemId, string name) =>
+        await ExecAsync(
+            "INSERT INTO catalog_game (system_id, name, title_key) VALUES ($sid, $name, $tkey)",
+            ("$sid", systemId), ("$name", name), ("$tkey", Dedup.TitleKey(name)));
 
     private async Task ExecAsync(string sql, params (string Key, object Value)[] ps)
     {
