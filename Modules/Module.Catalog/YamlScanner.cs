@@ -37,10 +37,32 @@ public static class YamlScanner
             var key = content[..colon].Trim().ToString();
             if (key.Length == 0) continue;
 
-            var valueSpan = content[(colon + 1)..].Trim();
+            // Drop an unquoted trailing comment so a serial header carrying one (e.g.
+            // "SCUS-97627: # Internal serial …") still reads as key-only, and an inline comment on a
+            // value line ("compat: 5 # tested") doesn't corrupt the value.
+            var valueSpan = StripComment(content[(colon + 1)..].Trim()).Trim();
             string? value = valueSpan.Length == 0 ? null : Unquote(valueSpan).ToString();
             yield return new YamlLine(indent, key, value);
         }
+    }
+
+    /// <summary>
+    /// Remove an unquoted trailing YAML comment from a value: a <c>#</c> that starts the value or is
+    /// preceded by whitespace begins a comment. A leading quoted scalar is preserved intact (only a
+    /// comment after its closing quote is dropped), so a <c>#</c> inside a quoted name is kept.
+    /// </summary>
+    private static ReadOnlySpan<char> StripComment(ReadOnlySpan<char> v)
+    {
+        if (v.IsEmpty) return v;
+        if (v[0] is '"' or '\'')
+        {
+            int close = v[1..].IndexOf(v[0]);
+            return close >= 0 ? v[..(close + 2)] : v;        // keep the quoted scalar; unterminated → as-is
+        }
+        for (int i = 0; i < v.Length; i++)
+            if (v[i] == '#' && (i == 0 || v[i - 1] is ' ' or '\t'))
+                return v[..i];
+        return v;
     }
 
     /// <summary>Strip a single pair of surrounding single/double quotes, if present.</summary>

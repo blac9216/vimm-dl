@@ -16,7 +16,7 @@ public sealed record EmulatorInfo(string Id, string Name, string Console, Compat
 /// <summary>
 /// The emulators with ingested compatibility data. Drives the per-emulator badges + the Library
 /// emulator/status filter, and (via <see cref="EmulatorInfo.MatchKind"/>) how each emulator's statuses
-/// join to a catalog game. RPCS3 came first because of the PS3 pipeline; PCSX2, SwanStation, Azahar,
+/// join to a catalog game. RPCS3 came first because of the PS3 pipeline; PCSX2, DuckStation, Azahar,
 /// Dolphin, … follow the same pattern — add an entry here plus an <see cref="ICompatSource"/> in
 /// <see cref="CompatSources"/>.
 /// </summary>

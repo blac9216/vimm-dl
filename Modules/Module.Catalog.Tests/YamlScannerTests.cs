@@ -48,6 +48,26 @@ public class YamlScannerTests
     }
 
     [TestMethod]
+    public void Scan_StripsUnquotedTrailingComments_KeepsHashInsideQuotes()
+    {
+        const string doc = """
+            SCUS-97627: # internal serial note
+              compat: 3 # verified
+              name: "C# the Game" # a quoted hash with a trailing comment
+            """;
+        var lines = YamlScanner.Scan(doc).ToList();
+
+        var header = lines.Single(l => l.Key == "SCUS-97627");
+        Assert.IsNull(header.Value);                 // trailing comment on a header → still key-only
+
+        var compat = lines.Single(l => l.Key == "compat");
+        Assert.AreEqual("3", compat.Value);          // inline comment stripped from the value
+
+        var name = lines.Single(l => l.Key == "name");
+        Assert.AreEqual("C# the Game", name.Value);  // '#' inside quotes kept, trailing comment dropped
+    }
+
+    [TestMethod]
     public void Scan_EmptyOrBlank_YieldsNothing()
     {
         Assert.IsEmpty(YamlScanner.Scan(""));

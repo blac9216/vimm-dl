@@ -18,6 +18,12 @@ public class Pcsx2CompatSourceTests
         SLUS-12345:
           name: "No compat field"
           region: "NTSC-U"
+        SCUS-97627: # Internal serial for SCUS-97649
+          name: "Header With Comment"
+          compat: 3
+        SLUS-21111:
+          name: "Inline Comment On Value"
+          compat: 5 # verified on hardware
         """;
 
     [TestMethod]
@@ -29,7 +35,9 @@ public class Pcsx2CompatSourceTests
         Assert.AreEqual("Intro", map["SLES50001"]);    // 3 Menu → Intro
         Assert.IsFalse(map.ContainsKey("PBPX95205"));  // 0 Unknown → skipped
         Assert.IsFalse(map.ContainsKey("SLUS12345"));  // no compat field → skipped
-        Assert.HasCount(3, map);
+        Assert.AreEqual("Intro", map["SCUS97627"]);    // header trailing comment must NOT drop the game
+        Assert.AreEqual("Playable", map["SLUS21111"]); // inline comment on the compat value is ignored
+        Assert.HasCount(5, map);
     }
 
     [TestMethod]
