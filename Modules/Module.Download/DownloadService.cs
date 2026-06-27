@@ -234,6 +234,15 @@ public class DownloadService
 
             var http = _httpFactory.CreateClient(source.HttpClientName);
 
+            // Multi-file sources (e.g. Wii U NUS: TMD + ticket + cert + N content files) resolve into a
+            // set of files for one queue item. Diverted here before the single-file path, which is left
+            // untouched. The finally below still removes the ActiveDownload after this returns.
+            if (source is IMultiFileSource multiSource)
+            {
+                await ProcessMultiFileAsync(multiSource, item, active, provider, http, downloadingPath, completedPath, ct);
+                return;
+            }
+
             // The source ("where the bytes come from") resolves the item into a concrete, streamable
             // download. Everything below is source-agnostic.
             var resolveResult = await source.ResolveAsync(url, format, http, ct);
@@ -312,6 +321,84 @@ public class DownloadService
             else await Task.Delay(ArchiveCooldownDuration, ct);
         }
         finally { _active.TryRemove(active.Key, out _); }
+    }
+
+    /// <summary>
+    /// Process a multi-file queue item: resolve the whole set, then stream each file (reusing
+    /// <see cref="StreamDownload"/>, so per-file resume/progress works) into
+    /// <c>completed/{console}/{SubFolder}/</c>. The set produces a single completion + one post-download
+    /// callback, keeping queue identity coherent (one item → one completion). Files are fetched
+    /// sequentially, which keeps the source polite by construction. <see cref="OperationCanceledException"/>
+    /// propagates so stop/pause works mid-set.
+    /// </summary>
+    private async Task ProcessMultiFileAsync(IMultiFileSource source, DownloadItem item, ActiveDownload active,
+        IDownloadItemProvider provider, HttpClient http, string downloadingPath, string completedPath, CancellationToken ct)
+    {
+        var (id, url, format) = item;
+
+        var resolveResult = await source.ResolveManyAsync(url, format, http, ct);
+        if (!resolveResult.IsOk)
+        {
+            await Emit(new DownloadErrorEvent($"{resolveResult.Error}"));
+            await provider.RemoveAsync(id);
+            return;
+        }
+        var set = resolveResult.Value!;
+        if (set.Files.Count == 0)
+        {
+            await Emit(new DownloadErrorEvent($"No files resolved for {url}"));
+            await provider.RemoveAsync(id);
+            return;
+        }
+
+        // Land the set in completed/{console}/{SubFolder}/ — console from the platform, SubFolder an
+        // optional per-item folder (e.g. a Wii U title ID). Unknown platform → completed/ root.
+        var consoleDir = ConsoleDirectories.Resolve(set.Platform);
+        var itemCompletedPath = consoleDir != null ? Path.Combine(completedPath, consoleDir) : completedPath;
+        if (!string.IsNullOrWhiteSpace(set.SubFolder))
+            itemCompletedPath = Path.Combine(itemCompletedPath, SanitizeFolder(set.SubFolder));
+        Directory.CreateDirectory(itemCompletedPath);
+
+        await Emit(new DownloadStatusEvent(
+            $"Downloading {set.Files.Count} file(s): {set.Title} -> {itemCompletedPath} (source={source.Id})"));
+
+        active.State = "downloading";
+        for (var i = 0; i < set.Files.Count; i++)
+        {
+            var file = set.Files[i];
+            await Emit(new DownloadStatusEvent(
+                $"File {i + 1}/{set.Files.Count}: {file.SuggestedFilename ?? file.DownloadUrl}"));
+
+            var fileResult = await StreamDownload(active, http, file.DownloadUrl, file.RequestHeaders,
+                file.SuggestedFilename, file.Title, downloadingPath, itemCompletedPath, ct);
+            if (!fileResult.IsOk)
+            {
+                active.State = "error";
+                _log.LogError("Multi-file download failed for {Url} ({File}): {Error}",
+                    url, file.SuggestedFilename ?? file.DownloadUrl, fileResult.Error);
+                await Emit(new DownloadErrorEvent($"Failed: {url} - {fileResult.Error}"));
+                await provider.RemoveAsync(id);   // drop the item; a partial set isn't auto-retried
+                return;
+            }
+        }
+
+        active.State = "done";
+
+        // One completion for the whole set: the folder is the "filepath", its name the "filename".
+        var setName = !string.IsNullOrWhiteSpace(set.SubFolder) ? set.SubFolder! : set.Title;
+        await provider.CompleteAsync(id, url, setName, itemCompletedPath, format);
+        await Emit(new DownloadCompletedEvent(url, setName, itemCompletedPath));
+        _log.LogInformation("Downloaded {Count} file(s) for {Name} -> completed/", set.Files.Count, setName);
+
+        if (OnPostDownload != null)
+            await OnPostDownload(url, setName, itemCompletedPath, format);
+    }
+
+    /// <summary>Strip path-invalid characters from a per-item subfolder name (defensive; title IDs are hex).</summary>
+    private static string SanitizeFolder(string name)
+    {
+        var cleaned = string.Join("_", name.Split(Path.GetInvalidFileNameChars())).Trim().Trim('.').Trim();
+        return string.IsNullOrEmpty(cleaned) ? "set" : cleaned;
     }
 
     /// <summary>
