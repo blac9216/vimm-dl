@@ -10,6 +10,7 @@ builder.Services.AddSingleton<Module.Ps3Pipeline.Ps3ConversionPipeline>();
 builder.Services.AddSingleton<Module.Download.Bridge.IDownloadBridge, SignalRDownloadBridge>();
 builder.Services.AddSingleton<Module.Download.Sources.IDownloadSource, Module.Download.Sources.VimmSource>();
 builder.Services.AddSingleton<Module.Download.Sources.IDownloadSource, Module.Download.Sources.ArchiveSource>();
+builder.Services.AddSingleton<Module.Download.Sources.IDownloadSource, Module.WiiUSource.WiiUNusSource>();
 builder.Services.AddSingleton<Module.Download.Sources.ISourceRegistry, Module.Download.Sources.SourceRegistry>();
 builder.Services.AddSingleton<Module.Download.DownloadService>();
 builder.Services.AddSingleton<DownloadQueue>();
@@ -94,6 +95,20 @@ builder.Services.AddHttpClient("archive")
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
     })
     .AddHttpMessageHandler<ArchiveAuthHandler>();
+
+// Wii U NUS/CCS CDN — plain HTTP, anonymous, with the console's own user-agent. A long timeout
+// covers multi-GB content; redirects are followed. One title fans out to many files (W4 loop).
+builder.Services.AddHttpClient("wiiu")
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+    {
+        AllowAutoRedirect = true,
+        MaxAutomaticRedirections = 10
+    })
+    .ConfigureHttpClient(c =>
+    {
+        c.Timeout = TimeSpan.FromMinutes(60);
+        c.DefaultRequestHeaders.Add("User-Agent", "wii libnup/1.0");
+    });
 
 // libretro-database raw files (the No-Intro/Redump mirror) — plain HTTPS, no auth.
 builder.Services.AddHttpClient("libretro")
