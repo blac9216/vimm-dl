@@ -95,6 +95,37 @@ public class WiiUConversionPipelineTests
         BinaryPrimitives.WriteUInt32BigEndian(buf.AsSpan(off + 8), size);
     }
 
+    // Minimal synthetic FST: root → "content" dir → one file pointing at section `fileSecIdx`.
+    // Per retroreversing "Wii U File formats" (the W3 parser's spec).
+    static byte[] BuildFstOneFile(uint offsetFactor, ushort fileSecIdx, uint fileOffset, uint fileSize, string fileName)
+    {
+        const int headerSize = 0x20, sectionCount = 1, entryCount = 3;
+        var entryTableStart = headerSize + sectionCount * 0x20;
+        var str = new List<byte> { 0 };              // root name ""
+        var dirNameOff = str.Count; str.AddRange(Encoding.ASCII.GetBytes("content")); str.Add(0);
+        var fileNameOff = str.Count; str.AddRange(Encoding.ASCII.GetBytes(fileName)); str.Add(0);
+        var stringPoolStart = entryTableStart + entryCount * 0x10;
+        var buf = new byte[stringPoolStart + str.Count];
+
+        BinaryPrimitives.WriteUInt32BigEndian(buf, 0x46535400);
+        BinaryPrimitives.WriteUInt32BigEndian(buf.AsSpan(4), offsetFactor);
+        BinaryPrimitives.WriteUInt32BigEndian(buf.AsSpan(8), sectionCount);
+        WriteFstEntry(buf, entryTableStart + 0 * 0x10, 1, 0, 0, entryCount, 0);             // root dir
+        WriteFstEntry(buf, entryTableStart + 1 * 0x10, 1, dirNameOff, 0, entryCount, 0);    // "content" dir, end = 3
+        WriteFstEntry(buf, entryTableStart + 2 * 0x10, 0, fileNameOff, fileOffset, fileSize, fileSecIdx);
+        str.ToArray().CopyTo(buf, stringPoolStart);
+        return buf;
+    }
+
+    static void WriteFstEntry(byte[] buf, int off, byte type, int nameOff, uint offset, uint size, ushort secIdx)
+    {
+        buf[off] = type;
+        buf[off + 1] = (byte)(nameOff >> 16); buf[off + 2] = (byte)(nameOff >> 8); buf[off + 3] = (byte)nameOff;
+        BinaryPrimitives.WriteUInt32BigEndian(buf.AsSpan(off + 4), offset);
+        BinaryPrimitives.WriteUInt32BigEndian(buf.AsSpan(off + 8), size);
+        BinaryPrimitives.WriteUInt16BigEndian(buf.AsSpan(off + 0xE), secIdx);
+    }
+
     /// <summary>Write a synthetic encrypted WUP set into a folder and return the folder + title key.</summary>
     static (string Folder, byte[] TitleKey) WriteSet(string root, byte[] commonKey,
         byte[] plaintextContent, ushort index = 0, ushort type = 0x0001)
@@ -180,6 +211,40 @@ public class WiiUConversionPipelineTests
         var extracted = Path.Combine(folder, "decrypted", "00000000", "boot.rpx");
         Assert.IsTrue(File.Exists(extracted), "U8 file should be extracted");
         CollectionAssert.AreEqual(rpx, File.ReadAllBytes(extracted));
+    }
+
+    [TestMethod]
+    public async Task FstLayout_AssemblesFileFromAnotherContent()
+    {
+        // Two contents: content 0 is an FST that maps "content/data.bin" into content 1 (secondary index 1)
+        // at offset 16; content 1 holds 16 bytes of padding followed by the file's 16 bytes. The pipeline
+        // should lay the file out at decrypted/content/data.bin, byte-correct (#223).
+        using var tmp = new TempDirectory("WiiUPipeFst");
+        var commonKey = Key(0xA5);
+        var titleKey = Key(0x3C);
+
+        var fileData = Encoding.ASCII.GetBytes("FST-FILE-DATA-16"); // 16 bytes
+        var content1 = new byte[32];
+        fileData.CopyTo(content1, 16);                              // file lives at offset 16 in content 1
+        var fst = BuildFstOneFile(offsetFactor: 1, fileSecIdx: 1, fileOffset: 16, fileSize: (uint)fileData.Length, "data.bin");
+
+        var folder = Path.Combine(tmp.Root, "completed", "wiiu", TitleHex);
+        Directory.CreateDirectory(folder);
+        File.WriteAllBytes(Path.Combine(folder, "title.tmd"), BuildTmd(
+            (0x00000000u, 0, 0x0001, (ulong)fst.Length),
+            (0x00000001u, 1, 0x0001, (ulong)content1.Length)));
+        File.WriteAllBytes(Path.Combine(folder, "title.tik"), BuildTicket(AesCbc(titleKey, commonKey, TitleKeyIv(TitleId))));
+        File.WriteAllBytes(Path.Combine(folder, "00000000.app"), AesCbc(PadTo16(fst), titleKey, ContentIv(0)));
+        File.WriteAllBytes(Path.Combine(folder, "00000001.app"), AesCbc(content1, titleKey, ContentIv(1)));
+
+        var pipeline = NewPipeline(new FakeKeyProvider(commonKey), out _);
+        pipeline.Enqueue(folder);
+        var terminal = await WaitForTerminalAsync(pipeline, TitleHex);
+
+        Assert.AreEqual(WiiUPhase.Done, terminal.Phase, terminal.Message);
+        var outFile = Path.Combine(folder, "decrypted", "content", "data.bin");
+        Assert.IsTrue(File.Exists(outFile), "FST-mapped file should be assembled at its real path");
+        CollectionAssert.AreEqual(fileData, File.ReadAllBytes(outFile));
     }
 
     [TestMethod]
