@@ -2,9 +2,10 @@ using Module.Core.Pipeline;
 using Module.Download;
 using Module.Ps3Pipeline;
 using Module.Ps3IsoTools;
+using Module.WiiUPipeline;
 
 /// <summary>
-/// Thin host-level wrapper that wires DownloadService to the repo, PS3 pipeline, and settings.
+/// Thin host-level wrapper that wires DownloadService to the repo, the PS3 + Wii U pipelines, and settings.
 /// </summary>
 class DownloadQueue
 {
@@ -12,13 +13,16 @@ class DownloadQueue
     private readonly QueueRepository _repo;
     private readonly QueueItemProvider _provider;
     private readonly Ps3ConversionPipeline _ps3Pipeline;
+    private readonly WiiUConversionPipeline _wiiuPipeline;
 
-    public DownloadQueue(DownloadService service, QueueRepository repo, Ps3ConversionPipeline ps3Pipeline)
+    public DownloadQueue(DownloadService service, QueueRepository repo,
+        Ps3ConversionPipeline ps3Pipeline, WiiUConversionPipeline wiiuPipeline)
     {
         _service = service;
         _repo = repo;
         _provider = new QueueItemProvider(repo);
         _ps3Pipeline = ps3Pipeline;
+        _wiiuPipeline = wiiuPipeline;
 
         _service.OnPostDownload = HandlePostDownload;
     }
@@ -40,6 +44,7 @@ class DownloadQueue
     public IPipeline? GetPipeline(string? platform)
     {
         if (Module.Core.Platforms.IsPS3(platform)) return _ps3Pipeline;
+        if (Module.Core.Platforms.IsWiiU(platform)) return _wiiuPipeline;
         return null;
     }
 
@@ -57,6 +62,18 @@ class DownloadQueue
     private async Task HandlePostDownload(string url, string filename, string completedFilePath, int format)
     {
         var dlMeta = await _repo.GetMetaAsync(url);
+
+        // Wii U: the NUS source lands a multi-file WUP set in completed/wiiu/{TitleID}/ (so completedFilePath
+        // is that folder). Metadata may be absent, so fall back to inferring the platform from the folder.
+        var platform = dlMeta?.Platform;
+        if (platform == null && IsUnderConsoleDir(completedFilePath, "wiiu"))
+            platform = Module.Core.Platforms.WiiU;
+        if (Module.Core.Platforms.IsWiiU(platform))
+        {
+            _wiiuPipeline.Enqueue(completedFilePath);
+            return;
+        }
+
         if (dlMeta == null || !Module.Core.Platforms.IsPS3(dlMeta.Platform))
             return;
 
@@ -91,6 +108,15 @@ class DownloadQueue
     {
         var val = await _repo.GetSettingAsync(SettingsKeys.Ps3PreserveArchive);
         return val != "false";
+    }
+
+    /// <summary>True when <paramref name="path"/>'s immediate parent folder is the given console dir
+    /// (e.g. a Wii U title folder completed/wiiu/{TitleID} sits directly under "wiiu").</summary>
+    private static bool IsUnderConsoleDir(string path, string consoleDir)
+    {
+        var trimmed = path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var parent = Path.GetFileName(Path.GetDirectoryName(trimmed));
+        return string.Equals(parent, consoleDir, StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task<IsoRenameOptions> LoadRenameOptionsAsync()

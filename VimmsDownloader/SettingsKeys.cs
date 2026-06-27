@@ -32,4 +32,8 @@ static class SettingsKeys
     public const string ArchiveIdle = "archive_idle";
     public const string ArchiveS3Access = "archive_s3_access";
     public const string ArchiveS3Secret = "archive_s3_secret";
+
+    // Wii U decryption (epic #104). The 16-byte common key as 32 hex chars; supplied by the user, never
+    // bundled. Empty → the Wii U pipeline stops at a "keys required" state. Active immediately on save.
+    public const string WiiUCommonKey = "wiiu_common_key";
 }

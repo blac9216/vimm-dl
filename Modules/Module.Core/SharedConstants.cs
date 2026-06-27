@@ -39,4 +39,7 @@ public static class Platforms
 
     public static bool IsPS3(string? platform) =>
         PS3.Equals(platform, StringComparison.OrdinalIgnoreCase);
+
+    public static bool IsWiiU(string? platform) =>
+        WiiU.Equals(platform, StringComparison.OrdinalIgnoreCase);
 }

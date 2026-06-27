@@ -33,6 +33,7 @@
     <ProjectReference Include="..\Modules\Module.Download\Module.Download.csproj" />
     <ProjectReference Include="..\Modules\Module.Catalog\Module.Catalog.csproj" />
     <ProjectReference Include="..\Modules\Module.WiiUSource\Module.WiiUSource.csproj" />
+    <ProjectReference Include="..\Modules\Module.WiiUPipeline\Module.WiiUPipeline.csproj" />
   </ItemGroup>
 
 </Project>
