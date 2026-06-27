@@ -73,6 +73,8 @@ record CatalogQueueResultDto(int Id, string Status, string? Source);
 // A game's Vimm download options (for the format picker), or null when not bound.
 record CatalogVimmDto(long VaultId, List<CatalogVimmFormatDto> Formats);
 record CatalogVimmFormatDto(int Alt, string Label, long SizeBytes, string? SizeText);
+// A game's IGDB description (M3 detail panel), or 404 when none is stored.
+record CatalogGameDescription(string Description);
 
 record MetricsResponse(long DiskFreeBytes, long DiskTotalBytes,
     long QueuedTotalBytes, int QueuedCount,

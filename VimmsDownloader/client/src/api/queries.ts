@@ -4,7 +4,7 @@ import type {
   QueueImportResponse, Ps3ConvertResponse, SyncCompareResponse, QueueExportItem,
   EventsResponse, MetricsResponse, AddResponse, SourceInfo,
   CatalogConsole, CatalogGamesResponse, CatalogStatus, CatalogSet, CatalogVimm,
-  CatalogQueueBatchResponse, Emulator,
+  CatalogQueueBatchResponse, Emulator, CatalogGameDescription,
 } from '../types/api'
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -251,6 +251,22 @@ export async function fetchGameVimm(id: number): Promise<CatalogVimm | null> {
   if (res.status === 404) return null
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
   return res.json()
+}
+
+// A game's IGDB description, or null when none is stored (404). Lazily fetched when a row is expanded
+// (enabled only once an id is set); descriptions are effectively immutable, so cache them indefinitely.
+export function useGameDescription(id: number | null) {
+  return useQuery({
+    queryKey: ['catalog-description', id],
+    queryFn: async (): Promise<CatalogGameDescription | null> => {
+      const res = await fetch(`/api/catalog/games/${id}/description`)
+      if (res.status === 404) return null
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+      return res.json()
+    },
+    enabled: id != null,
+    staleTime: Infinity,
+  })
 }
 
 export function useQueueCatalogGame() {
