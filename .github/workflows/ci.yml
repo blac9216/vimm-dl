@@ -32,10 +32,24 @@ jobs:
 
       - run: dotnet restore
 
-      - name: Pull tools image
-        run: docker pull ghcr.io/eduvhc/vimm-dl-tools:latest
+      # Pull this repo's own tools image (published by tools-image.yml as
+      # ghcr.io/<owner>/vimm-dl-tools). Login + pull are best-effort: if the image is unavailable the
+      # job still proceeds and ToolsContainer builds it locally from Dockerfile.tools, so the suite
+      # (and coverage) always run instead of the job aborting here (#203).
+      - name: Log in to GHCR
+        continue-on-error: true
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pre-pull tools image (non-fatal)
+        run: docker pull ghcr.io/${{ github.repository_owner }}/vimm-dl-tools:latest || true
 
       - name: Run all tests with coverage
+        env:
+          VIMM_TOOLS_IMAGE: ghcr.io/${{ github.repository_owner }}/vimm-dl-tools:latest
         run: dotnet test --no-restore --verbosity normal --collect:"XPlat Code Coverage" --results-directory ./TestResults
 
       # coverlet emits one coverage.cobertura.xml per test assembly (issue #177); merge them into a

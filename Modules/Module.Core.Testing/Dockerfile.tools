@@ -1,3 +1,7 @@
+# Test-tools image (7-Zip + makeps3iso/patchps3iso) for the Testcontainers-based suites.
+# Published per repository owner by .github/workflows/tools-image.yml as
+# ghcr.io/<owner>/vimm-dl-tools:latest; CI pulls that image (see ci.yml / the VIMM_TOOLS_IMAGE env),
+# and ToolsContainer falls back to building this file locally when the image can't be pulled.
 FROM alpine:latest AS build
 RUN apk add --no-cache git gcc musl-dev 7zip && \
     git clone https://github.com/bucanero/ps3iso-utils.git && \
