@@ -35,5 +35,7 @@ public static class CompatSources
     public static readonly IReadOnlyList<ICompatSource> All =
     [
         new Rpcs3CompatSource(),
+        new Pcsx2CompatSource(),
+        new DuckStationCompatSource(),
     ];
 }
