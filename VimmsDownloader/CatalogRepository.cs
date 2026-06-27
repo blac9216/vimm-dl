@@ -595,11 +595,16 @@ class CatalogRepository : ICatalogStore
 
         // English-only (E3a): keep rows whose language list contains "en", or whose region — or the
         // region tag embedded in the name when region is empty — is Western. Built from
-        // Dedup.EnglishRegionTokens so the SQL stays single-sourced with Dedup.IsEnglish.
+        // Dedup.EnglishRegionTokens so the SQL stays single-sourced with Dedup.IsEnglish. Region tags
+        // are matched at a tag boundary (mirrors Dedup.HasRegionToken): the parenthesis/comma delimiters
+        // are replaced with spaces and the token matched space-bounded, so the 2-letter "uk" no longer
+        // substring-matches inside a name like "Sukeban" when the region column is empty (#197).
+        const string engHaystack =
+            "' ' || replace(replace(replace(lower(coalesce(g.region, g.name)), '(', ' '), ')', ' '), ',', ' ') || ' '";
         var englishClause = english
             ? " AND (instr(lower(coalesce(g.languages, '')), 'en') > 0"
               + string.Concat(Enumerable.Range(0, Dedup.EnglishRegionTokens.Length)
-                    .Select(i => $" OR instr(lower(coalesce(g.region, g.name)), $eng{i}) > 0"))
+                    .Select(i => $" OR instr({engHaystack}, ' ' || $eng{i} || ' ') > 0"))
               + ")"
             : "";
 
