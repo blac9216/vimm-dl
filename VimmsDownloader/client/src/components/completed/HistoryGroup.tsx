@@ -29,21 +29,19 @@ export function HistoryGroup({ items, showEventsLink, onViewEvents }: HistoryGro
         <PlatformIcon platform={first.platform} />
         <div className="flex-1 min-w-0">
           <div className="text-sm text-text truncate">{title}</div>
-          <div className="flex items-center gap-2 text-[10px] text-text-4">
-            <span>{items.length} copies</span>
-            {formats.length > 0 && (
-              <span className="flex items-center gap-1">
-                {formats.map(f => (
-                  <span key={f} className="font-mono px-1 rounded bg-surface-3/40 text-text-4">f{f}</span>
-                ))}
-              </span>
-            )}
-          </div>
+          {formats.length > 0 && (
+            <div className="flex items-center gap-1 text-[10px] text-text-4">
+              {formats.map(f => (
+                <span key={f} className="font-mono px-1 rounded bg-surface-3/40 text-text-4">f{f}</span>
+              ))}
+            </div>
+          )}
         </div>
         <span className="text-[11px] font-mono text-text-3 w-16 text-right tabular-nums">
           {totalSize > 0 ? fmtBytes(totalSize) : '--'}
         </span>
-        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-accent/10 text-accent/70 border border-accent/20">
+        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-accent/10 text-accent/70 border border-accent/20"
+          title={`${items.length} copies of this game`}>
           {items.length}&times;
         </span>
         <span className={`text-[10px] text-text-4/40 transition-transform ${open ? 'rotate-90' : ''}`}>&#9654;</span>
