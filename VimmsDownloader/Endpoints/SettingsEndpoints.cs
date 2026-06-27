@@ -47,7 +47,8 @@ static class SettingsEndpoints
                 ArchiveS3Access: s.GetValueOrDefault(SettingsKeys.ArchiveS3Access, ""),
                 ArchiveS3Secret: s.GetValueOrDefault(SettingsKeys.ArchiveS3Secret, ""),
                 ImportPath: importPath,
-                RejectedPath: rejectedPath
+                RejectedPath: rejectedPath,
+                WiiUCommonKey: s.GetValueOrDefault(SettingsKeys.WiiUCommonKey, "")
             );
         });
 
