@@ -45,7 +45,8 @@ record SettingsResponse(string Platform, string OsDescription, string Hostname, 
     int ArchiveParallelism, int ArchiveRetries, int ArchiveIdle,
     string ArchiveS3Access, string ArchiveS3Secret,
     string ImportPath, string RejectedPath,
-    string WiiUCommonKey);
+    string WiiUCommonKey,
+    string IgdbClientId, string IgdbClientSecret);
 
 // Catalog (No-Intro / Redump canonical game list)
 record CatalogSystemStatus(string DatName, string Console, string Source,

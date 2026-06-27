@@ -48,7 +48,9 @@ static class SettingsEndpoints
                 ArchiveS3Secret: s.GetValueOrDefault(SettingsKeys.ArchiveS3Secret, ""),
                 ImportPath: importPath,
                 RejectedPath: rejectedPath,
-                WiiUCommonKey: s.GetValueOrDefault(SettingsKeys.WiiUCommonKey, "")
+                WiiUCommonKey: s.GetValueOrDefault(SettingsKeys.WiiUCommonKey, ""),
+                IgdbClientId: s.GetValueOrDefault(SettingsKeys.IgdbClientId, ""),
+                IgdbClientSecret: s.GetValueOrDefault(SettingsKeys.IgdbClientSecret, "")
             );
         });
 
