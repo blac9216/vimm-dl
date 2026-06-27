@@ -56,5 +56,6 @@ public static class CompatSources
         new Pcsx2CompatSource(),
         new DuckStationCompatSource(),
         new DolphinCompatSource(),
+        new AzaharCompatSource(),
     ];
 }

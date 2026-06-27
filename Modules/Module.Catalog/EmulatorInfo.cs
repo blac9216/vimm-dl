@@ -35,6 +35,7 @@ public static class Emulators
         new("pcsx2", "PCSX2", "ps2", CompatMatchKind.Serial),
         new("duckstation", "DuckStation", "psx", CompatMatchKind.Serial),
         new("dolphin", "Dolphin", "gc", CompatMatchKind.Name, ["gc", "wii"]),
+        new("azahar", "Azahar", "n3ds", CompatMatchKind.Name),
     ];
 
     /// <summary>Look up an emulator by its id (case-insensitive); null when unknown.</summary>

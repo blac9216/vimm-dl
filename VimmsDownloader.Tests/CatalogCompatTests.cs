@@ -120,7 +120,7 @@ public class CatalogCompatTests
         await AddNamedGame(ps2, "Need for Speed Carbon (USA)");
 
         await _repo.ReplaceCompatAsync("dolphin", "name",
-            [new CompatEntry(Dedup.TitleKey("Need for Speed Carbon"), "Playable")], CancellationToken.None);
+            [new CompatEntry(Dedup.TitleKey("Need for Speed Carbon"), "Playable")], CancellationToken.None, "gc,wii");
 
         var (_, gcGames) = await GamesOn("gc");
         Assert.AreEqual("dolphin", gcGames.Single().Compat.Single().Emulator); // GameCube → badged
@@ -128,6 +128,29 @@ public class CatalogCompatTests
 
         var (_, ps2Games) = await GamesOn("ps2");
         Assert.IsEmpty(ps2Games.Single().Compat); // PS2 shares the title but Dolphin doesn't run it → no badge
+    }
+
+    [TestMethod]
+    public async Task NameKeyedCompat_TwoNameEmulators_EachGatedToItsOwnConsoles()
+    {
+        // Dolphin (gc/wii) and Azahar (n3ds) are both name-keyed. A title shared across a Wii game and a
+        // 3DS game must get each emulator's badge on its OWN console only — never cross-matched (#209).
+        var wii = await ScalarLong("INSERT INTO catalog_system (dat_name, console, source) VALUES ('DAT wii', 'wii', 'redump') RETURNING id");
+        var n3ds = await ScalarLong("INSERT INTO catalog_system (dat_name, console, source) VALUES ('DAT n3ds', 'n3ds', 'no-intro') RETURNING id");
+        await AddNamedGame(wii, "Mario Kart (USA)");
+        await AddNamedGame(n3ds, "Mario Kart (USA)");
+        var key = Dedup.TitleKey("Mario Kart");
+
+        await _repo.ReplaceCompatAsync("dolphin", "name", [new CompatEntry(key, "Playable")], CancellationToken.None, "gc,wii");
+        await _repo.ReplaceCompatAsync("azahar", "name", [new CompatEntry(key, "Ingame")], CancellationToken.None, "n3ds");
+
+        var (_, wiiGames) = await GamesOn("wii");
+        Assert.AreEqual("dolphin", wiiGames.Single().Compat.Single().Emulator); // only Dolphin, not Azahar
+        Assert.AreEqual("Playable", wiiGames.Single().Compat.Single().Status);
+
+        var (_, n3dsGames) = await GamesOn("n3ds");
+        Assert.AreEqual("azahar", n3dsGames.Single().Compat.Single().Emulator);  // only Azahar, not Dolphin
+        Assert.AreEqual("Ingame", n3dsGames.Single().Compat.Single().Status);
     }
 
     private Task<(int Total, List<CatalogGameDto> Games)> GamesOn(string console) =>
