@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsAotCompatible>true</IsAotCompatible>
+    <RootNamespace>Module.WiiUSource</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Module.Core\Module.Core.csproj" />
+    <ProjectReference Include="..\Module.Download\Module.Download.csproj" />
+    <ProjectReference Include="..\Module.WiiUTools\Module.WiiUTools.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Module.WiiUSource.Tests" />
+  </ItemGroup>
+</Project>

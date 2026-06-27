@@ -380,6 +380,23 @@ public class DownloadService
                 await provider.RemoveAsync(id);   // drop the item; a partial set isn't auto-retried
                 return;
             }
+
+            // Optional per-file integrity check (e.g. a Wii U content vs its TMD SHA-1). A mismatch fails
+            // the whole item rather than landing a corrupt set. Only multi-file sources set ExpectedSha1.
+            if (!string.IsNullOrEmpty(file.ExpectedSha1))
+            {
+                var (_, completedFilePath) = fileResult.Value;
+                var verify = await VerifyFileSha1Async(completedFilePath, file.ExpectedSha1, ct);
+                if (!verify.IsOk)
+                {
+                    active.State = "error";
+                    _log.LogError("Multi-file integrity check failed for {Url} ({File}): {Error}",
+                        url, file.SuggestedFilename ?? file.DownloadUrl, verify.Error);
+                    await Emit(new DownloadErrorEvent($"Failed: {url} - {verify.Error}"));
+                    await provider.RemoveAsync(id);
+                    return;
+                }
+            }
         }
 
         active.State = "done";
@@ -399,6 +416,17 @@ public class DownloadService
     {
         var cleaned = string.Join("_", name.Split(Path.GetInvalidFileNameChars())).Trim().Trim('.').Trim();
         return string.IsNullOrEmpty(cleaned) ? "set" : cleaned;
+    }
+
+    /// <summary>Verify a downloaded file's SHA-1 against an expected hex digest (multi-file integrity check).</summary>
+    private static async Task<Result<bool>> VerifyFileSha1Async(string path, string expectedHex, CancellationToken ct)
+    {
+        await using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
+        var hash = await System.Security.Cryptography.SHA1.HashDataAsync(fs, ct);
+        var actual = Convert.ToHexString(hash);
+        return actual.Equals(expectedHex, StringComparison.OrdinalIgnoreCase)
+            ? Result.Ok()
+            : Result.Fail($"SHA-1 mismatch (expected {expectedHex}, got {actual})");
     }
 
     /// <summary>

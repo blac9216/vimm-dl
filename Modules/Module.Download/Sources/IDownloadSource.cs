@@ -31,6 +31,8 @@ public interface IDownloadSource
 /// Everything <see cref="DownloadService"/> needs to stream a file, with no
 /// source-specific assumptions. <see cref="RequestHeaders"/> carries any
 /// per-source headers (e.g. Vimm's Referer / Sec-Fetch-Site) applied to each request.
+/// <see cref="ExpectedSha1"/> is an optional integrity check (hex SHA-1) enforced by the
+/// multi-file loop once the file lands; single-file sources leave it null.
 /// </summary>
 public record ResolvedDownload(
     string DownloadUrl,
@@ -39,4 +41,5 @@ public record ResolvedDownload(
     string? SuggestedFilename,
     IReadOnlyList<(string Name, string Value)>? RequestHeaders,
     int ResolvedFormat,
-    string? FormatNote);
+    string? FormatNote,
+    string? ExpectedSha1 = null);
