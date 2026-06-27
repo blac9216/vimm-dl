@@ -100,4 +100,27 @@ public class DedupTests
     [TestMethod]
     public void IsEnglish_FallsBackToNameRegionTag_WhenRegionEmpty()
         => Assert.IsTrue(Dedup.IsEnglish(null, null, "Game (USA)"));
+
+    [TestMethod]
+    public void IsEnglish_RegionEmpty_DoesNotMatchUkBigramInsideJapaneseName()
+    {
+        // #197: "uk" lives inside these real Japanese titles, not as a "(UK)" region tag — the
+        // boundary-aware match must not classify them English when the region column is empty.
+        Assert.IsFalse(Dedup.IsEnglish(null, null, "Yuukyuu Gensoukyoku (Japan)")); // "uk" in "Yuukyuu"
+        Assert.IsFalse(Dedup.IsEnglish(null, null, "Sukeban Deka (Japan)"));        // "uk" in "Sukeban"
+    }
+
+    [TestMethod]
+    public void IsEnglish_RegionEmpty_StillMatchesGenuineUkTag()
+        => Assert.IsTrue(Dedup.IsEnglish(null, null, "Some Game (UK)")); // a real (UK) release still counts
+
+    [TestMethod]
+    public void SelectParent_RegionEmptyJapaneseName_NotMisrankedAsEuropeanByUkBigram()
+    {
+        // #197: the Japan variant has an empty region and "uk" inside "Sukeban"; without boundary-aware
+        // matching its name-fallback rank was Europe (1), tying and keeping it over the real Europe
+        // release. It must now rank as Japan (2), so the Europe variant wins 1G1R.
+        var games = new (string, string?)[] { ("Sukeban Deka (Japan)", null), ("Sukeban Deka (Europe)", "Europe") };
+        Assert.AreEqual(1, Dedup.SelectParent(games));
+    }
 }

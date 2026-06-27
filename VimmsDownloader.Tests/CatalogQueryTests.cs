@@ -214,6 +214,22 @@ public class CatalogQueryTests
         Assert.IsFalse(games.Any(g => g.Name.Contains("JP Demo")));
     }
 
+    [TestMethod]
+    public async Task Games_EnglishOnly_RegionEmptyName_BoundaryAwareUkToken()
+    {
+        // #197: region column empty → the filter falls back to the name. The "uk" bigram inside
+        // "Sukeban" must NOT count as English, but a genuine "(UK)" tag still must.
+        await AddGame(1, "Sukeban Deka (Japan)", null, null, null, [("s.sfc", 1)]);
+        await AddGame(1, "Manchester Utd (UK)", null, null, null, [("u.sfc", 1)]);
+
+        var (jpTotal, _) = await Games("snes", "Sukeban", 0, 100, english: true);
+        Assert.AreEqual(0, jpTotal); // not English — "uk" is inside a word, not a region tag
+
+        var (ukTotal, ukGames) = await Games("snes", "Manchester", 0, 100, english: true);
+        Assert.AreEqual(1, ukTotal); // a real (UK) release still classifies as English
+        Assert.AreEqual("Manchester Utd (UK)", ukGames[0].Name);
+    }
+
     // --- mirrors of CatalogRepository query SQL ---
 
     private async Task<List<(string Console, int Total, int Owned)>> Consoles()
@@ -241,10 +257,12 @@ public class CatalogQueryTests
 
         // Mirror CatalogRepository.GetGamesAsync: the English-only + hide-demos clauses are built from
         // the same Dedup token/tag lists, so this test exercises the real filter shape (no drift).
+        const string engHaystack =
+            "' ' || replace(replace(replace(lower(coalesce(g.region, g.name)), '(', ' '), ')', ' '), ',', ' ') || ' '";
         var englishClause = english
             ? " AND (instr(lower(coalesce(g.languages, '')), 'en') > 0"
               + string.Concat(Enumerable.Range(0, Dedup.EnglishRegionTokens.Length)
-                    .Select(i => $" OR instr(lower(coalesce(g.region, g.name)), $eng{i}) > 0"))
+                    .Select(i => $" OR instr({engHaystack}, ' ' || $eng{i} || ' ') > 0"))
               + ")"
             : "";
         var categoryClause = excludeCategories

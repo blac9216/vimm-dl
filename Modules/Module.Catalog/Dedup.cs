@@ -91,16 +91,30 @@ public static class Dedup
             return true;
         var s = (string.IsNullOrEmpty(region) ? name : region).ToLowerInvariant();
         foreach (var token in EnglishRegionTokens)
-            if (s.Contains(token)) return true;
+            if (HasRegionToken(s, token)) return true;
         return false;
+    }
+
+    /// <summary>
+    /// Match a region token at a tag boundary rather than as a raw substring. Region tags in
+    /// No-Intro/Redump names are parenthesised and comma-delimited ("(USA)", "(Japan, USA)"), so we
+    /// replace those delimiters with spaces, pad, and look for the space-bounded token. This stops the
+    /// 2-letter "uk" (and the like) from false-matching inside a word — e.g. "Sukeban", "Yuukyuu",
+    /// "Duke" — when the region column is empty and we fall back to the name. The SQL filter in
+    /// <c>CatalogRepository.GetGamesAsync</c> applies the same transform.
+    /// </summary>
+    private static bool HasRegionToken(string loweredHaystack, string token)
+    {
+        var padded = " " + loweredHaystack.Replace('(', ' ').Replace(')', ' ').Replace(',', ' ') + " ";
+        return padded.Contains(" " + token + " ", StringComparison.Ordinal);
     }
 
     private static int RegionRank((string Name, string? Region) g)
     {
         var s = (string.IsNullOrEmpty(g.Region) ? g.Name : g.Region).ToLowerInvariant();
-        if (s.Contains("usa") || s.Contains("world")) return 0;       // English, NTSC-U / global
-        if (s.Contains("europe") || s.Contains("uk") || s.Contains("australia") || s.Contains("canada")) return 1;
-        if (s.Contains("japan") || s.Contains("asia") || s.Contains("korea") || s.Contains("china")) return 2;
+        if (HasRegionToken(s, "usa") || HasRegionToken(s, "world")) return 0;   // English, NTSC-U / global
+        if (HasRegionToken(s, "europe") || HasRegionToken(s, "uk") || HasRegionToken(s, "australia") || HasRegionToken(s, "canada")) return 1;
+        if (HasRegionToken(s, "japan") || HasRegionToken(s, "asia") || HasRegionToken(s, "korea") || HasRegionToken(s, "china")) return 2;
         return 3;
     }
 
