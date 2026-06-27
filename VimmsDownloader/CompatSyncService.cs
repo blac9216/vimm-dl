@@ -23,7 +23,10 @@ class CompatSyncService(CatalogRepository catalog, IHttpClientFactory httpFactor
             try
             {
                 var entries = await source.LoadAsync((url, c) => http.GetStringAsync(url, c), ct);
-                await catalog.ReplaceCompatAsync(emulator.Id, Emulators.Token(emulator.MatchKind), entries, ct);
+                // Name-keyed emulators carry the consoles they target so the title join is console-gated;
+                // serial-keyed ones don't need it (serials are globally unique).
+                var consoles = emulator.MatchKind == CompatMatchKind.Name ? string.Join(',', emulator.Consoles) : null;
+                await catalog.ReplaceCompatAsync(emulator.Id, Emulators.Token(emulator.MatchKind), entries, ct, consoles);
                 log.LogInformation("Compat: {Emulator} → {Count} entries", emulator.Id, entries.Count);
                 total += entries.Count;
             }

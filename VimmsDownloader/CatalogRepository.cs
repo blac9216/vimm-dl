@@ -329,10 +329,13 @@ class CatalogRepository : ICatalogStore
 
     /// <summary>
     /// Replace an emulator's compatibility entries wholesale (normalized match key → status). The
-    /// <paramref name="matchKind"/> (serial | title_id | name) records how these keys join to a
-    /// catalog game, so emulators keyed differently can coexist in the one table.
+    /// <paramref name="matchKind"/> (serial | title_id | name) records how these keys join to a catalog
+    /// game, so emulators keyed differently can coexist in the one table. <paramref name="consoles"/> is
+    /// the CSV of consoles a name-keyed emulator targets — the name join is gated to them because titles
+    /// collide across consoles (null for serial-keyed emulators, whose keys are globally unique).
     /// </summary>
-    public async Task ReplaceCompatAsync(string emulator, string matchKind, IReadOnlyList<CompatEntry> entries, CancellationToken ct)
+    public async Task ReplaceCompatAsync(string emulator, string matchKind, IReadOnlyList<CompatEntry> entries,
+        CancellationToken ct, string? consoles = null)
     {
         await using var db = await OpenAsync();
         await using var tx = (SqliteTransaction)await db.BeginTransactionAsync(ct);
@@ -347,9 +350,10 @@ class CatalogRepository : ICatalogStore
         await using (var ins = db.CreateCommand())
         {
             ins.Transaction = tx;
-            ins.CommandText = "INSERT OR REPLACE INTO catalog_compat (emulator, match_kind, match_key, status) VALUES ($e, $k, $mk, $st)";
+            ins.CommandText = "INSERT OR REPLACE INTO catalog_compat (emulator, match_kind, match_key, status, consoles) VALUES ($e, $k, $mk, $st, $cons)";
             ins.Parameters.AddWithValue("$e", emulator);
             ins.Parameters.AddWithValue("$k", matchKind);
+            ins.Parameters.AddWithValue("$cons", (object?)consoles ?? DBNull.Value);
             var pmk = ins.Parameters.Add("$mk", SqliteType.Text);
             var pst = ins.Parameters.Add("$st", SqliteType.Text);
             foreach (var (matchKey, status) in entries)
@@ -696,34 +700,20 @@ class CatalogRepository : ICatalogStore
     }
 
     // How a catalog_compat row (aliased c) matches a catalog_game (aliased g), single-sourced so the
-    // compat projection and the emulator/status filter join identically. Built from the Emulators
-    // registry: serial keys are globally unique; name keys (titles) collide across consoles, so the
-    // name branch is console-gated to the name-keyed emulators' consoles (Dolphin → gc/wii). F3 adds a
-    // title_id branch here once Nintendo systems carry a title_id column.
-    private static readonly string CompatMatch = BuildCompatMatch();
-
-    private static string BuildCompatMatch()
-    {
-        const string serial = "(c.match_kind = 'serial' AND c.match_key = g.serial_key)";
-        // Name-keyed emulators join by the precomputed title_key, gated to the consoles they target so a
-        // multiplatform title can't badge a console the emulator doesn't run. Console slugs come from the
-        // trusted in-code registry (not user input), so inlining them is safe.
-        var nameConsoles = Emulators.All
-            .Where(e => e.MatchKind == CompatMatchKind.Name)
-            .SelectMany(e => e.Consoles)
-            .Distinct(StringComparer.Ordinal)
-            .OrderBy(c => c, StringComparer.Ordinal)
-            .ToList();
-        if (nameConsoles.Count == 0) return serial;
-        var inList = string.Join(", ", nameConsoles.Select(c => $"'{c}'"));
-        return $"{serial} OR (c.match_kind = 'name' AND c.match_key = g.title_key AND s.console IN ({inList}))";
-    }
+    // compat projection and the emulator/status filter join identically. Serial keys are globally
+    // unique; name keys (titles) collide across consoles, so a name row is gated to the consoles its
+    // emulator targets (the row's own `consoles` CSV) — per-emulator-correct even with several
+    // name-keyed emulators (a NULL/empty consoles never matches). F3 adds a title_id branch here once
+    // Nintendo systems carry a title_id column.
+    private const string CompatMatch =
+        "(c.match_kind = 'serial' AND c.match_key = g.serial_key) OR " +
+        "(c.match_kind = 'name' AND c.match_key = g.title_key AND " +
+        "instr(',' || c.consoles || ',', ',' || s.console || ',') > 0)";
 
     // The full per-row projection, shared by the normal paged query and the regex page hydration.
     // compat is GROUP_CONCAT'd as "emulator=status" pairs (joined by '|') so a game can carry a badge
-    // per emulator; MapGame splits it back into a list. (static readonly, not const: it interpolates
-    // the registry-built CompatMatch.)
-    private static readonly string GameColumns = $"""
+    // per emulator; MapGame splits it back into a list.
+    private const string GameColumns = $"""
         g.id, g.name, s.console, g.region, g.serial, g.languages,
         (SELECT COALESCE(SUM(r.size), 0) FROM catalog_rom r WHERE r.game_id = g.id) AS size,
         EXISTS(SELECT 1 FROM catalog_owned o WHERE o.game_id = g.id) AS owned,
