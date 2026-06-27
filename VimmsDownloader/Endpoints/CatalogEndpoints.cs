@@ -147,24 +147,9 @@ static class CatalogEndpoints
             var ids = (req.Ids ?? []).Distinct().ToList();
             if (ids.Count == 0) return Results.BadRequest("No game ids provided");
 
-            int queued = 0, skipped = 0, failed = 0;
-            var results = new List<CatalogQueueResultDto>(ids.Count);
-            foreach (var id in ids)
-            {
-                var game = await repo.GetGameByIdAsync(id);
-                if (game is null) { failed++; results.Add(new(id, "unknown", null)); continue; }
-
-                var resolved = await resolver.ResolveForQueueAsync(id, game.Value.Console, game.Value.Name, req.Format, ct);
-                if (resolved is null) { failed++; results.Add(new(id, "unavailable", null)); continue; }
-                var (url, source, fmt) = resolved.Value;
-
-                if ((await queue.CheckDuplicatesAsync([url])).Count > 0) { skipped++; results.Add(new(id, "duplicate", source)); continue; }
-
-                await queue.AddToQueueAsync(url, fmt, source);
-                queued++; results.Add(new(id, "queued", source));
-            }
-            if (queued > 0 && !downloadQueue.IsRunning) await downloadQueue.StartAsync(null);
-            return Results.Ok(new CatalogQueueBatchResponse(queued, skipped, failed, results));
+            var resp = await CatalogQueueOps.ResolveAndQueueBatchAsync(ids, req.Format, repo, resolver, queue, ct);
+            if (resp.Queued > 0 && !downloadQueue.IsRunning) await downloadQueue.StartAsync(null);
+            return Results.Ok(resp);
         });
     }
 }
