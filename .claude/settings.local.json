@@ -10,7 +10,8 @@
       "Bash(where cc:*)",
       "Bash(docker run:*)",
       "Bash(MSYS_NO_PATHCONV=1 docker run --rm \\\\\n  -v \"C:/Users/pwuexec/Downloads/completed/Skate 3 \\(Europe, Australia\\) \\(En,Fr,De,Es,It,Nl\\)/Skate 3 \\(Europe, Australia\\) \\(En,Fr,De,Es,It,Nl\\):/input:ro\" \\\\\n  -v \"C:/Users/pwuexec/Downloads/completed:/output\" \\\\\n  ps3iso-wrapper /input /output 2>&1)",
-      "Bash(docker build:*)"
+      "Bash(docker build:*)",
+      "Workflow(deep-research)"
     ]
   }
 }
