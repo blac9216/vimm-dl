@@ -19,11 +19,12 @@ static class CatalogEndpoints
 
         // Per-console counts + versions, plus which background jobs are currently running.
         app.MapGet("/api/catalog/status", async (CatalogRepository repo, CatalogSyncState sync, CatalogScanState scan,
-            CatalogCompatState compat, CatalogVerifyState verify, CatalogVimmState vimm, CatalogImportState import) =>
+            CatalogCompatState compat, CatalogVerifyState verify, CatalogVimmState vimm, CatalogImportState import,
+            CatalogIgdbState igdb) =>
         {
             var systems = await repo.GetSystemsAsync();
             return new CatalogStatusResponse(sync.IsRunning, scan.IsRunning, compat.IsRunning, verify.IsRunning,
-                vimm.IsRunning, import.IsRunning, systems.Sum(s => s.GameCount), systems);
+                vimm.IsRunning, import.IsRunning, igdb.IsRunning, systems.Sum(s => s.GameCount), systems);
         });
 
         // Ingest the import drop folder: hash-match each file → place into completed/{console}/ or
@@ -47,6 +48,12 @@ static class CatalogEndpoints
         app.MapPost("/api/catalog/compat/sync", (CompatSyncService svc, CatalogCompatState state,
             ILogger<CompatSyncService> log) =>
             state.Run(log, "Compatibility sync", svc.SyncAsync));
+
+        // Sync game descriptions from IGDB (Twitch OAuth) in the background, single-flight. No-ops when
+        // the user hasn't set Twitch creds (GET /api/settings → igdbClientId/igdbClientSecret).
+        app.MapPost("/api/catalog/igdb-sync", (IgdbSyncService svc, CatalogIgdbState state,
+            ILogger<IgdbSyncService> log) =>
+            state.Run(log, "IGDB sync", svc.SyncAsync));
 
         // Emulators with ingested compatibility — drives the Library emulator/status filter.
         app.MapGet("/api/catalog/emulators", () =>
@@ -220,3 +227,4 @@ sealed class CatalogCompatState : BackgroundJobGate;
 sealed class CatalogVerifyState : BackgroundJobGate;
 sealed class CatalogVimmState : BackgroundJobGate;
 sealed class CatalogImportState : BackgroundJobGate;
+sealed class CatalogIgdbState : BackgroundJobGate;

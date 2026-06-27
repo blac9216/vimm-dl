@@ -1027,6 +1027,45 @@ class CatalogRepository : ICatalogStore
         await cmd.ExecuteNonQueryAsync();
     }
 
+    // --- catalog descriptions (IGDB, epic #122 / M2) ---
+
+    /// <summary>Every game on a console as (id, name) — the join input for the IGDB description match.</summary>
+    public async Task<List<(long Id, string Name)>> GetGamesForConsoleAsync(string console)
+    {
+        await using var db = await OpenAsync();
+        await using var cmd = db.CreateCommand();
+        cmd.CommandText = """
+            SELECT g.id, g.name FROM catalog_game g
+            JOIN catalog_system s ON s.id = g.system_id
+            WHERE s.console = $c
+            """;
+        cmd.Parameters.AddWithValue("$c", console);
+        var list = new List<(long, string)>();
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync()) list.Add((r.GetInt64(0), r.GetString(1)));
+        return list;
+    }
+
+    /// <summary>Store matched descriptions (game id → text) in one transaction.</summary>
+    public async Task SetDescriptionsAsync(IReadOnlyList<(long Id, string Description)> rows, CancellationToken ct)
+    {
+        if (rows.Count == 0) return;
+        await using var db = await OpenAsync();
+        await using var tx = (SqliteTransaction)await db.BeginTransactionAsync(ct);
+        await using var cmd = db.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = "UPDATE catalog_game SET description = $d WHERE id = $id";
+        var pDesc = cmd.Parameters.Add("$d", SqliteType.Text);
+        var pId = cmd.Parameters.Add("$id", SqliteType.Integer);
+        foreach (var (id, desc) in rows)
+        {
+            pDesc.Value = desc;
+            pId.Value = id;
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
+        await tx.CommitAsync(ct);
+    }
+
     private static async Task<List<CatalogSetDto>> ReadSetsAsync(SqliteConnection db, string? console)
     {
         var order = new List<(int Id, string Name, string Console)>();
