@@ -70,8 +70,8 @@ const PAGE_SIZE = 100
 
 // Persist Library filters so they survive tab navigation (the panel unmounts on tab change).
 const FILTERS_KEY = 'vimm:library-filters'
-interface LibraryFilters { console: string; search: string; local: string; dedupe: boolean; page: number }
-const DEFAULT_FILTERS: LibraryFilters = { console: '', search: '', local: 'all', dedupe: false, page: 0 }
+interface LibraryFilters { console: string; search: string; local: string; dedupe: boolean; english: boolean; excludeCategories: boolean; page: number }
+const DEFAULT_FILTERS: LibraryFilters = { console: '', search: '', local: 'all', dedupe: false, english: false, excludeCategories: false, page: 0 }
 function loadFilters(): LibraryFilters {
   try {
     const raw = localStorage.getItem(FILTERS_KEY)
@@ -87,6 +87,8 @@ export function LibraryPanel() {
   const [searchInput, setSearchInput] = useState(persisted.search)
   const [local, setLocal] = useState(persisted.local) // all | owned | remote
   const [dedupe, setDedupe] = useState(persisted.dedupe) // 1G1R
+  const [english, setEnglish] = useState(persisted.english) // English/Western releases only
+  const [excludeCategories, setExcludeCategories] = useState(persisted.excludeCategories) // hide demos/protos
   const [page, setPage] = useState(persisted.page)
   const query = useDebounced(searchInput, 350)
 
@@ -104,7 +106,7 @@ export function LibraryPanel() {
   const verifyMutation = useVerifyCatalog()
   const vimmMutation = useSyncVimm()
   const queueGame = useQueueCatalogGame()
-  const { data: gamesResp, isFetching } = useCatalogGames(selectedConsole || null, query, local, dedupe, page, PAGE_SIZE)
+  const { data: gamesResp, isFetching } = useCatalogGames(selectedConsole || null, query, local, dedupe, english, excludeCategories, page, PAGE_SIZE)
 
   const syncing = status?.syncing ?? false
   const scanning = status?.scanning ?? false
@@ -128,9 +130,9 @@ export function LibraryPanel() {
   useEffect(() => {
     try {
       localStorage.setItem(FILTERS_KEY, JSON.stringify(
-        { console: selectedConsole, search: searchInput, local, dedupe, page }))
+        { console: selectedConsole, search: searchInput, local, dedupe, english, excludeCategories, page }))
     } catch { /* ignore storage write errors */ }
-  }, [selectedConsole, searchInput, local, dedupe, page])
+  }, [selectedConsole, searchInput, local, dedupe, english, excludeCategories, page])
 
   function pickConsole(c: string) { setSelectedConsole(c); setPage(0) }
   function onSearch(v: string) { setSearchInput(v); setPage(0) }
@@ -215,6 +217,18 @@ export function LibraryPanel() {
             dedupe ? 'bg-accent/20 text-accent border-accent/40'
                    : 'bg-surface/80 text-text-3 border-border/60 hover:text-text'}`}>
           1G1R
+        </button>
+        <button onClick={() => { setEnglish(e => !e); setPage(0) }} title="English-only — hide titles with no English/Western release"
+          className={`px-3 py-1 text-xs font-medium rounded border shrink-0 transition-colors ${
+            english ? 'bg-accent/20 text-accent border-accent/40'
+                    : 'bg-surface/80 text-text-3 border-border/60 hover:text-text'}`}>
+          English
+        </button>
+        <button onClick={() => { setExcludeCategories(v => !v); setPage(0) }} title="Hide demos, betas, prototypes, kiosk & sample builds"
+          className={`px-3 py-1 text-xs font-medium rounded border shrink-0 transition-colors ${
+            excludeCategories ? 'bg-accent/20 text-accent border-accent/40'
+                              : 'bg-surface/80 text-text-3 border-border/60 hover:text-text'}`}>
+          Hide demos
         </button>
         <input type="text" value={searchInput} onChange={e => onSearch(e.target.value)}
           placeholder="Search games by name…"

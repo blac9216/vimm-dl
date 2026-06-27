@@ -9,9 +9,20 @@ namespace Module.Catalog;
 /// </summary>
 public static class Dedup
 {
-    // Parenthetical tags that mark a non-final dump; these never win unless they're the only variant.
+    // Parenthetical category tags that mark a non-final / non-retail dump. These are the variants the
+    // Library's "hide demos/protos" filter (E3a) excludes, and they also never win 1G1R parent
+    // selection unless they're the only variant. "(proto" already covers "(prototype)".
+    public static readonly string[] ExcludedCategoryTags =
+        ["(beta", "(proto", "(demo", "(sample", "(kiosk"];
+
+    // Parent selection additionally avoids these never-retail tags (a superset of the category tags).
     private static readonly string[] BadTagPrefixes =
-        ["(beta", "(proto", "(prototype", "(demo", "(sample", "(pirate", "(aftermarket", "(debug"];
+        [.. ExcludedCategoryTags, "(pirate", "(aftermarket", "(debug"];
+
+    // Region/name tokens (lowercased) that indicate an English/Western release, for the English-only
+    // Library filter (E3a). Mirrors the region buckets in RegionRank below.
+    public static readonly string[] EnglishRegionTokens =
+        ["usa", "world", "europe", "uk", "australia", "canada", "new zealand", "ireland", "scandinavia"];
 
     /// <summary>Strip all (…) and […] tags from a name and normalize, so all variants share a key.</summary>
     public static string TitleKey(string name)
@@ -52,6 +63,35 @@ public static class Dedup
         var l = name.ToLowerInvariant();
         foreach (var tag in BadTagPrefixes)
             if (l.Contains(tag)) return true;
+        return false;
+    }
+
+    /// <summary>
+    /// True when the No-Intro/Redump name carries a non-final category tag (demo/beta/proto/kiosk/sample).
+    /// Backs the Library "hide demos/protos" filter; the SQL filter in GetGamesAsync is built from the
+    /// same <see cref="ExcludedCategoryTags"/> list so the two never drift.
+    /// </summary>
+    public static bool IsExcludedVariant(string name)
+    {
+        var l = name.ToLowerInvariant();
+        foreach (var tag in ExcludedCategoryTags)
+            if (l.Contains(tag)) return true;
+        return false;
+    }
+
+    /// <summary>
+    /// True when the release looks English/Western: its language list contains "En", or (failing that)
+    /// its region — or the region tag embedded in its name when the region column is empty — is a
+    /// Western/English one. Backs the English-only Library filter; the SQL mirror in GetGamesAsync
+    /// derives from the same <see cref="EnglishRegionTokens"/>.
+    /// </summary>
+    public static bool IsEnglish(string? region, string? languages, string name)
+    {
+        if (!string.IsNullOrEmpty(languages) && languages.Contains("en", StringComparison.OrdinalIgnoreCase))
+            return true;
+        var s = (string.IsNullOrEmpty(region) ? name : region).ToLowerInvariant();
+        foreach (var token in EnglishRegionTokens)
+            if (s.Contains(token)) return true;
         return false;
     }
 

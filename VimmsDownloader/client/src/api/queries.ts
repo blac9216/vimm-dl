@@ -118,16 +118,18 @@ export function useCatalogConsoles() {
   })
 }
 
-export function useCatalogGames(console: string | null, q: string, local: string, dedupe: boolean, page: number, pageSize = 100) {
+export function useCatalogGames(console: string | null, q: string, local: string, dedupe: boolean, english: boolean, excludeCategories: boolean, page: number, pageSize = 100) {
   const params = new URLSearchParams()
   if (console) params.set('console', console)
   if (q) params.set('q', q)
   if (local && local !== 'all') params.set('local', local)
   if (dedupe) params.set('dedupe', 'true')
+  if (english) params.set('english', 'true')
+  if (excludeCategories) params.set('excludeCategories', 'true')
   params.set('page', page.toString())
   params.set('pageSize', pageSize.toString())
   return useQuery({
-    queryKey: ['catalog-games', console, q, local, dedupe, page, pageSize],
+    queryKey: ['catalog-games', console, q, local, dedupe, english, excludeCategories, page, pageSize],
     queryFn: () => fetchJson<CatalogGamesResponse>(`/api/catalog/games?${params}`),
     staleTime: 60 * 1000,
   })

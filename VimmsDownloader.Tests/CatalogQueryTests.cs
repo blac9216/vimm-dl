@@ -1,4 +1,5 @@
 using Microsoft.Data.Sqlite;
+using Module.Catalog;
 
 namespace VimmsDownloader.Tests;
 
@@ -169,6 +170,50 @@ public class CatalogQueryTests
         Assert.AreEqual(3, allTotal);   // default view unchanged
     }
 
+    [TestMethod]
+    public async Task Games_EnglishOnly_FiltersToWesternReleases()
+    {
+        // A pure-Japan title (no English/Western region, no En language) is hidden in English-only mode.
+        await AddGame(1, "Seiken Densetsu 3 (Japan)", "Japan", null, "Ja", [("sd3.sfc", 100)]);
+        var (total, games) = await Games("snes", null, 0, 100, english: true);
+        Assert.AreEqual(3, total); // SMW (USA), Chrono (USA), Super Metroid (En,Ja) — Seiken excluded
+        Assert.IsFalse(games.Any(g => g.Name.Contains("Seiken")));
+    }
+
+    [TestMethod]
+    public async Task Games_EnglishOnly_KeepsJapanRegionWithEnglishLanguage()
+    {
+        // Super Metroid is region "Japan, USA" with languages "En,Ja" — English via its language list.
+        var (_, games) = await Games("snes", "Metroid", 0, 100, english: true);
+        Assert.AreEqual("Super Metroid (Japan, USA) (En,Ja)", games.Single().Name);
+    }
+
+    [TestMethod]
+    public async Task Games_ExcludeCategories_HidesDemoBetaProtoKioskSample()
+    {
+        await AddGame(1, "Cat Demo (USA) (Demo)", "USA", null, "En", [("d.sfc", 1)]);
+        await AddGame(1, "Cat Beta (USA) (Beta)", "USA", null, "En", [("b.sfc", 1)]);
+        await AddGame(1, "Cat Proto (USA) (Proto)", "USA", null, "En", [("p.sfc", 1)]);
+        await AddGame(1, "Cat Kiosk (USA) (Kiosk)", "USA", null, "En", [("k.sfc", 1)]);
+        await AddGame(1, "Cat Sample (USA) (Sample)", "USA", null, "En", [("s.sfc", 1)]);
+
+        var (unfiltered, _) = await Games("snes", null, 0, 100);
+        Assert.AreEqual(8, unfiltered); // 3 base + 5 category variants
+
+        var (filtered, games) = await Games("snes", null, 0, 100, excludeCategories: true);
+        Assert.AreEqual(3, filtered);   // all five non-final variants dropped
+        Assert.IsFalse(games.Any(g => g.Name.StartsWith("Cat ")));
+    }
+
+    [TestMethod]
+    public async Task Games_EnglishAndExcludeCategories_Compose()
+    {
+        await AddGame(1, "JP Demo (Japan) (Demo)", "Japan", null, "Ja", [("j.sfc", 1)]);
+        var (total, games) = await Games("snes", null, 0, 100, english: true, excludeCategories: true);
+        Assert.AreEqual(3, total); // the Japanese demo is excluded by both filters; base 3 English retail remain
+        Assert.IsFalse(games.Any(g => g.Name.Contains("JP Demo")));
+    }
+
     // --- mirrors of CatalogRepository query SQL ---
 
     private async Task<List<(string Console, int Total, int Owned)>> Consoles()
@@ -189,26 +234,54 @@ public class CatalogQueryTests
     }
 
     private async Task<(int Total, List<(int Id, string Name, string Console, string? Region, string? Serial, string? Languages, long Size, bool Owned, string? Compat, bool? Verified)> Games)>
-        Games(string? console, string? query, int page, int pageSize, string local = "all", bool dedupe = false)
+        Games(string? console, string? query, int page, int pageSize, string local = "all", bool dedupe = false,
+              bool english = false, bool excludeCategories = false)
     {
         var like = string.IsNullOrWhiteSpace(query) ? null : "%" + query.Trim() + "%";
-        const string where = """
+
+        // Mirror CatalogRepository.GetGamesAsync: the English-only + hide-demos clauses are built from
+        // the same Dedup token/tag lists, so this test exercises the real filter shape (no drift).
+        var englishClause = english
+            ? " AND (instr(lower(coalesce(g.languages, '')), 'en') > 0"
+              + string.Concat(Enumerable.Range(0, Dedup.EnglishRegionTokens.Length)
+                    .Select(i => $" OR instr(lower(coalesce(g.region, g.name)), $eng{i}) > 0"))
+              + ")"
+            : "";
+        var categoryClause = excludeCategories
+            ? " AND NOT ("
+              + string.Join(" OR ", Enumerable.Range(0, Dedup.ExcludedCategoryTags.Length)
+                    .Select(i => $"instr(lower(g.name), $cat{i}) > 0"))
+              + ")"
+            : "";
+
+        var where = $"""
             WHERE ($console IS NULL OR s.console = $console)
               AND ($like IS NULL OR g.name LIKE $like)
               AND ($local = 'all'
                    OR ($local = 'owned'  AND     EXISTS(SELECT 1 FROM catalog_owned o WHERE o.game_id = g.id))
                    OR ($local = 'remote' AND NOT EXISTS(SELECT 1 FROM catalog_owned o WHERE o.game_id = g.id)))
-              AND ($dedupe = 0 OR g.is_parent = 1)
+              AND ($dedupe = 0 OR g.is_parent = 1){englishClause}{categoryClause}
             """;
+
+        void BindFilters(SqliteCommand cmd)
+        {
+            cmd.Parameters.AddWithValue("$console", (object?)console ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$like", (object?)like ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$local", local);
+            cmd.Parameters.AddWithValue("$dedupe", dedupe ? 1 : 0);
+            if (english)
+                for (int i = 0; i < Dedup.EnglishRegionTokens.Length; i++)
+                    cmd.Parameters.AddWithValue($"$eng{i}", Dedup.EnglishRegionTokens[i]);
+            if (excludeCategories)
+                for (int i = 0; i < Dedup.ExcludedCategoryTags.Length; i++)
+                    cmd.Parameters.AddWithValue($"$cat{i}", Dedup.ExcludedCategoryTags[i]);
+        }
 
         int total;
         await using (var cnt = _db.CreateCommand())
         {
             cnt.CommandText = $"SELECT COUNT(*) FROM catalog_game g JOIN catalog_system s ON s.id = g.system_id {where}";
-            cnt.Parameters.AddWithValue("$console", (object?)console ?? DBNull.Value);
-            cnt.Parameters.AddWithValue("$like", (object?)like ?? DBNull.Value);
-            cnt.Parameters.AddWithValue("$local", local);
-            cnt.Parameters.AddWithValue("$dedupe", dedupe ? 1 : 0);
+            BindFilters(cnt);
             total = Convert.ToInt32(await cnt.ExecuteScalarAsync());
         }
 
@@ -225,10 +298,7 @@ public class CatalogQueryTests
                 {where}
                 ORDER BY g.name LIMIT $limit OFFSET $offset
                 """;
-            cmd.Parameters.AddWithValue("$console", (object?)console ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("$like", (object?)like ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("$local", local);
-            cmd.Parameters.AddWithValue("$dedupe", dedupe ? 1 : 0);
+            BindFilters(cmd);
             cmd.Parameters.AddWithValue("$limit", pageSize);
             cmd.Parameters.AddWithValue("$offset", page * pageSize);
             await using var r = await cmd.ExecuteReaderAsync();

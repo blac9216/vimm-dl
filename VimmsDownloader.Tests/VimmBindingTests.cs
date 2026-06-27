@@ -105,7 +105,7 @@ public class VimmBindingTests
         await AddRom(unbound, "Unbound Game.sfc", "dd", "ee", "ff");
         await _repo.BindVimmAsync(bound, 100, "sha1", [], default);
 
-        var (_, games) = await _repo.GetGamesAsync("snes", null, "all", false, 0, 100);
+        var (_, games) = await _repo.GetGamesAsync("snes", null, "all", false, false, false, 0, 100);
         var byName = games.ToDictionary(g => g.Name);
         Assert.AreEqual("sha1", byName["Bound Game"].VimmMatch);
         Assert.IsNull(byName["Unbound Game"].VimmMatch);
@@ -124,7 +124,7 @@ public class VimmBindingTests
         await AddCompleted(game, format: 0, source: "vimm", "G.7z");
         await AddCompleted(game, format: 1, source: "archive", "G.dec.iso");
 
-        var (_, games) = await _repo.GetGamesAsync("snes", null, "all", false, 0, 100);
+        var (_, games) = await _repo.GetGamesAsync("snes", null, "all", false, false, false, 0, 100);
         var g = games.Single(x => x.Name == "Multi Format Game");
 
         CollectionAssert.AreEqual(new[] { 0, 1 }, g.AvailableFormats);
@@ -138,7 +138,7 @@ public class VimmBindingTests
         var snes = await Seed("snes");
         await AddGame(snes, "Bare Game");
 
-        var (_, games) = await _repo.GetGamesAsync("snes", null, "all", false, 0, 100);
+        var (_, games) = await _repo.GetGamesAsync("snes", null, "all", false, false, false, 0, 100);
         var g = games.Single(x => x.Name == "Bare Game");
 
         Assert.IsEmpty(g.AvailableFormats);
