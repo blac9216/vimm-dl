@@ -39,6 +39,7 @@ builder.Services.AddSingleton(sp => new Module.Catalog.CatalogSyncService(
 builder.Services.AddSingleton<CatalogScanService>();
 builder.Services.AddSingleton<CatalogScanState>();
 builder.Services.AddSingleton<CatalogResolveService>();
+builder.Services.AddSingleton<MediaService>();
 builder.Services.AddSingleton<CompatSyncService>();
 builder.Services.AddSingleton<CatalogCompatState>();
 builder.Services.AddSingleton<CatalogVerifyService>();
@@ -142,6 +143,15 @@ builder.Services.AddHttpClient("compat")
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
     });
 
+// libretro-thumbnails CDN (catalog box art / title screens, epic #122) — plain HTTPS, no auth; the
+// images are static, so a short-ish timeout is fine and misses (404s) come back fast.
+builder.Services.AddHttpClient("thumbnails")
+    .ConfigureHttpClient(c =>
+    {
+        c.Timeout = TimeSpan.FromMinutes(2);
+        c.DefaultRequestHeaders.Add("User-Agent", "vimm-dl");
+    });
+
 var app = builder.Build();
 
 // Init DB
@@ -152,6 +162,9 @@ await repo.InitAsync(app.Configuration.GetConnectionString("Default"),
 // Catalog shares queue.db (tables created by migration 012, run above).
 var catalogRepo = app.Services.GetRequiredService<CatalogRepository>();
 catalogRepo.Configure(app.Configuration.GetConnectionString("Default"));
+
+// Catalog image cache lives under the data dir (sibling of downloads/): data/media/.
+app.Services.GetRequiredService<MediaService>().Configure(Path.Combine(repo.GetDataPath(), "media"));
 
 // Seed the default archive.org download sets once (ported from RomGoGetter). Guarded by a flag so
 // deleting a default set doesn't bring it back; users can edit/delete them freely.

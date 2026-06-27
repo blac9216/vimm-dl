@@ -113,6 +113,21 @@ static class CatalogEndpoints
         app.MapDelete("/api/catalog/sets/{id:int}", async (int id, CatalogRepository repo) =>
             await repo.DeleteSetAsync(id) ? Results.Ok() : Results.NotFound());
 
+        // A game's cached box art / title screen, fetched from libretro-thumbnails on first request and
+        // cached on disk (404s negative-cached). ?type=boxart (default) | title. A 404 means "no art" —
+        // the Library shows a placeholder. Long-cached: a given game's image bytes never change.
+        app.MapGet("/api/catalog/games/{id:int}/image", async (int id, string? type, MediaService media,
+            HttpResponse res, CancellationToken ct) =>
+        {
+            var kind = (type ?? "boxart").Trim().ToLowerInvariant();
+            if (!Module.Catalog.LibretroThumbnails.IsKnownType(kind))
+                return Results.BadRequest("type must be boxart or title");
+            var path = await media.GetImageAsync(id, kind, ct);
+            if (path is null) return Results.NotFound();
+            res.Headers.CacheControl = "public, max-age=2592000, immutable"; // 30 days
+            return Results.File(path, "image/png");
+        });
+
         // A game's Vimm download options (vault id + available formats) for the download format
         // picker, or 404 when the game has no Vimm match.
         app.MapGet("/api/catalog/games/{id:int}/vimm", async (int id, CatalogRepository repo) =>
