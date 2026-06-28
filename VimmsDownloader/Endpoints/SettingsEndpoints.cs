@@ -50,7 +50,8 @@ static class SettingsEndpoints
                 RejectedPath: rejectedPath,
                 WiiUCommonKey: s.GetValueOrDefault(SettingsKeys.WiiUCommonKey, ""),
                 IgdbClientId: s.GetValueOrDefault(SettingsKeys.IgdbClientId, ""),
-                IgdbClientSecret: s.GetValueOrDefault(SettingsKeys.IgdbClientSecret, "")
+                IgdbClientSecret: s.GetValueOrDefault(SettingsKeys.IgdbClientSecret, ""),
+                RaApiKey: s.GetValueOrDefault(SettingsKeys.RetroAchievementsApiKey, "")
             );
         });
 

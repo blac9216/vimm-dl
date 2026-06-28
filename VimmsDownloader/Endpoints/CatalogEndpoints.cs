@@ -20,11 +20,11 @@ static class CatalogEndpoints
         // Per-console counts + versions, plus which background jobs are currently running.
         app.MapGet("/api/catalog/status", async (CatalogRepository repo, CatalogSyncState sync, CatalogScanState scan,
             CatalogCompatState compat, CatalogVerifyState verify, CatalogVimmState vimm, CatalogImportState import,
-            CatalogIgdbState igdb) =>
+            CatalogIgdbState igdb, CatalogRaState ra) =>
         {
             var systems = await repo.GetSystemsAsync();
             return new CatalogStatusResponse(sync.IsRunning, scan.IsRunning, compat.IsRunning, verify.IsRunning,
-                vimm.IsRunning, import.IsRunning, igdb.IsRunning, systems.Sum(s => s.GameCount), systems);
+                vimm.IsRunning, import.IsRunning, igdb.IsRunning, ra.IsRunning, systems.Sum(s => s.GameCount), systems);
         });
 
         // Ingest the import drop folder: hash-match each file → place into completed/{console}/ or
@@ -63,6 +63,13 @@ static class CatalogEndpoints
         app.MapPost("/api/catalog/igdb-rank-sync", (bool? force, IgdbRankSyncService svc, CatalogIgdbState state,
             ILogger<IgdbRankSyncService> log) =>
             state.Run(log, "IGDB rank sync", ct => svc.SyncAsync(force ?? false, ct)));
+
+        // Sync RetroAchievements popularity (NumDistinctPlayers, hash-joined for cartridge consoles) and
+        // blend it into rank_score, in the background (single-flight). No-ops without an RA API key
+        // (GET /api/settings → raApiKey). Incremental by default; ?force=true refetches every matched game.
+        app.MapPost("/api/catalog/ra-sync", (bool? force, RetroAchievementsSyncService svc, CatalogRaState state,
+            ILogger<RetroAchievementsSyncService> log) =>
+            state.Run(log, "RetroAchievements sync", ct => svc.SyncAsync(force ?? false, ct)));
 
         // Emulators with ingested compatibility — drives the Library emulator/status filter.
         app.MapGet("/api/catalog/emulators", () =>
@@ -266,3 +273,4 @@ sealed class CatalogVerifyState : BackgroundJobGate;
 sealed class CatalogVimmState : BackgroundJobGate;
 sealed class CatalogImportState : BackgroundJobGate;
 sealed class CatalogIgdbState : BackgroundJobGate;
+sealed class CatalogRaState : BackgroundJobGate;

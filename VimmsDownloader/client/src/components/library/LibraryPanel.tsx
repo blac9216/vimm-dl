@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useCatalogConsoles, useCatalogGames, useCatalogStatus, useEmulators, useSyncCatalog, useScanCatalog, useSyncCompat, useVerifyCatalog, useSyncVimm, useSyncIgdb, useSyncIgdbRank, useQueueCatalogGame, useQueueCatalogGamesBatch, fetchGameVimm, fetchCurate } from '../../api/queries'
+import { useCatalogConsoles, useCatalogGames, useCatalogStatus, useEmulators, useSyncCatalog, useScanCatalog, useSyncCompat, useVerifyCatalog, useSyncVimm, useSyncIgdb, useSyncIgdbRank, useSyncRa, useQueueCatalogGame, useQueueCatalogGamesBatch, fetchGameVimm, fetchCurate } from '../../api/queries'
 import type { CatalogGame, CatalogVimmFormat } from '../../types/api'
 import { CatalogThumb } from '../shared/CatalogThumb'
 import { GameDetail } from './GameDetail'
@@ -109,6 +109,7 @@ export function LibraryPanel() {
   const vimmMutation = useSyncVimm()
   const igdbMutation = useSyncIgdb()
   const igdbRankMutation = useSyncIgdbRank()
+  const raMutation = useSyncRa()
   const queueGame = useQueueCatalogGame()
   const batchQueue = useQueueCatalogGamesBatch()
   const { data: gamesResp, isFetching } = useCatalogGames(selectedConsole || null, query, local, dedupe, english, excludeCategories, searchMode, page, PAGE_SIZE, emulator, compatStatus, sort)
@@ -122,7 +123,8 @@ export function LibraryPanel() {
   const verifying = status?.verifying ?? false
   const vimmSyncing = status?.vimmSyncing ?? false
   const igdbSyncing = status?.igdbSyncing ?? false
-  const busy = syncing || scanning || compatSyncing || verifying || vimmSyncing || igdbSyncing
+  const raSyncing = status?.raSyncing ?? false
+  const busy = syncing || scanning || compatSyncing || verifying || vimmSyncing || igdbSyncing || raSyncing
   const totalInCatalog = status?.totalGames ?? 0
 
   // When a sync or scan finishes, refresh the catalog views so new games/counts/owned appear.
@@ -389,6 +391,12 @@ export function LibraryPanel() {
           className="px-3 py-1 text-xs font-medium rounded bg-surface-2/40 text-text-3
             border border-border/30 hover:bg-surface-2/70 hover:text-text disabled:opacity-40 shrink-0">
           {igdbSyncing ? 'Rank…' : 'Rank ★'}
+        </button>
+        <button onClick={() => raMutation.mutate()} disabled={busy}
+          title="Blend RetroAchievements popularity into the rank for cartridge consoles (needs an API key in Settings → RetroAchievements)"
+          className="px-3 py-1 text-xs font-medium rounded bg-surface-2/40 text-text-3
+            border border-border/30 hover:bg-surface-2/70 hover:text-text disabled:opacity-40 shrink-0">
+          {raSyncing ? 'RA…' : 'RA'}
         </button>
         <button onClick={() => syncMutation.mutate()} disabled={busy} title="Re-sync from No-Intro / Redump"
           className="px-3 py-1 text-xs font-medium rounded bg-surface-2/40 text-text-3

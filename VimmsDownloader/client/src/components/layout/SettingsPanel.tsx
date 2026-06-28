@@ -314,6 +314,34 @@ export function SettingsPanel() {
             </div>
           </div>
 
+          {/* RetroAchievements (popularity ranking) */}
+          <div>
+            <div className="text-[10px] text-text-3 tracking-wide uppercase mb-3">
+              RetroAchievements (popularity)
+            </div>
+            <div className="space-y-3 border border-border/20 rounded p-3 bg-card/30">
+              <div className="text-[10px] text-text-4">
+                Web API key for RetroAchievements, used to blend player-count popularity into the rank for
+                cartridge consoles. Find it at <span className="text-accent/70">retroachievements.org → Settings → Keys</span>.
+                Empty → the RA sync is disabled.
+              </div>
+              <div>
+                <div className="text-[10px] text-text-4 mb-1">API key</div>
+                <input
+                  type="password"
+                  autoComplete="off"
+                  spellCheck={false}
+                  defaultValue={settings.raApiKey}
+                  onBlur={e => saveText('ra_api_key', e.target.value, settings.raApiKey)}
+                  className={inputCls}
+                />
+              </div>
+            </div>
+            <div className="mt-2 text-[10px] text-text-4">
+              Then run RA from the Library toolbar to fold popularity into the rank.
+            </div>
+          </div>
+
           {/* Catalog */}
           <div>
             <div className="text-[10px] text-text-3 tracking-wide uppercase mb-3">

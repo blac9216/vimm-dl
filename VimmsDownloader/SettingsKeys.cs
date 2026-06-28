@@ -41,4 +41,8 @@ static class SettingsKeys
     // credentials OAuth). Both empty → IGDB-backed syncs no-op. Read fresh at each sync.
     public const string IgdbClientId = "igdb_client_id";
     public const string IgdbClientSecret = "igdb_client_secret";
+
+    // RetroAchievements popularity (epic #123 / R2). The user's RetroAchievements web API key (the `y`
+    // query param), from retroachievements.org → Settings → Keys. Empty → the RA popularity sync no-ops.
+    public const string RetroAchievementsApiKey = "ra_api_key";
 }

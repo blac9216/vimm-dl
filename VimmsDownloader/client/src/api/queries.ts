@@ -156,7 +156,7 @@ export function useCatalogStatus() {
     // Poll while any catalog job is running so the UI advances; idle otherwise.
     refetchInterval: q => {
       const s = q.state.data
-      return s?.syncing || s?.scanning || s?.compatSyncing || s?.verifying || s?.vimmSyncing || s?.importing || s?.igdbSyncing ? 2000 : false
+      return s?.syncing || s?.scanning || s?.compatSyncing || s?.verifying || s?.vimmSyncing || s?.importing || s?.igdbSyncing || s?.raSyncing ? 2000 : false
     },
   })
 }
@@ -227,6 +227,16 @@ export function useSyncIgdbRank() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: () => postJson('/api/catalog/igdb-rank-sync'),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['catalog-status'] }),
+  })
+}
+
+// Sync RetroAchievements popularity (NumDistinctPlayers, hash-joined for carts) into the rank.
+// No-ops server-side without an RA API key (Settings → RetroAchievements).
+export function useSyncRa() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => postJson('/api/catalog/ra-sync'),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['catalog-status'] }),
   })
 }
