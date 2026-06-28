@@ -19,6 +19,33 @@ metal), also runs on Windows for dev.
 - **GitHub workflow** — load the `github-workflow` skill at the start of every session, including immediately after a context compaction, and follow it for all GitHub work: issues, epics, branches, commits, PRs, and the contextless PR review (which it hands off to the `github-pr-review` skill). It is the durable home for these conventions — do not rely on chat memory or summaries to carry them.
 - **Toolchain (remote)** — .NET SDK at `/tmp/dotnet`, bun at `/root/.bun/bin`, clang at `/usr/bin/clang`. MSTest 4 emits no results without a TRX logger: `dotnet test <proj> -c Debug --logger "trx;LogFileName=x.trx" --results-directory /tmp/trx`. **Coverage:** every `*.Tests` project references `coverlet.collector`, so append `--collect:"XPlat Code Coverage"` to emit a `coverage.cobertura.xml` under the results dir (e.g. `dotnet test VimmsDownloader.slnx -c Debug --collect:"XPlat Code Coverage" --results-directory /tmp/cov`). Frontend build: `bun run build` (runs `tsc -b && vite build`). The build is analyzer-warning-clean; a root `Directory.Build.props` opts every `*.Tests` project out of MSTest parallelization (`[assembly: DoNotParallelize]`) — the suite runs sequentially because many tests use real file I/O, temp SQLite, and Testcontainers.
 
+## Required Tools
+
+Everything needed to build, test, and lint this repo. The **Toolchain (remote)** bullet above is the
+quick invocation cheat-sheet; this is the install-and-locate reference for a fresh environment.
+
+- **.NET 10 SDK** — the solution targets `net10.0`. **It is *not* pre-installed in a fresh remote
+  sandbox** — install it to `/tmp/dotnet` (it won't be on `PATH`, so invoke it explicitly):
+
+  ```bash
+  curl -fsSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 10.0 --install-dir /tmp/dotnet
+  /tmp/dotnet/dotnet --version   # 10.0.x
+  ```
+
+  Then `export PATH="/tmp/dotnet:$PATH"` and use `dotnet build VimmsDownloader.slnx -c Debug` /
+  `dotnet test <proj> -c Debug --logger "trx;LogFileName=x.trx" --results-directory /tmp/trx`.
+- **bun** — the frontend package manager + build runner, at `/root/.bun/bin/bun` (pre-installed). In
+  `VimmsDownloader/client/`: `bun install`, then `bun run build` (`tsc -b && vite build`) and
+  `bun run lint` (`eslint .`). The built bundle under `VimmsDownloader/wwwroot/` is **tracked** — commit
+  the rebuild alongside any frontend source change.
+- **clang** — at `/usr/bin/clang` (pre-installed). Needed only for the AOT native publish
+  (`PublishAot=true`, i.e. `dotnet publish` / the Docker image); plain Debug builds + tests don't use it.
+- **7-Zip (`7z`) and Docker** — optional. `Module.Extractor` tests and the Testcontainers-backed tests
+  (`ghcr.io/eduvhc/vimm-dl-tools`) **skip gracefully** when these are absent, so the suite stays green
+  without them. Install only when working on the extractor itself.
+- **Outbound HTTPS** — required for catalog / IGDB / libretro-thumbnails fetches and NuGet + bun
+  restores; it routes through the sandbox proxy.
+
 ## Architecture
 
 ### Modules (under `Modules/`)
