@@ -1029,15 +1029,19 @@ class CatalogRepository : ICatalogStore
 
     // --- catalog descriptions (IGDB, epic #122 / M2) ---
 
-    /// <summary>Every game on a console as (id, name) — the join input for the IGDB description match.</summary>
-    public async Task<List<(long Id, string Name)>> GetGamesForConsoleAsync(string console)
+    /// <summary>
+    /// Games on a console as (id, name) — the join input for the IGDB description match. With
+    /// <paramref name="onlyUndescribed"/> set, restricts to games that don't yet have a description
+    /// (the incremental-sync path).
+    /// </summary>
+    public async Task<List<(long Id, string Name)>> GetGamesForConsoleAsync(string console, bool onlyUndescribed = false)
     {
         await using var db = await OpenAsync();
         await using var cmd = db.CreateCommand();
-        cmd.CommandText = """
+        cmd.CommandText = $"""
             SELECT g.id, g.name FROM catalog_game g
             JOIN catalog_system s ON s.id = g.system_id
-            WHERE s.console = $c
+            WHERE s.console = $c{(onlyUndescribed ? " AND g.description IS NULL" : "")}
             """;
         cmd.Parameters.AddWithValue("$c", console);
         var list = new List<(long, string)>();

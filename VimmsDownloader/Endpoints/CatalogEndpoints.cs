@@ -51,9 +51,10 @@ static class CatalogEndpoints
 
         // Sync game descriptions from IGDB (Twitch OAuth) in the background, single-flight. No-ops when
         // the user hasn't set Twitch creds (GET /api/settings → igdbClientId/igdbClientSecret).
-        app.MapPost("/api/catalog/igdb-sync", (IgdbSyncService svc, CatalogIgdbState state,
+        // Incremental by default; ?force=true re-pulls + re-stores every game's description.
+        app.MapPost("/api/catalog/igdb-sync", (bool? force, IgdbSyncService svc, CatalogIgdbState state,
             ILogger<IgdbSyncService> log) =>
-            state.Run(log, "IGDB sync", svc.SyncAsync));
+            state.Run(log, "IGDB sync", ct => svc.SyncAsync(force ?? false, ct)));
 
         // Emulators with ingested compatibility — drives the Library emulator/status filter.
         app.MapGet("/api/catalog/emulators", () =>

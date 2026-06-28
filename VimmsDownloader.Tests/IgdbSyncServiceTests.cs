@@ -39,7 +39,7 @@ public class IgdbSyncServiceTests
     public async Task Sync_NoCreds_NoOps_WithoutEvenRequestingAToken()
     {
         var handler = new StubIgdbHandler();
-        var n = await NewService(handler).SyncAsync(default);
+        var n = await NewService(handler).SyncAsync(force: false, default);
 
         Assert.AreEqual(0, n);
         Assert.AreEqual(0, handler.TokenCalls);
@@ -66,12 +66,43 @@ public class IgdbSyncServiceTests
                 : (System.Net.HttpStatusCode.OK, "[]"),
         };
 
-        var matched = await NewService(handler).SyncAsync(default);
+        var matched = await NewService(handler).SyncAsync(force: false, default);
 
         Assert.AreEqual(1, matched);                              // only Chrono matched
         Assert.AreEqual("A time-travel RPG.", await Description(chrono));
         Assert.IsNull(await Description(mario));                  // unmatched → no description
         Assert.AreEqual(1, handler.TokenCalls);                   // one token for the whole run
+    }
+
+    [TestMethod]
+    public async Task Sync_Incremental_SkipsFullyDescribedConsole_UnlessForced()
+    {
+        await _queue.SaveSettingAsync(SettingsKeys.IgdbClientId, "cid");
+        await _queue.SaveSettingAsync(SettingsKeys.IgdbClientSecret, "secret");
+        var snes = await ScalarLong(
+            "INSERT INTO catalog_system (dat_name, console, source) VALUES ('SNES DAT', 'snes', 'no-intro') RETURNING id");
+        await ScalarLong($"INSERT INTO catalog_game (system_id, name) VALUES ({snes}, 'Chrono Trigger (USA)') RETURNING id");
+
+        var handler = new StubIgdbHandler
+        {
+            Games = body => body.Contains("offset 0;")
+                ? (System.Net.HttpStatusCode.OK,
+                   "[{\"id\":1,\"name\":\"Chrono Trigger\",\"summary\":\"A time-travel RPG.\"}]")
+                : (System.Net.HttpStatusCode.OK, "[]"),
+        };
+        var svc = NewService(handler);
+
+        Assert.AreEqual(1, await svc.SyncAsync(force: false, default)); // first run describes Chrono
+        var afterFirst = handler.GamesCalls;
+        Assert.IsGreaterThan(0, afterFirst);
+
+        // Second incremental run: the console has no undescribed games left → no IGDB query at all.
+        Assert.AreEqual(0, await svc.SyncAsync(force: false, default));
+        Assert.AreEqual(afterFirst, handler.GamesCalls);
+
+        // Forcing re-pulls + re-stores everything → the platform is queried again.
+        Assert.AreEqual(1, await svc.SyncAsync(force: true, default));
+        Assert.IsGreaterThan(afterFirst, handler.GamesCalls);
     }
 
     private IgdbSyncService NewService(StubIgdbHandler handler) =>

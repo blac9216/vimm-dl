@@ -7,14 +7,18 @@ using Module.Catalog;
 /// throttled to stay under IGDB's rate limit), builds a normalized-name → description index, joins the
 /// console's catalog games by name (<see cref="CatalogMatcher"/>), and stores the matches. No-ops
 /// (returns 0) when the user hasn't configured Twitch creds, or when a token can't be obtained.
+///
+/// By default the run is incremental: only games that still lack a description are pulled and matched,
+/// so a console whose games are all already described is skipped without any IGDB fetch. Pass
+/// <c>force</c> to re-pull and re-store every game (e.g. after a description-source change).
 /// </summary>
 class IgdbSyncService(CatalogRepository catalog, QueueRepository settings, IgdbClient igdb,
     ILogger<IgdbSyncService> log)
 {
     private const int PageSize = 500;                              // IGDB's max page size
-    private static readonly TimeSpan PageDelay = TimeSpan.FromMilliseconds(300); // ~4 req/s rate limit
+    private static readonly TimeSpan PageDelay = TimeSpan.FromMilliseconds(300); // ~3.3 req/s, under IGDB's 4 req/s
 
-    public async Task<int> SyncAsync(CancellationToken ct)
+    public async Task<int> SyncAsync(bool force, CancellationToken ct)
     {
         var s = await settings.GetAllSettingsAsync();
         var clientId = s.GetValueOrDefault(SettingsKeys.IgdbClientId, "").Trim();
@@ -38,7 +42,9 @@ class IgdbSyncService(CatalogRepository catalog, QueueRepository settings, IgdbC
             ct.ThrowIfCancellationRequested();
             if (IgdbPlatforms.Ids(console) is not { } platformIds) continue; // no IGDB mapping
 
-            var games = await catalog.GetGamesForConsoleAsync(console);
+            // Incremental by default: only undescribed games. A fully-described console yields an empty
+            // list and is skipped here, before the (expensive) IGDB pagination below.
+            var games = await catalog.GetGamesForConsoleAsync(console, onlyUndescribed: !force);
             if (games.Count == 0) continue;
 
             // Pull every IGDB game for this console's platform(s) into one normalized-name index.
