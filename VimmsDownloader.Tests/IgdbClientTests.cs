@@ -43,6 +43,22 @@ public class IgdbClientTests
     }
 
     [TestMethod]
+    public async Task GetToken_RefetchesWhenSecretChanges()
+    {
+        // #236: the cache must key on the secret too — rotating only the secret (same client id)
+        // forces a fresh token rather than serving the one minted from the old secret.
+        var handler = new StubIgdbHandler();
+        var client = New(handler);
+
+        var a = await client.GetTokenAsync("cid", "secret-1", default);
+        var b = await client.GetTokenAsync("cid", "secret-2", default);
+
+        Assert.AreEqual("tok-1", a);
+        Assert.AreEqual("tok-2", b);             // same id, new secret → fresh token
+        Assert.AreEqual(2, handler.TokenCalls);
+    }
+
+    [TestMethod]
     public async Task GetToken_NullWhenTokenRequestFails()
     {
         var handler = new StubIgdbHandler { Token = _ => (HttpStatusCode.Forbidden, "nope") };
