@@ -15,6 +15,7 @@ class IgdbClient(IHttpClientFactory httpFactory, ILogger<IgdbClient> log)
     private readonly SemaphoreSlim _tokenLock = new(1, 1);
     private string? _token;
     private string? _tokenClientId;
+    private string? _tokenClientSecret;
     private DateTimeOffset _tokenExpiry;
 
     /// <summary>
@@ -26,8 +27,9 @@ class IgdbClient(IHttpClientFactory httpFactory, ILogger<IgdbClient> log)
         await _tokenLock.WaitAsync(ct);
         try
         {
-            // Reuse a cached token issued for the same client id while it has comfortable life left.
-            if (_token is not null && _tokenClientId == clientId &&
+            // Reuse a cached token issued for the same credentials while it has comfortable life left.
+            // Both the id AND the secret must match, so rotating only the secret forces a fresh token.
+            if (_token is not null && _tokenClientId == clientId && _tokenClientSecret == clientSecret &&
                 _tokenExpiry - DateTimeOffset.UtcNow > TimeSpan.FromMinutes(5))
                 return _token;
 
@@ -45,6 +47,7 @@ class IgdbClient(IHttpClientFactory httpFactory, ILogger<IgdbClient> log)
             var expires = doc.RootElement.TryGetProperty("expires_in", out var e) && e.TryGetInt64(out var s) ? s : 3600;
             _token = tok.GetString();
             _tokenClientId = clientId;
+            _tokenClientSecret = clientSecret;
             _tokenExpiry = DateTimeOffset.UtcNow.AddSeconds(expires);
             return _token;
         }
