@@ -595,12 +595,18 @@ class CatalogRepository : ICatalogStore
     /// </summary>
     public async Task<(int Total, List<CatalogGameDto> Games)> GetGamesAsync(
         string? console, string? query, string local, bool dedupe, bool english, bool excludeCategories,
-        string searchMode, int page, int pageSize, string? emulator = null, string? compatStatus = null)
+        string searchMode, int page, int pageSize, string? emulator = null, string? compatStatus = null,
+        string sort = "name")
     {
         pageSize = Math.Clamp(pageSize, 1, 200);
         page = Math.Max(0, page);
         local = local is "owned" or "remote" ? local : "all";
         searchMode = searchMode is "glob" or "regex" ? searchMode : "substring";
+        // Sort: "rank" puts the highest rank_score first with unranked (NULL) games last; "name"
+        // (default) is the plain alphabetical order. Single-sourced so the SQL + regex paths agree.
+        var orderBy = sort == "rank"
+            ? "ORDER BY (g.rank_score IS NULL), g.rank_score DESC, g.name"
+            : "ORDER BY g.name";
         var q = query?.Trim();
         bool hasQuery = !string.IsNullOrEmpty(q);
         var emu = string.IsNullOrWhiteSpace(emulator) ? null : emulator.Trim();
@@ -674,7 +680,7 @@ class CatalogRepository : ICatalogStore
 
         // Regex search runs in C# (AOT-safe interpreted Regex); the other filters still run in SQL.
         if (hasQuery && searchMode == "regex")
-            return await QueryGamesByRegexAsync(db, filterWhere, BindFilters, q!, page, pageSize);
+            return await QueryGamesByRegexAsync(db, filterWhere, BindFilters, q!, page, pageSize, orderBy);
 
         var where = filterWhere + nameClause;
 
@@ -689,7 +695,7 @@ class CatalogRepository : ICatalogStore
         var games = new List<CatalogGameDto>();
         await using (var cmd = db.CreateCommand())
         {
-            cmd.CommandText = $"SELECT {GameColumns} FROM catalog_game g JOIN catalog_system s ON s.id = g.system_id {where} ORDER BY g.name LIMIT $limit OFFSET $offset";
+            cmd.CommandText = $"SELECT {GameColumns} FROM catalog_game g JOIN catalog_system s ON s.id = g.system_id {where} {orderBy} LIMIT $limit OFFSET $offset";
             BindFilters(cmd);
             cmd.Parameters.AddWithValue("$limit", pageSize);
             cmd.Parameters.AddWithValue("$offset", page * pageSize);
@@ -723,7 +729,8 @@ class CatalogRepository : ICatalogStore
         (SELECT GROUP_CONCAT(f.alt) FROM catalog_vimm_format f WHERE f.game_id = g.id) AS avail_formats,
         (SELECT GROUP_CONCAT(DISTINCT cu.format) FROM completed_urls cu WHERE cu.game_id = g.id) AS owned_formats,
         (SELECT GROUP_CONCAT(DISTINCT cu.source) FROM completed_urls cu WHERE cu.game_id = g.id) AS owned_sources,
-        (SELECT GROUP_CONCAT(DISTINCT gs.origin) FROM catalog_game_source gs WHERE gs.game_id = g.id) AS origins
+        (SELECT GROUP_CONCAT(DISTINCT gs.origin) FROM catalog_game_source gs WHERE gs.game_id = g.id) AS origins,
+        g.rank_score AS rank_score
         """;
 
     /// <summary>Build a <see cref="CatalogGameDto"/> from a row selected with <see cref="GameColumns"/>.</summary>
@@ -740,7 +747,8 @@ class CatalogRepository : ICatalogStore
         ParseIntCsv(r.IsDBNull(11) ? null : r.GetString(11)),
         ParseIntCsv(r.IsDBNull(12) ? null : r.GetString(12)),
         ParseStrCsv(r.IsDBNull(13) ? null : r.GetString(13)),
-        ParseStrCsv(r.IsDBNull(14) ? null : r.GetString(14)));
+        ParseStrCsv(r.IsDBNull(14) ? null : r.GetString(14)),
+        r.IsDBNull(15) ? null : r.GetDouble(15));
 
     /// <summary>
     /// Translate a user glob (<c>*</c>, <c>?</c>) into a SQLite LIKE pattern (<c>%</c>, <c>_</c>),
@@ -768,16 +776,19 @@ class CatalogRepository : ICatalogStore
     /// An invalid pattern yields an empty result rather than an error.
     /// </summary>
     private async Task<(int Total, List<CatalogGameDto> Games)> QueryGamesByRegexAsync(
-        SqliteConnection db, string filterWhere, Action<SqliteCommand> bindFilters, string pattern, int page, int pageSize)
+        SqliteConnection db, string filterWhere, Action<SqliteCommand> bindFilters, string pattern,
+        int page, int pageSize, string orderBy)
     {
         Regex rx;
         try { rx = new Regex(pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(250)); }
         catch (ArgumentException) { return (0, []); }   // invalid pattern → graceful empty result
 
+        // Pass 1 streams matching ids in the chosen sort order (ORDER BY can reference rank_score even
+        // though it isn't selected); the page is then a slice of this ordered id list.
         var matchedIds = new List<long>();
         await using (var cmd = db.CreateCommand())
         {
-            cmd.CommandText = $"SELECT g.id, g.name FROM catalog_game g JOIN catalog_system s ON s.id = g.system_id {filterWhere} ORDER BY g.name";
+            cmd.CommandText = $"SELECT g.id, g.name FROM catalog_game g JOIN catalog_system s ON s.id = g.system_id {filterWhere} {orderBy}";
             bindFilters(cmd);
             await using var r = await cmd.ExecuteReaderAsync();
             while (await r.ReadAsync())
@@ -791,15 +802,18 @@ class CatalogRepository : ICatalogStore
         var pageIds = matchedIds.Skip(page * pageSize).Take(pageSize).ToList();
         if (pageIds.Count == 0) return (total, []);
 
-        var games = new List<CatalogGameDto>(pageIds.Count);
+        // Pass 2 hydrates the page by id, then re-orders to pageIds so the pass-1 sort is preserved
+        // (a bare WHERE id IN (...) would otherwise come back in arbitrary order).
+        var byId = new Dictionary<long, CatalogGameDto>(pageIds.Count);
         await using (var cmd = db.CreateCommand())
         {
             var inList = string.Join(", ", Enumerable.Range(0, pageIds.Count).Select(i => $"$id{i}"));
-            cmd.CommandText = $"SELECT {GameColumns} FROM catalog_game g JOIN catalog_system s ON s.id = g.system_id WHERE g.id IN ({inList}) ORDER BY g.name";
+            cmd.CommandText = $"SELECT {GameColumns} FROM catalog_game g JOIN catalog_system s ON s.id = g.system_id WHERE g.id IN ({inList})";
             for (int i = 0; i < pageIds.Count; i++) cmd.Parameters.AddWithValue($"$id{i}", pageIds[i]);
             await using var r = await cmd.ExecuteReaderAsync();
-            while (await r.ReadAsync()) games.Add(MapGame(r));
+            while (await r.ReadAsync()) { var g = MapGame(r); byId[g.Id] = g; }
         }
+        var games = pageIds.Where(byId.ContainsKey).Select(id => byId[id]).ToList();
         return (total, games);
     }
 
@@ -1078,6 +1092,56 @@ class CatalogRepository : ICatalogStore
         cmd.CommandText = "SELECT description FROM catalog_game WHERE id = $id";
         cmd.Parameters.AddWithValue("$id", gameId);
         return await cmd.ExecuteScalarAsync() as string;
+    }
+
+    // --- catalog ranking (IGDB, epic #123 / R1) ---
+
+    /// <summary>
+    /// Games on a console as (id, name) — the join input for the IGDB ranking match. With
+    /// <paramref name="onlyUnranked"/> set, restricts to games that don't yet have a rank
+    /// (<c>rank_score IS NULL</c>) — the incremental-sync path.
+    /// </summary>
+    public async Task<List<(long Id, string Name)>> GetGamesForRankAsync(string console, bool onlyUnranked = false)
+    {
+        await using var db = await OpenAsync();
+        await using var cmd = db.CreateCommand();
+        cmd.CommandText = $"""
+            SELECT g.id, g.name FROM catalog_game g
+            JOIN catalog_system s ON s.id = g.system_id
+            WHERE s.console = $c{(onlyUnranked ? " AND g.rank_score IS NULL" : "")}
+            """;
+        cmd.Parameters.AddWithValue("$c", console);
+        var list = new List<(long, string)>();
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync()) list.Add((r.GetInt64(0), r.GetString(1)));
+        return list;
+    }
+
+    /// <summary>
+    /// Store matched IGDB rankings — the raw rating + vote count plus the derived <c>rank_score</c> —
+    /// in one transaction (game id → values).
+    /// </summary>
+    public async Task SetRanksAsync(IReadOnlyList<(long Id, double Rating, int Count, double Score)> rows, CancellationToken ct)
+    {
+        if (rows.Count == 0) return;
+        await using var db = await OpenAsync();
+        await using var tx = (SqliteTransaction)await db.BeginTransactionAsync(ct);
+        await using var cmd = db.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = "UPDATE catalog_game SET igdb_rating = $r, igdb_rating_count = $c, rank_score = $s WHERE id = $id";
+        var pRating = cmd.Parameters.Add("$r", SqliteType.Real);
+        var pCount = cmd.Parameters.Add("$c", SqliteType.Integer);
+        var pScore = cmd.Parameters.Add("$s", SqliteType.Real);
+        var pId = cmd.Parameters.Add("$id", SqliteType.Integer);
+        foreach (var (id, rating, count, score) in rows)
+        {
+            pRating.Value = rating;
+            pCount.Value = count;
+            pScore.Value = score;
+            pId.Value = id;
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
+        await tx.CommitAsync(ct);
     }
 
     private static async Task<List<CatalogSetDto>> ReadSetsAsync(SqliteConnection db, string? console)

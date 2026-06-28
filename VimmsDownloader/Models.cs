@@ -60,7 +60,7 @@ record CompatStatus(string Emulator, string Status);
 // how it joins to a game (serial | title_id | name).
 record EmulatorDto(string Id, string Name, string Console, string MatchKind);
 record CatalogGameDto(int Id, string Name, string Console, string? Region, string? Serial, string? Languages, long Size, bool Owned, List<CompatStatus> Compat, bool? Verified, string? VimmMatch,
-    List<int> AvailableFormats, List<int> OwnedFormats, List<string> OwnedSources, List<string> Origins);
+    List<int> AvailableFormats, List<int> OwnedFormats, List<string> OwnedSources, List<string> Origins, double? RankScore);
 record CatalogGamesResponse(int Total, int Page, int PageSize, List<CatalogGameDto> Games);
 record CatalogSetDto(int Id, string Name, string Console, List<string> Links);
 record AddSetRequest(string Name, string Console, List<string> Links);

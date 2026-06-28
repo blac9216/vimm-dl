@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useCatalogConsoles, useCatalogGames, useCatalogStatus, useEmulators, useSyncCatalog, useScanCatalog, useSyncCompat, useVerifyCatalog, useSyncVimm, useSyncIgdb, useQueueCatalogGame, useQueueCatalogGamesBatch, fetchGameVimm } from '../../api/queries'
+import { useCatalogConsoles, useCatalogGames, useCatalogStatus, useEmulators, useSyncCatalog, useScanCatalog, useSyncCompat, useVerifyCatalog, useSyncVimm, useSyncIgdb, useSyncIgdbRank, useQueueCatalogGame, useQueueCatalogGamesBatch, fetchGameVimm } from '../../api/queries'
 import type { CatalogGame, CatalogVimmFormat } from '../../types/api'
 import { CatalogThumb } from '../shared/CatalogThumb'
 import { GameDetail } from './GameDetail'
@@ -61,8 +61,8 @@ const PAGE_SIZE = 100
 
 // Persist Library filters so they survive tab navigation (the panel unmounts on tab change).
 const FILTERS_KEY = 'vimm:library-filters'
-interface LibraryFilters { console: string; search: string; local: string; dedupe: boolean; english: boolean; excludeCategories: boolean; searchMode: string; emulator: string; compatStatus: string; page: number }
-const DEFAULT_FILTERS: LibraryFilters = { console: '', search: '', local: 'all', dedupe: false, english: false, excludeCategories: false, searchMode: 'substring', emulator: '', compatStatus: '', page: 0 }
+interface LibraryFilters { console: string; search: string; local: string; dedupe: boolean; english: boolean; excludeCategories: boolean; searchMode: string; emulator: string; compatStatus: string; sort: string; page: number }
+const DEFAULT_FILTERS: LibraryFilters = { console: '', search: '', local: 'all', dedupe: false, english: false, excludeCategories: false, searchMode: 'substring', emulator: '', compatStatus: '', sort: 'name', page: 0 }
 function loadFilters(): LibraryFilters {
   try {
     const raw = localStorage.getItem(FILTERS_KEY)
@@ -83,6 +83,7 @@ export function LibraryPanel() {
   const [searchMode, setSearchMode] = useState(persisted.searchMode) // substring | glob | regex
   const [emulator, setEmulator] = useState(persisted.emulator) // '' = any emulator
   const [compatStatus, setCompatStatus] = useState(persisted.compatStatus) // '' = any status (needs an emulator)
+  const [sort, setSort] = useState(persisted.sort) // name | rank ("best games" by IGDB score)
   const [page, setPage] = useState(persisted.page)
   const query = useDebounced(searchInput, 350)
 
@@ -104,9 +105,10 @@ export function LibraryPanel() {
   const verifyMutation = useVerifyCatalog()
   const vimmMutation = useSyncVimm()
   const igdbMutation = useSyncIgdb()
+  const igdbRankMutation = useSyncIgdbRank()
   const queueGame = useQueueCatalogGame()
   const batchQueue = useQueueCatalogGamesBatch()
-  const { data: gamesResp, isFetching } = useCatalogGames(selectedConsole || null, query, local, dedupe, english, excludeCategories, searchMode, page, PAGE_SIZE, emulator, compatStatus)
+  const { data: gamesResp, isFetching } = useCatalogGames(selectedConsole || null, query, local, dedupe, english, excludeCategories, searchMode, page, PAGE_SIZE, emulator, compatStatus, sort)
 
   // Map an emulator id to its display name (e.g. 'rpcs3' → 'RPCS3'); falls back to the id.
   const emuName = (id: string) => emulators?.find(e => e.id === id)?.name ?? id.toUpperCase()
@@ -134,9 +136,9 @@ export function LibraryPanel() {
   useEffect(() => {
     try {
       localStorage.setItem(FILTERS_KEY, JSON.stringify(
-        { console: selectedConsole, search: searchInput, local, dedupe, english, excludeCategories, searchMode, emulator, compatStatus, page }))
+        { console: selectedConsole, search: searchInput, local, dedupe, english, excludeCategories, searchMode, emulator, compatStatus, sort, page }))
     } catch { /* ignore storage write errors */ }
-  }, [selectedConsole, searchInput, local, dedupe, english, excludeCategories, searchMode, emulator, compatStatus, page])
+  }, [selectedConsole, searchInput, local, dedupe, english, excludeCategories, searchMode, emulator, compatStatus, sort, page])
 
   // Changing any result-defining filter returns to page 0 and drops the now-stale bulk selection.
   function resetView() { setPage(0); setSelectedIds(new Set()) }
@@ -289,6 +291,12 @@ export function LibraryPanel() {
           <option value="glob">Glob</option>
           <option value="regex">Regex</option>
         </select>
+        <select value={sort} onChange={e => { setSort(e.target.value); resetView() }} title="Sort order — alphabetical or by IGDB &quot;best games&quot; rank (run Rank first)"
+          className="bg-surface/80 border border-border/60 rounded px-2 py-1 text-xs text-text-3
+            focus:outline-none focus:border-accent/40 shrink-0">
+          <option value="name">Sort: Name</option>
+          <option value="rank">Sort: Rank ★</option>
+        </select>
         {emulators && emulators.length > 0 && (
           <select value={emulator} onChange={e => pickEmulator(e.target.value)} title="Filter by emulator compatibility"
             className="bg-surface/80 border border-border/60 rounded px-2 py-1 text-xs text-text-3
@@ -347,6 +355,12 @@ export function LibraryPanel() {
           className="px-3 py-1 text-xs font-medium rounded bg-surface-2/40 text-text-3
             border border-border/30 hover:bg-surface-2/70 hover:text-text disabled:opacity-40 shrink-0">
           {igdbSyncing ? 'IGDB…' : 'IGDB'}
+        </button>
+        <button onClick={() => igdbRankMutation.mutate()} disabled={busy}
+          title="Rank games from IGDB ratings (needs Twitch credentials in Settings → IGDB), then pick Sort: Rank"
+          className="px-3 py-1 text-xs font-medium rounded bg-surface-2/40 text-text-3
+            border border-border/30 hover:bg-surface-2/70 hover:text-text disabled:opacity-40 shrink-0">
+          {igdbSyncing ? 'Rank…' : 'Rank ★'}
         </button>
         <button onClick={() => syncMutation.mutate()} disabled={busy} title="Re-sync from No-Intro / Redump"
           className="px-3 py-1 text-xs font-medium rounded bg-surface-2/40 text-text-3
@@ -434,6 +448,11 @@ export function LibraryPanel() {
                 title={`Catalog DAT source: ${g.origins.map(originLabel).join(', ')}`}>
                 {g.origins.map(originLabel).join('+')}
               </span>
+            )}
+            {g.rankScore != null && (
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#e0b34d]/10 text-[#e0b34d]
+                border border-[#e0b34d]/25 shrink-0 tabular-nums"
+                title={`IGDB rank score ${g.rankScore.toFixed(2)} (quality, vote-weighted)`}>★ {Math.round(g.rankScore)}</span>
             )}
             {g.size > 0 && (
               <span className="text-[10px] text-text-4 font-mono tabular-nums shrink-0">{fmtBytes(g.size)}</span>

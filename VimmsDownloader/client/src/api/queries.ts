@@ -128,7 +128,7 @@ export function useEmulators() {
   })
 }
 
-export function useCatalogGames(console: string | null, q: string, local: string, dedupe: boolean, english: boolean, excludeCategories: boolean, searchMode: string, page: number, pageSize = 100, emulator = '', compat = '') {
+export function useCatalogGames(console: string | null, q: string, local: string, dedupe: boolean, english: boolean, excludeCategories: boolean, searchMode: string, page: number, pageSize = 100, emulator = '', compat = '', sort = 'name') {
   const params = new URLSearchParams()
   if (console) params.set('console', console)
   if (q) params.set('q', q)
@@ -139,10 +139,11 @@ export function useCatalogGames(console: string | null, q: string, local: string
   if (searchMode && searchMode !== 'substring') params.set('mode', searchMode)
   if (emulator) params.set('emulator', emulator)
   if (emulator && compat) params.set('compat', compat)
+  if (sort && sort !== 'name') params.set('sort', sort)
   params.set('page', page.toString())
   params.set('pageSize', pageSize.toString())
   return useQuery({
-    queryKey: ['catalog-games', console, q, local, dedupe, english, excludeCategories, searchMode, page, pageSize, emulator, compat],
+    queryKey: ['catalog-games', console, q, local, dedupe, english, excludeCategories, searchMode, page, pageSize, emulator, compat, sort],
     queryFn: () => fetchJson<CatalogGamesResponse>(`/api/catalog/games?${params}`),
     staleTime: 60 * 1000,
   })
@@ -216,6 +217,16 @@ export function useSyncIgdb() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: () => postJson('/api/catalog/igdb-sync'),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['catalog-status'] }),
+  })
+}
+
+// Sync game rankings from IGDB (total_rating → "best games" score). Shares the IGDB job gate with the
+// description sync server-side, so it surfaces via the same igdbSyncing status. No-ops without creds.
+export function useSyncIgdbRank() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => postJson('/api/catalog/igdb-rank-sync'),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['catalog-status'] }),
   })
 }

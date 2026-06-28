@@ -56,6 +56,14 @@ static class CatalogEndpoints
             ILogger<IgdbSyncService> log) =>
             state.Run(log, "IGDB sync", ct => svc.SyncAsync(force ?? false, ct)));
 
+        // Sync game RANKINGS from IGDB (total_rating → a per-game quality score the Library sorts by) in
+        // the background, single-flight. Shares the CatalogIgdbState gate with the description sync, so
+        // the two IGDB jobs serialize under one Twitch token + rate limit. No-ops without Twitch creds.
+        // Incremental by default; ?force=true re-pulls + re-ranks every game.
+        app.MapPost("/api/catalog/igdb-rank-sync", (bool? force, IgdbRankSyncService svc, CatalogIgdbState state,
+            ILogger<IgdbRankSyncService> log) =>
+            state.Run(log, "IGDB rank sync", ct => svc.SyncAsync(force ?? false, ct)));
+
         // Emulators with ingested compatibility — drives the Library emulator/status filter.
         app.MapGet("/api/catalog/emulators", () =>
             Emulators.All.Select(e => new EmulatorDto(e.Id, e.Name, e.Console, Emulators.Token(e.MatchKind))).ToList());
@@ -70,15 +78,17 @@ static class CatalogEndpoints
 
         // Paged game browse, filtered by console and/or name, plus 1G1R / English-only / hide-demos
         // curation. ?mode= selects the name match: substring (default) | glob | regex. ?emulator= (and
-        // optional ?compat= status) narrows to games with that emulator's compatibility entry.
+        // optional ?compat= status) narrows to games with that emulator's compatibility entry. ?sort=
+        // chooses the order: name (default) | rank ("best games" by rank_score, unranked last).
         app.MapGet("/api/catalog/games", async (string? console, string? q, string? local, bool? dedupe,
             bool? english, bool? excludeCategories, string? mode, string? emulator, string? compat,
-            int? page, int? pageSize, CatalogRepository repo) =>
+            string? sort, int? page, int? pageSize, CatalogRepository repo) =>
         {
             var ps = Math.Clamp(pageSize ?? 100, 1, 200);
             var p = Math.Max(0, page ?? 0);
             var (total, games) = await repo.GetGamesAsync(console, q, local ?? "all", dedupe ?? false,
-                english ?? false, excludeCategories ?? false, mode ?? "substring", p, ps, emulator, compat);
+                english ?? false, excludeCategories ?? false, mode ?? "substring", p, ps, emulator, compat,
+                sort ?? "name");
             return new CatalogGamesResponse(total, p, ps, games);
         });
 

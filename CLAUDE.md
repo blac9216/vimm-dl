@@ -65,7 +65,7 @@ All modules follow the convention in `Modules/MODULE_GUIDE.md`. Each module is a
 
 - **SRP file structure** — `Program.cs` (startup/DI), `Models.cs` (records + PathHelpers), `AppJsonContext.cs` (JSON source gen), `QueueRepository.cs`, `SettingsKeys.cs`, `DatabaseMigrator.cs` (embedded SQL migrations), `DownloadHub.cs`, `DownloadQueue.cs`, `QueueItemProvider.cs`, `MetadataFetcher.cs`.
 - **Catalog/source host services** — `CatalogRepository.cs` (implements `ICatalogStore`, all catalog SQL incl. the Vimm binding), `CatalogSyncService` (wired in `Program.cs` over the `libretro` client), `CatalogScanService` (owned scan of `completed/`), `CatalogVerifyService` (CRC32 verify), `CompatSyncService` (per-emulator compat via `CompatSources`), `CatalogResolveService` (archive→Vimm download resolution), `VimmSyncService` (per-console Vimm hash scrape/binding), `DefaultSets.cs` (seeded RomGoGetter archive sets), `ArchiveAuth.cs` (Internet Archive S3 "LOW" auth via a `DelegatingHandler`). The concrete `SourceRegistry` lives in Module.Download/Sources, built from DI.
-- **Endpoints/** — `FileEndpoints` (merged `/api/data` with pipeline trace), `DownloadEndpoints`, `MetadataEndpoints`, `SourceEndpoints`, `CatalogEndpoints` (+ the `BackgroundJobGate` single-flight base & `Catalog*State` markers), `Ps3Endpoints`, `SyncEndpoints`, `SettingsEndpoints`, `EventEndpoints`, `MetricsEndpoints`. **44 endpoints total** (enumerated in the API Endpoints table below — that table is the source of truth for the count).
+- **Endpoints/** — `FileEndpoints` (merged `/api/data` with pipeline trace), `DownloadEndpoints`, `MetadataEndpoints`, `SourceEndpoints`, `CatalogEndpoints` (+ the `BackgroundJobGate` single-flight base & `Catalog*State` markers), `Ps3Endpoints`, `SyncEndpoints`, `SettingsEndpoints`, `EventEndpoints`, `MetricsEndpoints`. **45 endpoints total** (enumerated in the API Endpoints table below — that table is the source of truth for the count).
 - **SignalR bridges** — `SignalRPs3PipelineBridge.cs`, `SignalRSyncNotifier.cs`, `SignalRDownloadBridge.cs` route module events to SignalR + append to the events table. Pipeline bridge also updates the `completed_urls` projection for terminal states.
 - **AOT-ready** — `PublishAot=true`, raw ADO.NET (Microsoft.Data.Sqlite), JSON source generator (`AppJsonContext`), all modules `IsAotCompatible`. JSON in the catalog parsers uses `JsonDocument` (DOM, no reflection).
 - **QueueRepository / CatalogRepository** — singletons, all async SQLite operations. Database initialized via `DatabaseMigrator` with embedded SQL files; both repositories share `queue.db`.
@@ -88,7 +88,7 @@ All modules follow the convention in `Modules/MODULE_GUIDE.md`. Each module is a
 
 ### Database Migrator
 
-- `DatabaseMigrator.cs` — runs embedded SQL files from `Migrations/*.sql` in order (auto-discovered by manifest-resource name; currently through **027**)
+- `DatabaseMigrator.cs` — runs embedded SQL files from `Migrations/*.sql` in order (auto-discovered by manifest-resource name; currently through **030**)
 - Tracks executed migrations in `schema_migrations` table
 - Each migration is idempotent (catches "duplicate column" / "already exists" errors)
 - Migrations split into individual statements for SQLite compatibility
@@ -107,7 +107,7 @@ SQLite, file `queue.db` in `data/` subdirectory (derived from connection string)
 
 **Catalog (No-Intro / Redump + bindings)**
 - `catalog_system` (id, dat_name UNIQUE, console, source, dat_version, game_count, synced_at) — one row per console DAT
-- `catalog_game` (id, system_id, name, region, serial, serial_key, languages, title_key, is_parent, **vault_id**, **vimm_match**) — one entry per title/region/revision
+- `catalog_game` (id, system_id, name, region, serial, serial_key, languages, title_key, is_parent, **vault_id**, **vimm_match**, description, **igdb_rating**, **igdb_rating_count**, **rank_score**) — one entry per title/region/revision
 - `catalog_rom` (id, game_id, name, size, crc, md5, sha1) — file(s) per game (disc titles carry several; indexed on sha1)
 - `catalog_owned` (game_id, filepath, verified) — which catalog games are present on disk
 - `catalog_set` (id, name, console, …) + `catalog_set_link` (id, set_id, url, position) — per-console archive.org download sets
@@ -228,7 +228,7 @@ Two scoped pipelines sharing `PipelineState` from Module.Core:
 - Two tiers: Beta (Library, Sync) and Developer (Events)
 - Metrics tab is always visible — not behind a flag
 
-## API Endpoints (44 total)
+## API Endpoints (45 total)
 
 | Method | Path | Purpose |
 |--------|------|---------|
@@ -267,6 +267,7 @@ Two scoped pipelines sharing `PipelineState` from Module.Core:
 | POST | `/api/catalog/compat/sync` | Sync every registered emulator's compatibility (background) |
 | POST | `/api/catalog/vimm-sync` | Hash-bind catalog ↔ Vimm (`?console=`, background) |
 | POST | `/api/catalog/igdb-sync` | Sync IGDB descriptions (Twitch OAuth; `?force=`, background) |
+| POST | `/api/catalog/igdb-rank-sync` | Sync IGDB rankings → per-game quality score (Twitch OAuth; `?force=`, background) |
 | GET | `/api/catalog/sets` | List download sets |
 | POST | `/api/catalog/sets` | Add a set (name + console + links) |
 | PUT | `/api/catalog/sets/{id}` | Update a set |
