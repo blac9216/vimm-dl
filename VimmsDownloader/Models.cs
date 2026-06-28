@@ -70,6 +70,9 @@ record CatalogQueueResponse(string Url, string Source);
 record CatalogQueueBatchRequest(List<int> Ids, int? Format);
 record CatalogQueueBatchResponse(int Queued, int Skipped, int Failed, List<CatalogQueueResultDto> Results);
 record CatalogQueueResultDto(int Id, string Status, string? Source);
+// E6 R3 curation: the best non-owned games (by rank) that fit a cumulative byte budget — the ids to
+// pre-select + their cumulative size, for the user to confirm → batch queue.
+record CatalogCurateResponse(List<int> Ids, int Count, long TotalBytes, long BudgetBytes);
 // A game's Vimm download options (for the format picker), or null when not bound.
 record CatalogVimmDto(long VaultId, List<CatalogVimmFormatDto> Formats);
 record CatalogVimmFormatDto(int Alt, string Label, long SizeBytes, string? SizeText);

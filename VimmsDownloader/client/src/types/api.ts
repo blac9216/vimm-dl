@@ -156,6 +156,15 @@ export interface CatalogQueueBatchResponse {
   results: CatalogQueueResult[]
 }
 
+// Curation (R3): the best non-owned games (by rank) that fit a cumulative byte budget, from
+// GET /api/catalog/curate. ids are pre-selected in the Library; the user confirms → batch queue.
+export interface CatalogCurateResponse {
+  ids: number[]
+  count: number
+  totalBytes: number
+  budgetBytes: number
+}
+
 // A game's Vimm download options (for the format picker), from GET /api/catalog/games/{id}/vimm.
 export interface CatalogVimmFormat {
   alt: number

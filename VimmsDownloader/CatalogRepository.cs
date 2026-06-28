@@ -600,6 +600,52 @@ class CatalogRepository : ICatalogStore
     {
         pageSize = Math.Clamp(pageSize, 1, 200);
         page = Math.Max(0, page);
+        var f = BuildGameFilter(console, query, local, dedupe, english, excludeCategories, searchMode,
+            emulator, compatStatus, sort);
+
+        await using var db = await OpenAsync();
+
+        // Regex search runs in C# (AOT-safe interpreted Regex); the other filters still run in SQL.
+        if (f.IsRegex)
+            return await QueryGamesByRegexAsync(db, f.FilterWhere, f.Bind, f.RegexPattern!, page, pageSize, f.OrderBy);
+
+        var where = f.FilterWhere + f.NameClause;
+
+        int total;
+        await using (var cnt = db.CreateCommand())
+        {
+            cnt.CommandText = $"SELECT COUNT(*) FROM catalog_game g JOIN catalog_system s ON s.id = g.system_id {where}";
+            f.Bind(cnt);
+            total = Convert.ToInt32(await cnt.ExecuteScalarAsync());
+        }
+
+        var games = new List<CatalogGameDto>();
+        await using (var cmd = db.CreateCommand())
+        {
+            cmd.CommandText = $"SELECT {GameColumns} FROM catalog_game g JOIN catalog_system s ON s.id = g.system_id {where} {f.OrderBy} LIMIT $limit OFFSET $offset";
+            f.Bind(cmd);
+            cmd.Parameters.AddWithValue("$limit", pageSize);
+            cmd.Parameters.AddWithValue("$offset", page * pageSize);
+            await using var r = await cmd.ExecuteReaderAsync();
+            while (await r.ReadAsync()) games.Add(MapGame(r));
+        }
+        return (total, games);
+    }
+
+    /// <summary>
+    /// The compiled WHERE + ORDER BY + parameter-binding for a catalog game query, factored out so the
+    /// paged browse (<see cref="GetGamesAsync"/>) and the curation selector
+    /// (<see cref="SelectBestWithinBudgetAsync"/>) apply byte-for-byte identical
+    /// console/availability/1G1R/English/category/name/compat filtering and sort. For a regex name
+    /// search the SQL carries no name clause (<see cref="IsRegex"/> is set + <see cref="RegexPattern"/>
+    /// supplied — the caller evaluates the regex in C#).
+    /// </summary>
+    private sealed record GameFilter(string FilterWhere, string NameClause, string OrderBy,
+        bool IsRegex, string? RegexPattern, Action<SqliteCommand> Bind);
+
+    private static GameFilter BuildGameFilter(string? console, string? query, string local, bool dedupe,
+        bool english, bool excludeCategories, string searchMode, string? emulator, string? compatStatus, string sort)
+    {
         local = local is "owned" or "remote" ? local : "all";
         searchMode = searchMode is "glob" or "regex" ? searchMode : "substring";
         // Sort: "rank" puts the highest rank_score first with unranked (NULL) games last; "name"
@@ -637,7 +683,7 @@ class CatalogRepository : ICatalogStore
             : "";
 
         // Name search (E3b): substring (LIKE %q%, unchanged), glob (*,? → LIKE %,_ with ESCAPE), or
-        // regex (evaluated in C# below — SQLite has no REGEXP). Empty query → no name filter.
+        // regex (evaluated in C# by the caller — SQLite has no REGEXP). Empty query → no name filter.
         string? nameParam = null;
         var nameClause = "";
         if (hasQuery && searchMode == "substring") { nameParam = "%" + q + "%"; nameClause = " AND g.name LIKE $name"; }
@@ -659,7 +705,7 @@ class CatalogRepository : ICatalogStore
             """;
 
         // Bind every WHERE parameter; the optional english/category/name/compat params only when present.
-        void BindFilters(SqliteCommand cmd)
+        void Bind(SqliteCommand cmd)
         {
             cmd.Parameters.AddWithValue("$console", (object?)console ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$local", local);
@@ -676,33 +722,62 @@ class CatalogRepository : ICatalogStore
             if (emu is not null && compatFilterStatus is not null) cmd.Parameters.AddWithValue("$cstatus", compatFilterStatus);
         }
 
+        return new GameFilter(filterWhere, nameClause, orderBy,
+            hasQuery && searchMode == "regex", hasQuery ? q : null, Bind);
+    }
+
+    /// <summary>
+    /// Curation selector (epic #123 / R3): the best games — highest <c>rank_score</c> first, unranked
+    /// last — among the <b>non-owned</b> games matching the given Library filters, accumulated greedily
+    /// in rank order, including each game whose size fits the remaining <paramref name="budgetBytes"/>
+    /// and skipping ones that don't, until <paramref name="maxCount"/> (0 = unlimited) is reached or the
+    /// filtered set is exhausted. Returns the chosen ids (rank order) + their cumulative size. Forces
+    /// availability = remote (you can't download what you already own); honours every other filter +
+    /// the regex search mode. An empty/non-positive budget yields an empty selection.
+    /// </summary>
+    public async Task<(List<int> Ids, long TotalBytes)> SelectBestWithinBudgetAsync(
+        string? console, string? query, bool dedupe, bool english, bool excludeCategories, string searchMode,
+        string? emulator, string? compatStatus, long budgetBytes, int maxCount)
+    {
+        var ids = new List<int>();
+        long total = 0;
+        if (budgetBytes <= 0) return (ids, total);
+
+        var f = BuildGameFilter(console, query, "remote", dedupe, english, excludeCategories, searchMode,
+            emulator, compatStatus, "rank");
+
+        Regex? rx = null;
+        if (f.IsRegex)
+        {
+            try { rx = new Regex(f.RegexPattern!, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(250)); }
+            catch (ArgumentException) { return (ids, total); } // invalid pattern → empty selection
+        }
+        var where = f.FilterWhere + (f.IsRegex ? "" : f.NameClause);
+
         await using var db = await OpenAsync();
-
-        // Regex search runs in C# (AOT-safe interpreted Regex); the other filters still run in SQL.
-        if (hasQuery && searchMode == "regex")
-            return await QueryGamesByRegexAsync(db, filterWhere, BindFilters, q!, page, pageSize, orderBy);
-
-        var where = filterWhere + nameClause;
-
-        int total;
-        await using (var cnt = db.CreateCommand())
+        await using var cmd = db.CreateCommand();
+        cmd.CommandText = $"""
+            SELECT g.id, g.name,
+                   (SELECT COALESCE(SUM(r.size), 0) FROM catalog_rom r WHERE r.game_id = g.id) AS size
+            FROM catalog_game g JOIN catalog_system s ON s.id = g.system_id
+            {where} {f.OrderBy}
+            """;
+        f.Bind(cmd);
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync())
         {
-            cnt.CommandText = $"SELECT COUNT(*) FROM catalog_game g JOIN catalog_system s ON s.id = g.system_id {where}";
-            BindFilters(cnt);
-            total = Convert.ToInt32(await cnt.ExecuteScalarAsync());
+            if (rx is not null)
+            {
+                try { if (!rx.IsMatch(r.GetString(1))) continue; }
+                catch (RegexMatchTimeoutException) { continue; } // skip a row the pattern can't evaluate in time
+            }
+            var size = r.GetInt64(2);
+            if (total + size > budgetBytes) continue; // doesn't fit — skip it, keep filling with smaller ones
+            ids.Add((int)r.GetInt64(0));
+            total += size;
+            if (maxCount > 0 && ids.Count >= maxCount) break;
         }
-
-        var games = new List<CatalogGameDto>();
-        await using (var cmd = db.CreateCommand())
-        {
-            cmd.CommandText = $"SELECT {GameColumns} FROM catalog_game g JOIN catalog_system s ON s.id = g.system_id {where} {orderBy} LIMIT $limit OFFSET $offset";
-            BindFilters(cmd);
-            cmd.Parameters.AddWithValue("$limit", pageSize);
-            cmd.Parameters.AddWithValue("$offset", page * pageSize);
-            await using var r = await cmd.ExecuteReaderAsync();
-            while (await r.ReadAsync()) games.Add(MapGame(r));
-        }
-        return (total, games);
+        return (ids, total);
     }
 
     // How a catalog_compat row (aliased c) matches a catalog_game (aliased g), single-sourced so the
