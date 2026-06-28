@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useCatalogConsoles, useCatalogGames, useCatalogStatus, useEmulators, useSyncCatalog, useScanCatalog, useSyncCompat, useVerifyCatalog, useSyncVimm, useSyncIgdb, useSyncIgdbRank, useQueueCatalogGame, useQueueCatalogGamesBatch, fetchGameVimm } from '../../api/queries'
+import { useCatalogConsoles, useCatalogGames, useCatalogStatus, useEmulators, useSyncCatalog, useScanCatalog, useSyncCompat, useVerifyCatalog, useSyncVimm, useSyncIgdb, useSyncIgdbRank, useQueueCatalogGame, useQueueCatalogGamesBatch, fetchGameVimm, fetchCurate } from '../../api/queries'
 import type { CatalogGame, CatalogVimmFormat } from '../../types/api'
 import { CatalogThumb } from '../shared/CatalogThumb'
 import { GameDetail } from './GameDetail'
@@ -94,6 +94,9 @@ export function LibraryPanel() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set()) // bulk-select for batch queue
   const [picker, setPicker] = useState<{ id: number; name: string; formats: CatalogVimmFormat[] } | null>(null)
   const [expandedId, setExpandedId] = useState<number | null>(null) // row click-to-expand detail (M3)
+  const [budgetGb, setBudgetGb] = useState('') // R3 curation: "best up to X GB" budget
+  const [maxCount, setMaxCount] = useState('') // R3 curation: optional cap on the number of games
+  const [curating, setCurating] = useState(false)
 
   const qc = useQueryClient()
   const { data: consoles } = useCatalogConsoles()
@@ -241,6 +244,31 @@ export function LibraryPanel() {
     }
   }
 
+  // Curation (R3): ask the backend for the best missing games (by rank) that fit a GB budget under the
+  // current filters, and pre-select them — the user reviews, then uses the existing "Queue selected".
+  const GB = 1024 ** 3
+  async function pickBest() {
+    const gb = parseFloat(budgetGb)
+    if (!Number.isFinite(gb) || gb <= 0) { setQueueError('Enter a positive GB budget for "best up to X GB"'); return }
+    const n = parseInt(maxCount, 10)
+    setQueueError(null); setBatchMsg(null); setCurating(true)
+    try {
+      const res = await fetchCurate({
+        console: selectedConsole || null, q: query, dedupe, english, excludeCategories,
+        searchMode, emulator, compat: compatStatus, budgetBytes: Math.floor(gb * GB),
+        maxCount: Number.isFinite(n) && n > 0 ? n : undefined,
+      })
+      setSelectedIds(new Set(res.ids))
+      setBatchMsg(res.count === 0
+        ? 'No missing games fit that budget — try a larger budget, fewer filters, or run Rank first.'
+        : `Selected the best ${res.count.toLocaleString()} — ${fmtBytes(res.totalBytes)} of ${fmtBytes(res.budgetBytes)}. Review, then Queue selected.`)
+    } catch (e) {
+      setQueueError(e instanceof Error ? e.message : 'Failed to pick best games')
+    } finally {
+      setCurating(false)
+    }
+  }
+
   const searchPlaceholder = searchMode === 'glob' ? 'Glob: Mario*, Final ?antasy…'
     : searchMode === 'regex' ? 'Regex: ^Final Fantasy (VII|IX)…'
     : 'Search games by name…'
@@ -369,13 +397,32 @@ export function LibraryPanel() {
         </button>
       </div>
 
-      <div className="px-3 sm:px-6 py-1.5 text-[10px] text-text-4 tracking-wide border-b border-border/10 flex items-center gap-2">
+      <div className="px-3 sm:px-6 py-1.5 text-[10px] text-text-4 tracking-wide border-b border-border/10 flex items-center gap-2 flex-wrap">
         <input type="checkbox" checked={allVisibleSelected} onChange={toggleSelectVisible}
           disabled={queueableIds.length === 0} title="Select all queueable games on this page"
           className="accent-accent w-3 h-3 shrink-0 cursor-pointer disabled:opacity-30" />
         <span>
           {total > 0 ? `Showing ${start.toLocaleString()}–${end.toLocaleString()} of ${total.toLocaleString()}` : 'No games match'}
           {' · '}<span className="text-text-3">{totalInCatalog.toLocaleString()} in catalog</span>
+        </span>
+        {/* Curation (R3): pick the best missing games (by rank) up to a GB budget under the current filters. */}
+        <span className="flex items-center gap-1 shrink-0">
+          <span className="text-[#e0b34d]" title="Best N up to X GB — picks the top-ranked missing games that fit the budget">★</span>
+          <input type="number" min="0" step="1" inputMode="decimal" value={budgetGb} onChange={e => setBudgetGb(e.target.value)}
+            placeholder="GB" title="Size budget in GB — picks the best-ranked missing games that fit"
+            className="w-12 bg-surface/80 border border-border/50 rounded px-1 py-0.5 text-[10px] text-text
+              focus:outline-none focus:border-accent/40" />
+          <span>GB</span>
+          <input type="number" min="0" step="1" inputMode="numeric" value={maxCount} onChange={e => setMaxCount(e.target.value)}
+            placeholder="max#" title="Optional cap on the number of games"
+            className="w-12 bg-surface/80 border border-border/50 rounded px-1 py-0.5 text-[10px] text-text
+              focus:outline-none focus:border-accent/40" />
+          <button onClick={pickBest} disabled={curating || busy}
+            title="Select the best-ranked missing games that fit the GB budget (then Queue selected)"
+            className="px-2 py-0.5 text-[10px] font-medium rounded bg-[#e0b34d]/15 text-[#e0b34d]
+              border border-[#e0b34d]/30 hover:bg-[#e0b34d]/25 disabled:opacity-40">
+            {curating ? 'Picking…' : 'Pick best'}
+          </button>
         </span>
         {selectedIds.size > 0 && (
           <span className="ml-auto flex items-center gap-2 shrink-0">

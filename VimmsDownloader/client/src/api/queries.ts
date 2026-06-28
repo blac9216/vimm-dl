@@ -4,7 +4,7 @@ import type {
   QueueImportResponse, Ps3ConvertResponse, SyncCompareResponse, QueueExportItem,
   EventsResponse, MetricsResponse, AddResponse, SourceInfo,
   CatalogConsole, CatalogGamesResponse, CatalogStatus, CatalogSet, CatalogVimm,
-  CatalogQueueBatchResponse, Emulator, CatalogGameDescription,
+  CatalogQueueBatchResponse, Emulator, CatalogGameDescription, CatalogCurateResponse,
 } from '../types/api'
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -271,6 +271,26 @@ export async function fetchGameVimm(id: number): Promise<CatalogVimm | null> {
   if (res.status === 404) return null
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
   return res.json()
+}
+
+// Curation (R3): ask the backend for the best non-owned games (by rank) that fit a byte budget, given
+// the current Library filters. Returns the ids to pre-select + their cumulative size.
+export async function fetchCurate(opts: {
+  console: string | null; q: string; dedupe: boolean; english: boolean; excludeCategories: boolean
+  searchMode: string; emulator: string; compat: string; budgetBytes: number; maxCount?: number
+}): Promise<CatalogCurateResponse> {
+  const params = new URLSearchParams()
+  if (opts.console) params.set('console', opts.console)
+  if (opts.q) params.set('q', opts.q)
+  if (opts.dedupe) params.set('dedupe', 'true')
+  if (opts.english) params.set('english', 'true')
+  if (opts.excludeCategories) params.set('excludeCategories', 'true')
+  if (opts.searchMode && opts.searchMode !== 'substring') params.set('mode', opts.searchMode)
+  if (opts.emulator) params.set('emulator', opts.emulator)
+  if (opts.emulator && opts.compat) params.set('compat', opts.compat)
+  params.set('budgetBytes', Math.floor(opts.budgetBytes).toString())
+  if (opts.maxCount && opts.maxCount > 0) params.set('maxCount', Math.floor(opts.maxCount).toString())
+  return fetchJson<CatalogCurateResponse>(`/api/catalog/curate?${params}`)
 }
 
 // A game's IGDB description, or null when none is stored (404). Lazily fetched when a row is expanded

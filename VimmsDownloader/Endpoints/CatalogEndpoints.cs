@@ -92,6 +92,23 @@ static class CatalogEndpoints
             return new CatalogGamesResponse(total, p, ps, games);
         });
 
+        // Curation (E6 R3): the best non-owned games (highest rank_score first) that fit a cumulative
+        // byte budget — the "best N up to X GB" picker. Same filter params as /api/catalog/games
+        // (availability is forced to non-owned — you can't download what you own); ?budgetBytes= is
+        // required, ?maxCount= optional (0/absent = unlimited). Returns the ids to pre-select + their
+        // cumulative size; the user then confirms via POST /api/catalog/games/queue.
+        app.MapGet("/api/catalog/curate", async (string? console, string? q, bool? dedupe, bool? english,
+            bool? excludeCategories, string? mode, string? emulator, string? compat, long? budgetBytes,
+            int? maxCount, CatalogRepository repo) =>
+        {
+            var budget = budgetBytes ?? 0;
+            if (budget <= 0) return Results.BadRequest("budgetBytes must be a positive number");
+            var (ids, totalBytes) = await repo.SelectBestWithinBudgetAsync(console, q, dedupe ?? false,
+                english ?? false, excludeCategories ?? false, mode ?? "substring", emulator, compat,
+                budget, Math.Max(0, maxCount ?? 0));
+            return Results.Ok(new CatalogCurateResponse(ids, ids.Count, totalBytes, budget));
+        });
+
         // --- download sets (per-console arrays of archive.org links) ---
         // Validate + clean an add/update request → (name, console, links) or an error message.
         static (string Name, string Console, List<string> Links, string? Error) NormalizeSet(AddSetRequest req)
