@@ -44,6 +44,9 @@ builder.Services.AddSingleton<IgdbClient>();
 builder.Services.AddSingleton<IgdbSyncService>();
 builder.Services.AddSingleton<IgdbRankSyncService>();
 builder.Services.AddSingleton<CatalogIgdbState>();
+builder.Services.AddSingleton<RetroAchievementsClient>();
+builder.Services.AddSingleton<RetroAchievementsSyncService>();
+builder.Services.AddSingleton<CatalogRaState>();
 builder.Services.AddSingleton<CompatSyncService>();
 builder.Services.AddSingleton<CatalogCompatState>();
 builder.Services.AddSingleton<CatalogVerifyService>();
@@ -159,6 +162,15 @@ builder.Services.AddHttpClient("thumbnails")
 // IGDB metadata API (epic #122 / M2) — the Twitch OAuth token request and the Apicalypse game queries
 // both go through this one client (different hosts, so no BaseAddress). Plain HTTPS; creds per request.
 builder.Services.AddHttpClient("igdb")
+    .ConfigureHttpClient(c =>
+    {
+        c.Timeout = TimeSpan.FromMinutes(2);
+        c.DefaultRequestHeaders.Add("User-Agent", "vimm-dl");
+    });
+
+// RetroAchievements Web API (epic #123 / R2) — the game list + per-game extended details; the web API
+// key rides as a query param, so a plain HTTPS client is all that's needed.
+builder.Services.AddHttpClient("ra")
     .ConfigureHttpClient(c =>
     {
         c.Timeout = TimeSpan.FromMinutes(2);

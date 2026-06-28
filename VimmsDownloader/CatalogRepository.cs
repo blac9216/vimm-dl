@@ -1219,6 +1219,61 @@ class CatalogRepository : ICatalogStore
         await tx.CommitAsync(ct);
     }
 
+    // --- catalog popularity (RetroAchievements, epic #123 / R2) ---
+
+    /// <summary>The ranking components for blending: a game's IGDB rating + vote count + current RA player count.</summary>
+    public sealed record RankComponents(double? IgdbRating, int? IgdbCount, int? RaPlayers);
+
+    /// <summary>
+    /// The ranking components for every game on a console, keyed by game id — the inputs the RA sync
+    /// needs to recompute <c>rank_score</c> (IGDB rating/count) and to skip already-populated games
+    /// (current <c>ra_players</c>) on an incremental run.
+    /// </summary>
+    public async Task<Dictionary<long, RankComponents>> GetRankComponentsForConsoleAsync(string console, CancellationToken ct)
+    {
+        await using var db = await OpenAsync();
+        await using var cmd = db.CreateCommand();
+        cmd.CommandText = """
+            SELECT g.id, g.igdb_rating, g.igdb_rating_count, g.ra_players
+            FROM catalog_game g JOIN catalog_system s ON s.id = g.system_id
+            WHERE s.console = $c
+            """;
+        cmd.Parameters.AddWithValue("$c", console);
+        var map = new Dictionary<long, RankComponents>();
+        await using var r = await cmd.ExecuteReaderAsync(ct);
+        while (await r.ReadAsync(ct))
+            map[r.GetInt64(0)] = new RankComponents(
+                r.IsDBNull(1) ? null : r.GetDouble(1),
+                r.IsDBNull(2) ? null : r.GetInt32(2),
+                r.IsDBNull(3) ? null : r.GetInt32(3));
+        return map;
+    }
+
+    /// <summary>
+    /// Store the RA popularity (<c>ra_players</c>) for hash-matched games and the recomputed blended
+    /// <c>rank_score</c> (see <see cref="Module.Catalog.RankScore.Blend"/>) in one transaction.
+    /// </summary>
+    public async Task SetRaPopularityAsync(IReadOnlyList<(long Id, int Players, double Score)> rows, CancellationToken ct)
+    {
+        if (rows.Count == 0) return;
+        await using var db = await OpenAsync();
+        await using var tx = (SqliteTransaction)await db.BeginTransactionAsync(ct);
+        await using var cmd = db.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = "UPDATE catalog_game SET ra_players = $p, rank_score = $s WHERE id = $id";
+        var pPlayers = cmd.Parameters.Add("$p", SqliteType.Integer);
+        var pScore = cmd.Parameters.Add("$s", SqliteType.Real);
+        var pId = cmd.Parameters.Add("$id", SqliteType.Integer);
+        foreach (var (id, players, score) in rows)
+        {
+            pPlayers.Value = players;
+            pScore.Value = score;
+            pId.Value = id;
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
+        await tx.CommitAsync(ct);
+    }
+
     private static async Task<List<CatalogSetDto>> ReadSetsAsync(SqliteConnection db, string? console)
     {
         var order = new List<(int Id, string Name, string Console)>();

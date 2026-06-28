@@ -29,4 +29,32 @@ public static class RankScore
         var v = count > 0 ? count : 0;
         return v / (v + MinVotes) * rating + MinVotes / (v + MinVotes) * PriorMean;
     }
+
+    /// <summary>How much the IGDB quality signal counts vs. RetroAchievements popularity when blending (R2).</summary>
+    internal const double QualityWeight = 0.7;
+
+    /// <summary>Log10 multiplier mapping a player count onto the 0-100 scale (≈100 at ~100k players).</summary>
+    internal const double PopularityScale = 20;
+
+    /// <summary>
+    /// RetroAchievements popularity (NumDistinctPlayers) normalized onto the same 0-100 scale as the
+    /// quality score, log-compressed so the long tail of huge player counts doesn't dominate:
+    /// <c>min(100, 20 * log10(1 + players))</c> (≈40 at 100 players, ≈80 at 10k, capped at 100).
+    /// </summary>
+    public static double Popularity(int players) =>
+        players <= 0 ? 0 : Math.Min(100, PopularityScale * Math.Log10(1 + players));
+
+    /// <summary>
+    /// Blend the IGDB quality signal with RetroAchievements popularity into one rank_score (epic #123 /
+    /// R2). When the game has an IGDB rating, it's <c>0.7 * Bayesian(rating, count) + 0.3 * Popularity</c>;
+    /// when it has no IGDB rating (a cart-only title IGDB doesn't cover well), it falls back to the
+    /// popularity score alone — so a hash-matched RA game still ranks above the unranked tail.
+    /// </summary>
+    public static double Blend(double? igdbRating, int? igdbCount, int raPlayers)
+    {
+        var pop = Popularity(raPlayers);
+        if (igdbRating is { } rating)
+            return QualityWeight * Bayesian(rating, igdbCount ?? 0) + (1 - QualityWeight) * pop;
+        return pop;
+    }
 }
