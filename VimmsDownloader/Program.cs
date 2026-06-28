@@ -42,6 +42,7 @@ builder.Services.AddSingleton<CatalogResolveService>();
 builder.Services.AddSingleton<MediaService>();
 builder.Services.AddSingleton<IgdbClient>();
 builder.Services.AddSingleton<IgdbSyncService>();
+builder.Services.AddSingleton<IgdbRankSyncService>();
 builder.Services.AddSingleton<CatalogIgdbState>();
 builder.Services.AddSingleton<CompatSyncService>();
 builder.Services.AddSingleton<CatalogCompatState>();

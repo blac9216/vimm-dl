@@ -127,6 +127,7 @@ export interface CatalogGame {
   ownedFormats: number[]     // download formats already on disk for this game
   ownedSources: string[]     // sources the on-disk copies came from (e.g. 'vimm', 'archive')
   origins: string[]          // D2b-2: DAT-source origin(s) backing this catalog entry ('libretro', 'daily-bundle')
+  rankScore: number | null   // R1 (#140): IGDB-derived "best games" score; null = unranked
 }
 
 export interface CatalogGamesResponse {
@@ -138,6 +139,9 @@ export interface CatalogGamesResponse {
 
 // Library name-search mode (E3b): substring (default), glob (*,?), or regex.
 export type SearchMode = 'substring' | 'glob' | 'regex'
+
+// Library sort order (R1 #140): alphabetical (default) or by "best games" rank score (unranked last).
+export type SortMode = 'name' | 'rank'
 
 // Result of a batch queue (E3b "queue selected"): one entry per requested game id.
 export interface CatalogQueueResult {
