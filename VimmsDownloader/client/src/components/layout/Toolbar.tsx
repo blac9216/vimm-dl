@@ -85,15 +85,15 @@ export function Toolbar() {
           placeholder={source === 'vimm' ? 'Paste vault URLs here...' : `Paste ${sourceName} file URLs here...`}
           rows={1}
           className="flex-1 bg-surface/80 border border-border/60 rounded px-3 py-1.5 text-sm text-text
-            placeholder:text-text-4 resize-none focus:outline-none focus:border-accent/40 focus:shadow-[0_0_12px_rgba(91,155,213,0.1)]
+            placeholder:text-text-4 resize-none focus:outline-none focus:border-accent/40 focus:shadow-[0_0_12px_rgba(111,141,255,0.1)]
             transition-all min-h-[32px]"
         />
         {/* PS3 Cross (X) button = confirm/action = blue */}
         <button
           onClick={handleAdd}
           disabled={addMutation.isPending}
-          className="px-5 py-1.5 bg-ps-cross/20 text-[#7eb3e0] border border-ps-cross/30 rounded text-sm
-            font-medium hover:bg-ps-cross/30 hover:shadow-[0_0_16px_rgba(46,109,180,0.2)]
+          className="px-5 py-1.5 bg-info/20 text-info border border-info/30 rounded text-sm
+            font-medium hover:bg-info/30 hover:shadow-[0_0_16px_rgba(111,141,255,0.2)]
             transition-all disabled:opacity-40"
         >
           Add

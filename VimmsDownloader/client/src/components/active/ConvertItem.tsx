@@ -77,7 +77,7 @@ export function ConvertItem({ status, grouped = false }: ConvertItemProps) {
       <button
         onClick={() => actionMutation.mutate({ filename: status.itemName, action: 'abort' })}
         className="w-6 h-6 flex items-center justify-center rounded
-          text-ps-circle/40 hover:text-ps-circle hover:bg-ps-circle/10 text-xs"
+          text-error/40 hover:text-error hover:bg-error/10 text-xs"
         title="Abort"
       >&#9632;</button>
     </div>

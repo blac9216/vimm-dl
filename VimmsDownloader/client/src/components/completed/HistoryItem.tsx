@@ -127,14 +127,14 @@ export function HistoryItem({ item, showEventsLink, onViewEvents }: HistoryItemP
             </div>
           )}
           {trace?.isoFilename && overallStatus === 'done' && (
-            <div className="flex items-center gap-1 text-[10px] text-ps-triangle/70 mt-0.5">
+            <div className="flex items-center gap-1 text-[10px] text-success/70 mt-0.5">
               <span>&#10003;</span>
               <span className="truncate font-mono">{trace.isoFilename}</span>
               {trace.isoSize != null && <span>({fmtBytes(trace.isoSize)})</span>}
             </div>
           )}
           {overallStatus === 'error' && lastStep?.message && (
-            <div className="text-[10px] text-ps-circle/70 mt-0.5 truncate">{lastStep.message}</div>
+            <div className="text-[10px] text-error/70 mt-0.5 truncate">{lastStep.message}</div>
           )}
         </div>
         <span className="text-[11px] font-mono text-text-3 w-16 text-right tabular-nums">
@@ -169,13 +169,13 @@ export function HistoryItem({ item, showEventsLink, onViewEvents }: HistoryItemP
           </div>
         )}
         {trace?.isoFilename && overallStatus === 'done' && (
-          <div className="flex items-center gap-1 text-[10px] text-ps-triangle/70">
+          <div className="flex items-center gap-1 text-[10px] text-success/70">
             <span>&#10003;</span>
             <span className="truncate font-mono">{trace.isoFilename}</span>
           </div>
         )}
         {overallStatus === 'error' && lastStep?.message && (
-          <div className="text-[10px] text-ps-circle/70 truncate">{lastStep.message}</div>
+          <div className="text-[10px] text-error/70 truncate">{lastStep.message}</div>
         )}
         <div className="flex items-center gap-2">
           {badge}
@@ -219,7 +219,7 @@ export function HistoryItem({ item, showEventsLink, onViewEvents }: HistoryItemP
 
       {/* Delete confirmation */}
       {confirmDelete && (
-        <div className="flex items-center gap-2 px-3 sm:px-5 py-2 bg-ps-circle/5 border-t border-ps-circle/10 flex-wrap">
+        <div className="flex items-center gap-2 px-3 sm:px-5 py-2 bg-error/5 border-t border-error/10 flex-wrap">
           <span className="text-[10px] text-text-3">Remove?</span>
           <button
             onClick={() => { deleteMutation.mutate({ id: item.id }); setConfirmDelete(false) }}
@@ -230,8 +230,8 @@ export function HistoryItem({ item, showEventsLink, onViewEvents }: HistoryItemP
           {item.fileExists && (
             <button
               onClick={() => { deleteMutation.mutate({ id: item.id, deleteFiles: true }); setConfirmDelete(false) }}
-              className="text-[10px] px-2 py-0.5 rounded bg-ps-circle/15 text-[#e06070]
-                hover:bg-ps-circle/25 transition-colors">
+              className="text-[10px] px-2 py-0.5 rounded bg-error/15 text-error
+                hover:bg-error/25 transition-colors">
               Delete files too
             </button>
           )}
@@ -257,8 +257,8 @@ function Actions({ trace, item, convertMutation, actionMutation, onDelete }: {
     <>
       {trace?.actions.includes('convert') && (
         <button onClick={() => convertMutation.mutate(item.filename)}
-          className="text-[10px] px-1.5 py-0.5 rounded text-ps-cross/60 hover:text-[#7eb3e0]
-            hover:bg-ps-cross/10 transition-colors">Convert</button>
+          className="text-[10px] px-1.5 py-0.5 rounded text-info/60 hover:text-info
+            hover:bg-info/10 transition-colors">Convert</button>
       )}
       {trace?.actions.includes('mark-done') && (
         <button onClick={() => actionMutation.mutate({ filename: item.filename, action: 'mark-done' })}
@@ -272,12 +272,12 @@ function Actions({ trace, item, convertMutation, actionMutation, onDelete }: {
       )}
       {trace?.actions.includes('abort') && (
         <button onClick={() => actionMutation.mutate({ filename: item.filename, action: 'abort' })}
-          className="text-[10px] px-1.5 py-0.5 rounded text-ps-circle/60 hover:text-ps-circle
-            hover:bg-ps-circle/10 transition-colors">Abort</button>
+          className="text-[10px] px-1.5 py-0.5 rounded text-error/60 hover:text-error
+            hover:bg-error/10 transition-colors">Abort</button>
       )}
       <button onClick={onDelete}
         className="w-6 h-6 flex items-center justify-center rounded
-          text-ps-circle/30 hover:text-ps-circle hover:bg-ps-circle/10 text-xs"
+          text-error/30 hover:text-error hover:bg-error/10 text-xs"
         title="Remove">&times;</button>
     </>
   )

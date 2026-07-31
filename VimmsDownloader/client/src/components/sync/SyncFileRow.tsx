@@ -17,7 +17,7 @@ export function SyncFileRow({ file, status }: SyncFileRowProps) {
   const isCopying = !!copyProgress
 
   const statusColor =
-    status === 'new' ? 'text-ps-triangle' :
+    status === 'new' ? 'text-success' :
     status === 'synced' ? 'text-accent/60' : 'text-text-4'
 
   const statusLabel =
@@ -45,8 +45,8 @@ export function SyncFileRow({ file, status }: SyncFileRowProps) {
         <button
           onClick={() => copyMutation.mutate(file.name)}
           disabled={copyMutation.isPending}
-          className="text-[10px] px-2 py-0.5 rounded text-ps-cross/60 hover:text-[#7eb3e0]
-            hover:bg-ps-cross/10 border border-ps-cross/20 transition-colors"
+          className="text-[10px] px-2 py-0.5 rounded text-info/60 hover:text-info
+            hover:bg-info/10 border border-info/20 transition-colors"
         >
           Copy
         </button>

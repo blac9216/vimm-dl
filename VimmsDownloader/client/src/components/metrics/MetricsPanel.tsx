@@ -99,8 +99,8 @@ export function MetricsPanel() {
                     labels: speedHistory.map(() => ''),
                     datasets: [{
                       data: speedHistory,
-                      borderColor: 'rgba(91, 155, 213, 0.8)',
-                      backgroundColor: 'rgba(91, 155, 213, 0.08)',
+                      borderColor: 'rgba(111, 141, 255, 0.8)',
+                      backgroundColor: 'rgba(111, 141, 255, 0.08)',
                       borderWidth: 1.5,
                       pointRadius: 0,
                       fill: true,
@@ -115,8 +115,8 @@ export function MetricsPanel() {
                       x: { display: false },
                       y: {
                         beginAtZero: true,
-                        ticks: { color: '#3d4d66', font: { size: 9, family: 'monospace' }, callback: v => `${v}` },
-                        grid: { color: 'rgba(61, 77, 102, 0.15)' },
+                        ticks: { color: '#474d6b', font: { size: 9, family: 'monospace' }, callback: v => `${v}` },
+                        grid: { color: 'rgba(71, 77, 107, 0.15)' },
                         border: { display: false },
                       },
                     },

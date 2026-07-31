@@ -8,10 +8,10 @@ export const COMPAT_STATUSES = ['Playable', 'Ingame', 'Intro', 'Loadable', 'Noth
 // Color a normalized compatibility status (Playable/Ingame/Intro/Loadable/Nothing).
 export function compatClass(status: string): string {
   switch (status) {
-    case 'Playable': return 'bg-ps-triangle/15 text-ps-triangle border-ps-triangle/25'
+    case 'Playable': return 'bg-success/15 text-success border-success/25'
     case 'Ingame': return 'bg-accent/15 text-accent border-accent/30'
     case 'Intro':
-    case 'Loadable': return 'bg-[#e0a060]/15 text-[#e0a060] border-[#e0a060]/30'
-    default: return 'bg-ps-circle/10 text-[#e06070] border-ps-circle/20' // Nothing / unknown
+    case 'Loadable': return 'bg-warning/15 text-warning border-warning/30'
+    default: return 'bg-error/10 text-error border-error/20' // Nothing / unknown
   }
 }

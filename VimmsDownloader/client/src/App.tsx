@@ -30,12 +30,13 @@ const queryClient = new QueryClient({
 })
 
 function AppContent() {
-  const [activeTab, setActiveTab] = useState<Tab>('active')
+  // null = the user hasn't picked a tab yet, so the settings-driven default (below) applies.
+  const [userTab, setUserTab] = useState<Tab | null>(null)
   const [eventsItemFilter, setEventsItemFilter] = useState<string | null>(null)
   const [state, dispatch] = useReducer(downloadReducer, initialState)
   const connection = useSignalR(dispatch)
   const { data } = useData()
-  const { data: settings } = useSettings()
+  const { data: settings, isLoading: settingsLoading } = useSettings()
 
   // Restore running state from /api/data response
   useEffect(() => {
@@ -88,13 +89,20 @@ function AppContent() {
     return hidden
   }, [settings?.featureSync, settings?.featureEvents, settings?.featureLibrary, settings?.featureImport])
 
-  // If the active tab is hidden (its feature flag is off), fall back to 'active'. Derived during
-  // render instead of synced through an effect, so the visible tab is always consistent in one pass.
-  const effectiveTab = hiddenTabs.has(activeTab) ? 'active' : activeTab
+  // Default/fallback tab: Library when the beta flag is on, else Active (#256). Used both before the
+  // user has picked a tab (userTab === null, e.g. while settings are still loading) and whenever the
+  // currently-picked tab is hidden (its feature flag turned off). Derived during render — no effect
+  // needed, so there's no cascading-render setState-in-effect.
+  const defaultTab: Tab = settings?.featureLibrary ? 'library' : 'active'
+  const effectiveTab = userTab !== null && !hiddenTabs.has(userTab) ? userTab : defaultTab
+
+  // Avoid an Active->Library flash on first load: until settings resolve, we don't know the real
+  // default, so hold off mounting a content panel rather than briefly mounting the wrong one.
+  const tabPending = userTab === null && settingsLoading
 
   const handleViewEvents = useCallback((itemName: string) => {
     setEventsItemFilter(itemName)
-    setActiveTab('events')
+    setUserTab('events')
   }, [])
 
   const eventsEnabled = !!settings?.featureEvents
@@ -107,26 +115,26 @@ function AppContent() {
         <Toolbar />
         <ControlBar />
         <ErrorBanner />
-        <TabBar activeTab={effectiveTab} onTabChange={setActiveTab} counts={counts} hiddenTabs={hiddenTabs} />
+        <TabBar activeTab={effectiveTab} onTabChange={setUserTab} counts={counts} hiddenTabs={hiddenTabs} />
         <main className="flex-1 overflow-hidden">
-          {effectiveTab === 'active' && <ActivePanel />}
-          {effectiveTab === 'completed' && (
+          {!tabPending && effectiveTab === 'active' && <ActivePanel />}
+          {!tabPending && effectiveTab === 'completed' && (
             <CompletedPanel
               showEventsLink={eventsEnabled}
               onViewEvents={handleViewEvents}
             />
           )}
-          {effectiveTab === 'library' && <LibraryPanel />}
-          {effectiveTab === 'import' && <ImportPanel />}
-          {effectiveTab === 'metrics' && <MetricsPanel />}
-          {effectiveTab === 'events' && (
+          {!tabPending && effectiveTab === 'library' && <LibraryPanel />}
+          {!tabPending && effectiveTab === 'import' && <ImportPanel />}
+          {!tabPending && effectiveTab === 'metrics' && <MetricsPanel />}
+          {!tabPending && effectiveTab === 'events' && (
             <EventsPanel
               itemFilter={eventsItemFilter}
               onClearItemFilter={() => setEventsItemFilter(null)}
             />
           )}
-          {effectiveTab === 'sync' && <SyncPanel />}
-          {effectiveTab === 'settings' && <SettingsPanel />}
+          {!tabPending && effectiveTab === 'sync' && <SyncPanel />}
+          {!tabPending && effectiveTab === 'settings' && <SettingsPanel />}
         </main>
         <StatusBar />
       </div>

@@ -21,7 +21,7 @@ function FileStatus({ d }: { d: DuplicateInfo }) {
     <div className="mt-1 space-y-0.5">
       {parts.map(p => (
         <div key={p.label} className="flex items-center gap-1.5 text-[10px] font-mono truncate">
-          <span className={p.exists ? 'text-ps-triangle/70' : 'text-text-4/50 line-through'}>
+          <span className={p.exists ? 'text-success/70' : 'text-text-4/50 line-through'}>
             {p.exists ? '\u2713' : '\u2717'}
           </span>
           <span className={p.exists ? 'text-text-3' : 'text-text-4/50'}>{p.label}</span>
@@ -56,10 +56,10 @@ export function DuplicateDialog({ duplicates, onConfirm, onCancel, isPending }: 
               <div className="flex items-center gap-2 mt-1 flex-wrap">
                 <span className={`text-[10px] px-1.5 py-0.5 rounded border font-medium tracking-wide ${
                   d.crossFormat
-                    ? 'bg-ps-square/12 text-ps-square border-ps-square/20'
+                    ? 'bg-paused/12 text-paused border-paused/20'
                     : d.source === 'queued'
                       ? 'bg-amber/12 text-amber border-amber/20'
-                      : 'bg-ps-triangle/12 text-ps-triangle border-ps-triangle/20'
+                      : 'bg-success/12 text-success border-success/20'
                 }`}>
                   {d.crossFormat ? 'OTHER FORMAT' : d.source === 'queued' ? 'IN QUEUE' : 'COMPLETED'}
                 </span>
@@ -77,9 +77,9 @@ export function DuplicateDialog({ duplicates, onConfirm, onCancel, isPending }: 
             Cancel
           </button>
           <button onClick={onConfirm} disabled={isPending}
-            className="px-3.5 py-1.5 text-xs font-medium rounded bg-ps-cross/20 text-[#7eb3e0]
-              border border-ps-cross/30 hover:bg-ps-cross/30
-              hover:shadow-[0_0_16px_rgba(46,109,180,0.2)] transition-all disabled:opacity-40">
+            className="px-3.5 py-1.5 text-xs font-medium rounded bg-info/20 text-info
+              border border-info/30 hover:bg-info/30
+              hover:shadow-[0_0_16px_rgba(111,141,255,0.2)] transition-all disabled:opacity-40">
             {isPending ? 'Adding...' : 'Add Anyway'}
           </button>
         </div>

@@ -46,7 +46,7 @@ function FormatChips({ game }: { game: CatalogGame }) {
         <span key={alt}
           className={`text-[9px] px-1.5 py-0.5 rounded border ${
             owned.has(alt)
-              ? 'bg-ps-triangle/15 text-ps-triangle border-ps-triangle/25'
+              ? 'bg-success/15 text-success border-success/25'
               : 'bg-surface-3/40 text-text-3 border-border/30'
           }`}
           title={owned.has(alt) ? `Owned: ${fmtLabel(alt)}` : `Available: ${fmtLabel(alt)}`}>
@@ -191,8 +191,8 @@ export function LibraryPanel() {
           organised by console.
         </div>
         <button onClick={() => syncMutation.mutate()} disabled={syncing}
-          className="px-5 py-2 text-sm font-medium rounded bg-ps-cross/20 text-[#7eb3e0]
-            border border-ps-cross/30 hover:bg-ps-cross/30 hover:shadow-[0_0_16px_rgba(46,109,180,0.2)]
+          className="px-5 py-2 text-sm font-medium rounded bg-info/20 text-info
+            border border-info/30 hover:bg-info/30 hover:shadow-[0_0_16px_rgba(111,141,255,0.2)]
             disabled:opacity-40">
           {syncing ? 'Syncing…' : 'Sync catalog'}
         </button>
@@ -351,7 +351,7 @@ export function LibraryPanel() {
           placeholder={searchPlaceholder}
           className="flex-1 bg-surface/60 border border-border/40 rounded px-3 py-1 text-sm text-text
             placeholder:text-text-4 focus:outline-none focus:border-accent/30
-            focus:shadow-[0_0_10px_rgba(91,155,213,0.08)]" />
+            focus:shadow-[0_0_10px_rgba(111,141,255,0.08)]" />
         <button onClick={() => setShowSets(true)} title="Manage download sources"
           className="px-3 py-1 text-xs font-medium rounded bg-surface-2/40 text-text-3
             border border-border/30 hover:bg-surface-2/70 hover:text-text shrink-0">
@@ -415,7 +415,7 @@ export function LibraryPanel() {
         </span>
         {/* Curation (R3): pick the best missing games (by rank) up to a GB budget under the current filters. */}
         <span className="flex items-center gap-1 shrink-0">
-          <span className="text-[#e0b34d]" title="Best N up to X GB — picks the top-ranked missing games that fit the budget">★</span>
+          <span className="text-warning" title="Best N up to X GB — picks the top-ranked missing games that fit the budget">★</span>
           <input type="number" min="0" step="1" inputMode="decimal" value={budgetGb} onChange={e => setBudgetGb(e.target.value)}
             placeholder="GB" title="Size budget in GB — picks the best-ranked missing games that fit"
             className="w-12 bg-surface/80 border border-border/50 rounded px-1 py-0.5 text-[10px] text-text
@@ -427,8 +427,8 @@ export function LibraryPanel() {
               focus:outline-none focus:border-accent/40" />
           <button onClick={pickBest} disabled={curating || busy}
             title="Select the best-ranked missing games that fit the GB budget (then Queue selected)"
-            className="px-2 py-0.5 text-[10px] font-medium rounded bg-[#e0b34d]/15 text-[#e0b34d]
-              border border-[#e0b34d]/30 hover:bg-[#e0b34d]/25 disabled:opacity-40">
+            className="px-2 py-0.5 text-[10px] font-medium rounded bg-warning/15 text-warning
+              border border-warning/30 hover:bg-warning/25 disabled:opacity-40">
             {curating ? 'Picking…' : 'Pick best'}
           </button>
         </span>
@@ -436,8 +436,8 @@ export function LibraryPanel() {
           <span className="ml-auto flex items-center gap-2 shrink-0">
             <span className="text-accent">{selectedIds.size.toLocaleString()} selected</span>
             <button onClick={queueSelected} disabled={batchQueue.isPending}
-              className="px-2 py-0.5 text-[10px] font-medium rounded bg-ps-cross/20 text-[#7eb3e0]
-                border border-ps-cross/30 hover:bg-ps-cross/30 disabled:opacity-40">
+              className="px-2 py-0.5 text-[10px] font-medium rounded bg-info/20 text-info
+                border border-info/30 hover:bg-info/30 disabled:opacity-40">
               {batchQueue.isPending ? 'Queuing…' : 'Queue selected'}
             </button>
             <button onClick={() => setSelectedIds(new Set())}
@@ -449,7 +449,7 @@ export function LibraryPanel() {
       </div>
 
       {queueError && (
-        <div className="mx-3 sm:mx-6 mt-2 p-2 bg-ps-circle/8 border border-ps-circle/20 rounded text-xs text-[#e06070] flex items-center gap-2">
+        <div className="mx-3 sm:mx-6 mt-2 p-2 bg-error/8 border border-error/20 rounded text-xs text-error flex items-center gap-2">
           <span className="flex-1">{queueError}</span>
           <button onClick={() => setShowSets(true)} className="underline hover:text-text-2 shrink-0">Manage sources</button>
           <button onClick={() => setQueueError(null)} className="text-text-4 hover:text-text shrink-0">×</button>
@@ -457,7 +457,7 @@ export function LibraryPanel() {
       )}
 
       {batchMsg && (
-        <div className="mx-3 sm:mx-6 mt-2 p-2 bg-ps-cross/8 border border-ps-cross/20 rounded text-xs text-[#7eb3e0] flex items-center gap-2">
+        <div className="mx-3 sm:mx-6 mt-2 p-2 bg-info/8 border border-info/20 rounded text-xs text-info flex items-center gap-2">
           <span className="flex-1">{batchMsg}</span>
           <button onClick={() => setBatchMsg(null)} className="text-text-4 hover:text-text shrink-0">×</button>
         </div>
@@ -475,7 +475,7 @@ export function LibraryPanel() {
             <button type="button" onClick={() => setExpandedId(prev => (prev === g.id ? null : g.id))}
               title="Show artwork & details" aria-expanded={expandedId === g.id}
               className="flex items-center gap-3 flex-1 min-w-0 text-left group">
-              <CatalogThumb id={g.id} platform={g.console} />
+              <CatalogThumb id={g.id} title={g.name} />
               <span className="flex-1 min-w-0 block">
                 <span className="block text-sm text-text-2 truncate group-hover:text-text" title={g.name}>{g.name}</span>
                 <span className="flex gap-2 flex-wrap text-[10px] text-text-4">
@@ -490,8 +490,8 @@ export function LibraryPanel() {
                 title={`${emuName(c.emulator)}: ${c.status}`}>{c.status}</span>
             ))}
             {g.vimmMatch && g.vimmMatch !== 'none' && (
-              <span className="text-[9px] px-1.5 py-0.5 rounded bg-ps-cross/10 text-[#7eb3e0]
-                border border-ps-cross/25 shrink-0" title={`Matched to a Vimm vault entry by ${g.vimmMatch.toUpperCase()}`}>Vimm</span>
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-info/10 text-info
+                border border-info/25 shrink-0" title={`Matched to a Vimm vault entry by ${g.vimmMatch.toUpperCase()}`}>Vimm</span>
             )}
             {g.vimmMatch === 'none' && (
               <span className="text-[9px] px-1.5 py-0.5 rounded bg-surface-3/40 text-text-4
@@ -505,8 +505,8 @@ export function LibraryPanel() {
               </span>
             )}
             {g.rankScore != null && (
-              <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#e0b34d]/10 text-[#e0b34d]
-                border border-[#e0b34d]/25 shrink-0 tabular-nums"
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-warning/10 text-warning
+                border border-warning/25 shrink-0 tabular-nums"
                 title={`IGDB rank score ${g.rankScore.toFixed(2)} (quality, vote-weighted)`}>★ {Math.round(g.rankScore)}</span>
             )}
             {g.size > 0 && (
@@ -515,19 +515,19 @@ export function LibraryPanel() {
             <FormatChips game={g} />
             {g.owned ? (
               g.verified === true ? (
-                <span className="text-[9px] px-1.5 py-0.5 rounded bg-ps-triangle/15 text-ps-triangle
-                  border border-ps-triangle/25 shrink-0" title="File CRC32 matches the catalog">✓ Verified</span>
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-success/15 text-success
+                  border border-success/25 shrink-0" title="File CRC32 matches the catalog">✓ Verified</span>
               ) : g.verified === false ? (
-                <span className="text-[9px] px-1.5 py-0.5 rounded bg-ps-circle/10 text-[#e06070]
-                  border border-ps-circle/20 shrink-0" title="File CRC32 does not match any catalog hash">✗ Mismatch</span>
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-error/10 text-error
+                  border border-error/20 shrink-0" title="File CRC32 does not match any catalog hash">✗ Mismatch</span>
               ) : (
-                <span className="text-[9px] px-1.5 py-0.5 rounded bg-ps-triangle/15 text-ps-triangle
-                  border border-ps-triangle/25 shrink-0" title="Owned — run Verify to check the file hash">Owned</span>
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-success/15 text-success
+                  border border-success/25 shrink-0" title="Owned — run Verify to check the file hash">Owned</span>
               )
             ) : (
               <button onClick={() => handleQueue(g)} disabled={queuedIds.has(g.id) || queueGame.isPending}
-                className="px-2.5 py-1 text-xs font-medium rounded bg-ps-cross/20 text-[#7eb3e0]
-                  border border-ps-cross/30 hover:bg-ps-cross/30 disabled:opacity-40 shrink-0">
+                className="px-2.5 py-1 text-xs font-medium rounded bg-info/20 text-info
+                  border border-info/30 hover:bg-info/30 disabled:opacity-40 shrink-0">
                 {queuedIds.has(g.id) ? 'Queued' : 'Download'}
               </button>
             )}

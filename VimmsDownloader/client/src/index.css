@@ -1,41 +1,75 @@
 @import "tailwindcss";
 
 @theme {
-  /* PS3 XMB — deep blue-black, glass surfaces, blue glow */
-  --color-bg: #05080f;
-  --color-surface: #0b1120;
-  --color-surface-2: #111a2e;
-  --color-surface-3: #182340;
-  --color-card: #0d1526;
-  --color-card-hover: #121d35;
-  --color-border: #1a2744;
-  --color-border-light: #243456;
+  /* ===== VIMM//DL shell redesign (#256) — indigo/violet system replacing the PS3-XMB blue theme ===== */
 
-  /* XMB signature blue glow */
-  --color-accent: #5b9bd5;
-  --color-accent-2: #3a7bd5;
-  --color-glow: rgba(91, 155, 213, 0.15);
-  --color-glow-strong: rgba(91, 155, 213, 0.3);
+  /* Surfaces */
+  --color-bg: #0a0912;           /* window background */
+  --color-surface: #141324;      /* panel base (rgba(20,19,36,.45) at typical opacity) */
+  --color-surface-2: #0b0a16;    /* rail / toolbar base (rgba(10,9,20,.4-.5)) */
+  --color-surface-3: #242240;    /* elevated fill (rgba(36,34,64,.6)) */
+  --color-card: #141324;         /* card background (rgba(20,19,36,.45)) */
+  --color-card-hover: #1a1830;   /* card/row hover */
+  --color-input: #0d0c1a;        /* input / search field background */
 
-  /* PS3 controller button colors */
-  --color-ps-cross: #2e6db4;
-  --color-ps-circle: #c1272d;
-  --color-ps-triangle: #00a651;
-  --color-ps-square: #9b59b6;
+  /* Border ramp (outer -> innermost) */
+  --color-border-outer: #262440;   /* window frame border */
+  --color-border: #211f3a;         /* card border (mechanical default) */
+  --color-border-section: #1f1d38; /* header / tabbar / footer separators */
+  --color-border-subtle: #18172c;  /* rail / column separators */
+  --color-border-row: #16152a;     /* list row dividers */
+  --color-border-inner: #1b1a30;   /* card inner row dividers */
+  --color-border-light: #2a2848;   /* control border (mechanical default) */
+  --color-border-input: #252340;   /* text input border */
 
-  /* Status — mapped to PS3 button palette */
-  --color-green: #00a651;
-  --color-green-bg: rgba(0, 166, 81, 0.08);
-  --color-green-border: rgba(0, 166, 81, 0.2);
-  --color-amber: #e8a317;
-  --color-red: #c1272d;
-  --color-blue: #2e6db4;
+  /* Primary accent — indigo -> violet gradient */
+  --color-accent: #6f8dff;
+  --color-accent-2: #9d6dff;
+  --color-glow: rgba(111, 141, 255, 0.16);
+  --color-glow-strong: rgba(111, 141, 255, 0.4);
+  --color-link: #7d83ff;
+  --color-link-2: #8aa0ff;
+  --color-link-3: #aeb9ff;
+  --color-link-4: #cdd5ff;
 
-  /* Text — silver/white on deep black */
-  --color-text: #e8ecf1;
-  --color-text-2: #a8b4c4;
-  --color-text-3: #6b7a90;
-  --color-text-4: #3d4d66;
+  /* Status triplets (retires the old ps-cross/ps-circle/ps-triangle/ps-square palette) */
+  --color-success: #3ee0a0;
+  --color-success-bg: rgba(62, 224, 160, 0.14);
+  --color-success-border: rgba(62, 224, 160, 0.32);
+  --color-info: #8aa0ff;
+  --color-info-bg: rgba(111, 141, 255, 0.16);
+  --color-info-border: rgba(111, 141, 255, 0.36);
+  --color-paused: #c4a0ff;
+  --color-paused-bg: rgba(196, 160, 255, 0.16);
+  --color-paused-border: rgba(196, 160, 255, 0.34);
+  --color-warning: #f4b44e;
+  --color-warning-bg: rgba(244, 180, 78, 0.14);
+  --color-warning-border: rgba(244, 180, 78, 0.3);
+  --color-error: #ff7484;
+  --color-error-bg: rgba(255, 98, 117, 0.14);
+  --color-error-border: rgba(255, 98, 117, 0.3);
+  --color-neutral: #9ea4c6;
+  --color-neutral-bg: rgba(36, 34, 64, 0.6);
+  --color-neutral-border: #2a2848;
+
+  /* Mechanical old-token -> new-status aliases, so panels not yet restyled (L3-L10) stay legible */
+  --color-green: #3ee0a0;
+  --color-green-bg: rgba(62, 224, 160, 0.14);
+  --color-green-border: rgba(62, 224, 160, 0.32);
+  --color-amber: #f4b44e;
+  --color-red: #ff7484;
+  --color-blue: #8aa0ff;
+
+  /* Text ramp */
+  --color-text: #f4f5ff;         /* primary */
+  --color-text-heading: #edeefc; /* headings / active labels */
+  --color-text-body: #dfe2f5;    /* row titles */
+  --color-text-body-2: #cfd3ec;
+  --color-text-2: #9ea4c6;       /* secondary (mechanical default) */
+  --color-text-3: #6a7095;       /* muted (mechanical default) */
+  --color-text-faint: #5b6086;
+  --color-text-4: #474d6b;       /* faintest (mechanical default) */
+  --color-text-disabled: #3a3f5c;
 
   --font-sans: 'Inter', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
@@ -52,45 +86,46 @@ html, body, #root {
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 
-/* XMB background gradient + subtle noise */
+/* Desktop backdrop gradient behind the app shell */
 body {
-  background: linear-gradient(160deg, #05080f 0%, #0a1628 40%, #0d1a30 60%, #05080f 100%);
+  background: linear-gradient(165deg, #080711 0%, #0e0d1e 45%, #0b0a16 100%);
   background-attachment: fixed;
 }
 
 /* Glass panel effect */
 .xmb-glass {
-  background: linear-gradient(180deg, rgba(11, 17, 32, 0.85) 0%, rgba(11, 17, 32, 0.95) 100%);
+  background: linear-gradient(180deg, rgba(26, 23, 48, 0.6) 0%, rgba(13, 12, 26, 0.3) 100%);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
 }
 
-/* XMB glow on selected/active items */
+/* Glow on selected/active items */
 .xmb-glow {
-  box-shadow: 0 0 20px rgba(91, 155, 213, 0.12), inset 0 1px 0 rgba(91, 155, 213, 0.08);
+  box-shadow: 0 0 20px rgba(111, 141, 255, 0.12), inset 0 1px 0 rgba(111, 141, 255, 0.08);
 }
 
 .xmb-glow-strong {
-  box-shadow: 0 0 30px rgba(91, 155, 213, 0.2), 0 0 60px rgba(91, 155, 213, 0.08), inset 0 1px 0 rgba(91, 155, 213, 0.15);
+  box-shadow: 0 0 30px rgba(111, 141, 255, 0.2), 0 0 60px rgba(111, 141, 255, 0.08), inset 0 1px 0 rgba(111, 141, 255, 0.15);
 }
 
-/* XMB-style selection highlight */
+/* Selection highlight for list rows */
 .xmb-selected {
-  background: linear-gradient(90deg, rgba(91, 155, 213, 0.12) 0%, rgba(91, 155, 213, 0.04) 100%);
-  border-left: 2px solid var(--color-accent);
+  background: linear-gradient(90deg, rgba(111, 141, 255, 0.2) 0%, rgba(157, 109, 255, 0.05) 90%);
+  border-left: 2.5px solid var(--color-link);
 }
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--color-surface-3) transparent;
+  scrollbar-color: #2c2a48 transparent;
 }
 
 *::-webkit-scrollbar {
-  width: 3px;
+  width: 7px;
+  height: 7px;
 }
 *::-webkit-scrollbar-thumb {
-  background: var(--color-surface-3);
-  border-radius: 2px;
+  background: #2c2a48;
+  border-radius: 4px;
 }
 *::-webkit-scrollbar-track {
   background: transparent;
@@ -105,7 +140,7 @@ body {
   display: none;
 }
 
-/* Smooth transitions for the XMB feel */
+/* Smooth transitions */
 button, a, [role="button"] {
   transition: all 0.2s ease;
 }
