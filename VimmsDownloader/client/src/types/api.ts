@@ -186,6 +186,23 @@ export interface CatalogSystemStatus {
   syncedAt: string | null
 }
 
+/**
+ * One background job as reported by `GET /api/jobs` (L1 #255) — one row per registered
+ * `BackgroundJobGate`. `percent` is null when the job doesn't know a total up front (indeterminate
+ * progress). NOTE: `startedAt`/`elapsedMs` describe the *last* run and keep growing after it ends,
+ * so elapsed may only be rendered while `running` is true.
+ */
+export interface JobStatus {
+  kind: string
+  running: boolean
+  message: string | null
+  current: number | null
+  total: number | null
+  percent: number | null
+  startedAt: string | null
+  elapsedMs: number | null
+}
+
 export interface CatalogStatus {
   syncing: boolean
   scanning: boolean

@@ -12,18 +12,9 @@ import { hasAdvancedFilters, type LibraryFilters } from './filters'
 // in the middle; paging as the footer.
 //
 // Everything the old flat toolbar carried is preserved here rather than dropped (epic #254 decision):
-// the less-used filters live in an "Filters" popover, the batch-select + curation controls on a
-// sub-bar, and the catalog job triggers in a "⋯" overflow menu (they move to the Jobs tab in L5).
-
-/** One catalog background job as offered by the overflow menu. */
-export interface CatalogJobAction {
-  id: string
-  label: string
-  activeLabel: string
-  title: string
-  active: boolean
-  run: () => void
-}
+// the less-used filters live in a "Filters" popover and the batch-select + curation controls on a
+// sub-bar. The catalog job triggers that used to sit in a "⋯" overflow menu moved to the Jobs tab
+// (#259); only the sources dialog stayed behind.
 
 /** Close a popover on outside click or Escape. */
 function useDismiss(open: boolean, close: () => void) {
@@ -63,7 +54,7 @@ const SELECT_CLASS = 'bg-input border border-border-light rounded-lg px-2 py-1 t
 export function GameList({
   filters, patch, games, total, pageSize, isFetching, emulators, detailOpen,
   selectedIds, onToggleSelect, onToggleSelectVisible, onQueueSelected, onClearSelection, batchPending,
-  onPickBest, curating, jobs, onManageSources, jobsBusy,
+  onPickBest, curating, onManageSources, catalogBusy,
 }: {
   filters: LibraryFilters
   patch: (p: Partial<LibraryFilters>, resetView?: boolean) => void
@@ -82,16 +73,14 @@ export function GameList({
   batchPending: boolean
   onPickBest: (budgetGb: string, maxCount: string) => void
   curating: boolean
-  jobs: CatalogJobAction[]
   onManageSources: () => void
-  jobsBusy: boolean
+  /** A catalog job is running (Jobs tab) — curation would race it, so the button waits. */
+  catalogBusy: boolean
 }) {
   const [showFilters, setShowFilters] = useState(false)
-  const [showJobs, setShowJobs] = useState(false)
   const [budgetGb, setBudgetGb] = useState('')
   const [maxCount, setMaxCount] = useState('')
   const filtersRef = useDismiss(showFilters, () => setShowFilters(false))
-  const jobsRef = useDismiss(showJobs, () => setShowJobs(false))
 
   const page = filters.page
   const pageCount = Math.ceil(total / pageSize)
@@ -196,30 +185,10 @@ export function GameList({
           )}
         </div>
 
-        {/* Catalog job triggers + sources — compact overflow menu (these move to the Jobs tab in L5) */}
-        <div className="relative" ref={jobsRef}>
-          <button onClick={() => setShowJobs(v => !v)} title="Catalog actions — sync, scan, verify, compatibility, sources"
-            className={`px-2 py-[5px] text-[11px] font-semibold rounded-lg border shrink-0 leading-none ${
-              showJobs || jobsBusy ? SEG_ACTIVE : SEG_IDLE}`}>⋯</button>
-          {showJobs && (
-            <div className="absolute z-30 mt-1.5 left-0 w-56 max-w-[80vw] py-1 flex flex-col
-              bg-card border border-border rounded-xl shadow-xl">
-              <button onClick={() => { onManageSources(); setShowJobs(false) }}
-                title="Manage archive.org download sets"
-                className="text-left px-3 py-1.5 text-[11px] text-text-2 hover:bg-accent/10 hover:text-text">
-                Manage sources…
-              </button>
-              <div className="border-t border-border-inner my-1" />
-              {jobs.map(j => (
-                <button key={j.id} onClick={() => { j.run(); setShowJobs(false) }} disabled={jobsBusy} title={j.title}
-                  className="text-left px-3 py-1.5 text-[11px] text-text-2 hover:bg-accent/10 hover:text-text
-                    disabled:opacity-40 disabled:hover:bg-transparent">
-                  {j.active ? j.activeLabel : j.label}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        {/* Archive.org download sets. The catalog job triggers that shared this slot are on the Jobs tab (#259). */}
+        <Seg active={false} onClick={onManageSources} title="Manage archive.org download sets">
+          Sources
+        </Seg>
 
         <div className="flex-1" />
         <span className="text-[10px] font-mono text-text-4 tabular-nums shrink-0">
@@ -262,7 +231,7 @@ export function GameList({
             placeholder="max#" title="Optional cap on the number of games"
             className="w-11 bg-input border border-border-light rounded px-1 py-0.5 text-[10px] text-text
               focus:outline-none focus:border-accent/40" />
-          <button onClick={() => onPickBest(budgetGb, maxCount)} disabled={curating || jobsBusy}
+          <button onClick={() => onPickBest(budgetGb, maxCount)} disabled={curating || catalogBusy}
             title="Select the best-ranked missing games that fit the GB budget (then Queue selected)"
             className="px-2 py-0.5 text-[10px] font-medium rounded bg-warning/15 text-warning
               border border-warning/30 hover:bg-warning/25 disabled:opacity-40">

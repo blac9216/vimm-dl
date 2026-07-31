@@ -144,3 +144,16 @@ body {
 button, a, [role="button"] {
   transition: all 0.2s ease;
 }
+
+/* Jobs tab (#259): indeterminate progress — a job that reports no total still shows it is alive. */
+@keyframes job-indeterminate {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(222%); }
+}
+.job-indeterminate {
+  width: 45%;
+  animation: job-indeterminate 1.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .job-indeterminate { animation: none; width: 100%; opacity: 0.45; }
+}

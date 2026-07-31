@@ -6,6 +6,7 @@ import { StatusBar } from './components/layout/StatusBar'
 import { ErrorBanner } from './components/shared/ErrorBanner'
 import { UpdateBanner } from './components/shared/UpdateBanner'
 import { DownloadsPanel } from './components/downloads/DownloadsPanel'
+import { JobsPanel } from './components/jobs/JobsPanel'
 import { SyncPanel } from './components/sync/SyncPanel'
 import { LibraryPanel } from './components/library/LibraryPanel'
 import { ImportPanel } from './components/import/ImportPanel'
@@ -14,8 +15,9 @@ import { EventsPanel } from './components/events/EventsPanel'
 import { MetricsPanel } from './components/metrics/MetricsPanel'
 import { DownloadContext, downloadReducer, initialState } from './hooks/useDownloadState'
 import { useSignalR } from './hooks/useSignalR'
-import { useData, useSettings } from './api/queries'
+import { useData, useJobs, useSettings } from './api/queries'
 import { parseProgress } from './lib/format'
+import { countActiveJobs } from './lib/jobs'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -33,6 +35,7 @@ function AppContent() {
   const [state, dispatch] = useReducer(downloadReducer, initialState)
   const connection = useSignalR(dispatch)
   const { data } = useData()
+  const { data: jobs } = useJobs()
   const { data: settings, isLoading: settingsLoading } = useSettings()
 
   // Restore running state from /api/data response
@@ -66,9 +69,12 @@ function AppContent() {
 
   const queued = data?.queued ?? []
 
-  // Downloads pill = queue length (design handoff "Global Shell" — Jobs gets its own count in #259).
+  // Pills per the design handoff "Global Shell": Downloads = queue length, Jobs = active job count
+  // (running background jobs + non-terminal conversions). The Jobs feed is polled app-wide so the
+  // pill stays live while the user is on another tab.
   const counts = {
     downloads: queued.length,
+    jobs: countActiveJobs(jobs, state.convStatuses),
     events: 0,
     sync: 0,
   }
@@ -114,6 +120,7 @@ function AppContent() {
               onViewEvents={handleViewEvents}
             />
           )}
+          {!tabPending && effectiveTab === 'jobs' && <JobsPanel />}
           {!tabPending && effectiveTab === 'library' && <LibraryPanel />}
           {!tabPending && effectiveTab === 'import' && <ImportPanel />}
           {!tabPending && effectiveTab === 'metrics' && <MetricsPanel />}
