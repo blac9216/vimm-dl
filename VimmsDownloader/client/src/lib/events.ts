@@ -7,9 +7,8 @@ import type { EventRow } from '../types/api'
 // (done → Converted green, error → Error red, converting → Converting indigo,
 // extracting → Extracting amber, everything else → Queued neutral).
 //
-// Lives in lib/ rather than in the row component because the Events tab and the Import tab both
-// render event rows; `components/events/EventItem.tsx` (still used by Import, restyled separately
-// in #263) keeps its own inline copy for now and can adopt these helpers when that lands.
+// Lives in lib/ rather than inside the row component so any other view that has to label an event
+// (the Import tab used to, via the now-deleted shared `EventItem`) can reuse the same mapping.
 
 export type EventBadgeVariant = 'downloading' | 'paused' | 'queued' | 'starting' |
   'extracting' | 'converting' | 'done' | 'error' | 'skipped' | 'waiting'

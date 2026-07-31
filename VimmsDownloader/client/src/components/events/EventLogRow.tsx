@@ -8,8 +8,8 @@ import type { EventRow } from '../../types/api'
 // expandable detail panel indented to the badge column. Expansion is *controlled* by EventsPanel so
 // only one row is open at a time (the spec's "rows expand one at a time").
 //
-// This is Events-specific on purpose: `EventItem.tsx` stays as-is for the Import tab, which is being
-// restyled in parallel (#263) and owns its own row presentation.
+// Replaces the old shared `EventItem`, which went away once the Import tab grew its own row
+// (`import/ImportRow`, #263) — this is now the only event-row renderer.
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
