@@ -35,6 +35,8 @@ using Module.Sync.Bridge;
 [JsonSerializable(typeof(CatalogSystemStatus))]
 [JsonSerializable(typeof(List<CatalogSystemStatus>))]
 [JsonSerializable(typeof(CatalogStatusResponse))]
+[JsonSerializable(typeof(JobStatusDto))]
+[JsonSerializable(typeof(List<JobStatusDto>))]
 [JsonSerializable(typeof(CatalogConsole))]
 [JsonSerializable(typeof(List<CatalogConsole>))]
 [JsonSerializable(typeof(CompatStatus))]

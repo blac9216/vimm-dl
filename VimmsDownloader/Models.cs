@@ -53,6 +53,12 @@ record SettingsResponse(string Platform, string OsDescription, string Hostname, 
 record CatalogSystemStatus(string DatName, string Console, string Source,
     string? DatVersion, int GameCount, string? SyncedAt);
 record CatalogStatusResponse(bool Syncing, bool Scanning, bool CompatSyncing, bool Verifying, bool VimmSyncing, bool Importing, bool IgdbSyncing, bool RaSyncing, int TotalGames, List<CatalogSystemStatus> Systems);
+// L1 #255 — unified background-job surface (GET /api/jobs): one row per registered job kind, with live
+// progress/message/elapsed so the Jobs tab can render e.g. "Catalog Sync · 34 of 95 DATs · 01:12".
+// Percent is null until both Current and Total are known; StartedAt/ElapsedMs are null before the job's
+// first run.
+record JobStatusDto(string Kind, bool Running, string? Message, int? Current, int? Total, double? Percent,
+    DateTimeOffset? StartedAt, long? ElapsedMs);
 record CatalogConsole(string Console, int GameCount, int OwnedCount);
 // One emulator's playability verdict for a game (e.g. "rpcs3" → "Playable"). A game carries one per
 // emulator that targets its console and has a compat entry.

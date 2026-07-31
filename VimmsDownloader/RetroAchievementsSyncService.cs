@@ -16,7 +16,11 @@ class RetroAchievementsSyncService(CatalogRepository catalog, QueueRepository se
 {
     private static readonly TimeSpan FetchDelay = TimeSpan.FromMilliseconds(300); // be polite to the RA API
 
-    public async Task<int> SyncAsync(bool force, CancellationToken ct)
+    /// <summary>
+    /// <paramref name="report"/>, when given, is called once per console (message = console, current =
+    /// 1-based console index, total = console count) — the L1 Jobs API progress checkpoint.
+    /// </summary>
+    public async Task<int> SyncAsync(bool force, Action<string?, int?, int?>? report, CancellationToken ct)
     {
         var apiKey = (await settings.GetAllSettingsAsync()).GetValueOrDefault(SettingsKeys.RetroAchievementsApiKey, "").Trim();
         if (apiKey.Length == 0)
@@ -26,9 +30,12 @@ class RetroAchievementsSyncService(CatalogRepository catalog, QueueRepository se
         }
 
         var total = 0;
-        foreach (var (console, raId) in RaConsoles.ByConsole)
+        var consoles = RaConsoles.ByConsole.ToList();
+        for (var ci = 0; ci < consoles.Count; ci++)
         {
+            var (console, raId) = consoles[ci];
             ct.ThrowIfCancellationRequested();
+            report?.Invoke(console, ci + 1, consoles.Count);
 
             // Catalog side: MD5 -> game_id for this console. No catalog games → nothing to match.
             var byMd5 = (await catalog.GetVimmHashIndexAsync(console, ct)).ByMd5;
@@ -70,4 +77,6 @@ class RetroAchievementsSyncService(CatalogRepository catalog, QueueRepository se
         }
         return total;
     }
+
+    public Task<int> SyncAsync(bool force, CancellationToken ct) => SyncAsync(force, null, ct);
 }

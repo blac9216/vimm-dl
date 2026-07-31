@@ -16,17 +16,24 @@ class VimmSyncService(CatalogRepository catalog, IHttpClientFactory httpFactory,
     /// <summary>Delay between per-title vault-page fetches (politeness). Settable for tests.</summary>
     internal int PoliteDelayMs { get; set; } = 250;
 
-    /// <summary>Sync one console (by EmuDeck folder) or, when null, every Vimm-carried console.</summary>
-    public async Task SyncAsync(string? console, CancellationToken ct)
+    /// <summary>
+    /// Sync one console (by EmuDeck folder) or, when null, every Vimm-carried console.
+    /// <paramref name="report"/>, when given, is called once per section fetch (message =
+    /// "{console}: {section}", current = 1-based section index, total = section count) — the L1 Jobs API
+    /// progress checkpoint.
+    /// </summary>
+    public async Task SyncAsync(string? console, Action<string?, int?, int?>? report, CancellationToken ct)
     {
         var targets = console is null
             ? VimmSystems.All
             : VimmSystems.All.Where(s => s.Console == console).ToList();
         foreach (var sys in targets)
-            await SyncConsoleAsync(sys, ct);
+            await SyncConsoleAsync(sys, report, ct);
     }
 
-    private async Task SyncConsoleAsync(VimmSystemInfo sys, CancellationToken ct)
+    public Task SyncAsync(string? console, CancellationToken ct) => SyncAsync(console, null, ct);
+
+    private async Task SyncConsoleAsync(VimmSystemInfo sys, Action<string?, int?, int?>? report, CancellationToken ct)
     {
         var index = await catalog.GetVimmHashIndexAsync(sys.Console, ct);
         if (index.BySha1.Count == 0 && index.ByMd5.Count == 0 && index.ByCrc.Count == 0)
@@ -37,9 +44,11 @@ class VimmSyncService(CatalogRepository catalog, IHttpClientFactory httpFactory,
 
         var http = httpFactory.CreateClient("vimms");
         int matched = 0, scanned = 0;
-        foreach (var section in Sections)
+        for (var i = 0; i < Sections.Length; i++)
         {
+            var section = Sections[i];
             ct.ThrowIfCancellationRequested();
+            report?.Invoke($"{sys.Console}: {section}", i + 1, Sections.Length);
             var listHtml = await GetStringOrNull(http,
                 $"https://vimm.net/vault/?p=list&system={sys.VimmCode}&section={section}", ct);
             if (listHtml is null) continue;

@@ -8,18 +8,26 @@ using Module.Catalog;
 /// </summary>
 class CompatSyncService(CatalogRepository catalog, IHttpClientFactory httpFactory, ILogger<CompatSyncService> log)
 {
-    public async Task<int> SyncAsync(CancellationToken ct)
+    /// <summary>
+    /// <paramref name="report"/>, when given, is called once per emulator source (message = emulator id,
+    /// current = 1-based source index, total = source count) — the L1 Jobs API progress checkpoint.
+    /// </summary>
+    public async Task<int> SyncAsync(Action<string?, int?, int?>? report, CancellationToken ct)
     {
         var http = httpFactory.CreateClient("compat");
+        var sources = CompatSources.All;
         var total = 0;
-        foreach (var source in CompatSources.All)
+        for (var i = 0; i < sources.Count; i++)
         {
+            ct.ThrowIfCancellationRequested();
+            var source = sources[i];
             var emulator = Emulators.ById(source.EmulatorId);
             if (emulator is null)
             {
                 log.LogWarning("Compat: source {Id} has no registered emulator — skipping", source.EmulatorId);
                 continue;
             }
+            report?.Invoke(emulator.Id, i + 1, sources.Count);
             try
             {
                 var entries = await source.LoadAsync((url, c) => http.GetStringAsync(url, c), ct);
@@ -37,4 +45,6 @@ class CompatSyncService(CatalogRepository catalog, IHttpClientFactory httpFactor
         }
         return total;
     }
+
+    public Task<int> SyncAsync(CancellationToken ct) => SyncAsync(null, ct);
 }

@@ -7,9 +7,11 @@ using Module.Catalog;
 /// (epic #123 / R1). Parallels <see cref="IgdbSyncService"/> (descriptions) — same console loop, same
 /// platform pagination, same name join — but pulls <c>total_rating</c>/<c>total_rating_count</c> and
 /// stores a Bayesian <see cref="RankScore"/>. Reuses the shared <see cref="IgdbClient"/> + Twitch creds;
-/// the host gates it behind the same <c>CatalogIgdbState</c> as the description sync, so the two IGDB
-/// jobs serialize under one token + rate limit. No-ops (returns 0) when creds are absent or a token
-/// can't be obtained. Incremental by default (only as-yet-unranked games); <c>force</c> re-ranks all.
+/// the host gates it behind its own <c>CatalogIgdbRankState</c> (L1 #255 split it from the description
+/// sync's <c>CatalogIgdbDescState</c>, so the two IGDB jobs run/gate independently and report as distinct
+/// job kinds; they still share the same Twitch token + rate limit via <see cref="IgdbClient"/>). No-ops
+/// (returns 0) when creds are absent or a token can't be obtained. Incremental by default (only
+/// as-yet-unranked games); <c>force</c> re-ranks all.
 /// </summary>
 class IgdbRankSyncService(CatalogRepository catalog, QueueRepository settings, IgdbClient igdb,
     ILogger<IgdbRankSyncService> log)
@@ -17,7 +19,11 @@ class IgdbRankSyncService(CatalogRepository catalog, QueueRepository settings, I
     private const int PageSize = 500;                              // IGDB's max page size
     private static readonly TimeSpan PageDelay = TimeSpan.FromMilliseconds(300); // ~3.3 req/s, under IGDB's 4 req/s
 
-    public async Task<int> SyncAsync(bool force, CancellationToken ct)
+    /// <summary>
+    /// <paramref name="report"/>, when given, is called once per console (message = console, current =
+    /// 1-based console index, total = console count) — the L1 Jobs API progress checkpoint.
+    /// </summary>
+    public async Task<int> SyncAsync(bool force, Action<string?, int?, int?>? report, CancellationToken ct)
     {
         var s = await settings.GetAllSettingsAsync();
         var clientId = s.GetValueOrDefault(SettingsKeys.IgdbClientId, "").Trim();
@@ -36,9 +42,12 @@ class IgdbRankSyncService(CatalogRepository catalog, QueueRepository settings, I
         }
 
         var totalRanked = 0;
-        foreach (var console in (await catalog.GetConsolesAsync()).Select(c => c.Console))
+        var consoles = (await catalog.GetConsolesAsync()).Select(c => c.Console).ToList();
+        for (var ci = 0; ci < consoles.Count; ci++)
         {
+            var console = consoles[ci];
             ct.ThrowIfCancellationRequested();
+            report?.Invoke(console, ci + 1, consoles.Count);
             if (IgdbPlatforms.Ids(console) is not { } platformIds) continue; // no IGDB mapping
 
             // Incremental by default: only as-yet-unranked games. A fully-ranked console yields an empty
@@ -65,6 +74,8 @@ class IgdbRankSyncService(CatalogRepository catalog, QueueRepository settings, I
         }
         return totalRanked;
     }
+
+    public Task<int> SyncAsync(bool force, CancellationToken ct) => SyncAsync(force, null, ct);
 
     /// <summary>
     /// Page one IGDB platform's rated games (offset pagination, id-sorted), yielding each page's parsed

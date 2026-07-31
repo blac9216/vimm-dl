@@ -72,6 +72,28 @@ public class VimmSyncServiceTests
         Assert.AreEqual((0L, "none"), await BindingRaw(unowned));   // vault_id NULL → 0 sentinel, match 'none'
     }
 
+    [TestMethod]
+    public async Task SyncAsync_ReportsProgressPerSection()
+    {
+        var snes = await Seed("snes");
+        var actRaiser = await AddGame(snes, "ActRaiser");
+        await AddRom(actRaiser, "ActRaiser (USA).sfc", "eac3358d", "635d5d7dd2aad4768412fbae4a32fd6e",
+            "e8365852cc20178d42c93cd188a7ae9af45369d7");
+
+        var svc = new VimmSyncService(_repo, new FakeHttpClientFactory(new StubHandler(Route)),
+            NullLogger<VimmSyncService>.Instance) { PoliteDelayMs = 0 };
+
+        var seen = new List<(string? Message, int? Current, int? Total)>();
+        await svc.SyncAsync("snes", (msg, cur, tot) => seen.Add((msg, cur, tot)), default);
+
+        // A–Z plus "number" = 27 sections, one report each, all against the same section count.
+        Assert.HasCount(27, seen);
+        Assert.IsTrue(seen.All(s => s.Total == 27));
+        CollectionAssert.AreEqual(Enumerable.Range(1, 27).ToList(), seen.Select(s => s.Current).ToList());
+        Assert.IsTrue(seen.All(s => s.Message!.StartsWith("snes: ")));
+        StringAssert.Contains(seen[0].Message, "snes: A");
+    }
+
     // --- stubbed Vimm ---
 
     private static string? Route(string url)

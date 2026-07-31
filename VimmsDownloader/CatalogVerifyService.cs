@@ -11,17 +11,24 @@ using Module.Catalog;
 /// </summary>
 class CatalogVerifyService(CatalogRepository catalog, QueueRepository queue, ILogger<CatalogVerifyService> log)
 {
-    public async Task<int> VerifyAsync(CancellationToken ct)
+    /// <summary>
+    /// <paramref name="report"/>, when given, is called once per console folder (message = console,
+    /// current = 1-based folder index, total = folder count) — the L1 Jobs API progress checkpoint.
+    /// </summary>
+    public async Task<int> VerifyAsync(Action<string?, int?, int?>? report, CancellationToken ct)
     {
         var completedDir = Path.Combine(queue.GetDownloadPath(), "completed");
         var matched = new Dictionary<long, (string Path, string Hash)>();
 
         if (Directory.Exists(completedDir))
         {
-            foreach (var consoleDir in Directory.EnumerateDirectories(completedDir))
+            var consoleDirs = Directory.GetDirectories(completedDir);
+            for (var i = 0; i < consoleDirs.Length; i++)
             {
                 ct.ThrowIfCancellationRequested();
+                var consoleDir = consoleDirs[i];
                 var console = Path.GetFileName(consoleDir);
+                report?.Invoke(console, i + 1, consoleDirs.Length);
                 var index = await catalog.GetVimmHashIndexAsync(console, ct);
 
                 foreach (var path in Directory.EnumerateFiles(consoleDir, "*", SearchOption.AllDirectories))
@@ -41,6 +48,8 @@ class CatalogVerifyService(CatalogRepository catalog, QueueRepository queue, ILo
         log.LogInformation("Verify: {Matched} catalog games confirmed owned by hash", matched.Count);
         return matched.Count;
     }
+
+    public Task<int> VerifyAsync(CancellationToken ct) => VerifyAsync(null, ct);
 
     /// <summary>Match a file's hashes to a game in the console's rom index, SHA1 → MD5 → CRC32.</summary>
     private static (long GameId, string Kind)? MatchByHash(CatalogRepository.VimmHashIndex index, FileHashes.Hashes h)
