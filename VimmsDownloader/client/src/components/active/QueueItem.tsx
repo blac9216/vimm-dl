@@ -154,7 +154,7 @@ export function QueueItem({
             onClick={handlePause}
             className="w-6 h-6 flex items-center justify-center rounded
               text-paused/60 hover:text-paused hover:bg-paused/10
-              hover:shadow-[0_0_8px_rgba(155,89,182,0.15)] text-xs"
+              hover:shadow-[0_0_8px_rgba(196,160,255,0.15)] text-xs"
             title="Pause"
           >&#9208;</button>
         ) : (
@@ -162,7 +162,7 @@ export function QueueItem({
             onClick={handlePlay}
             className="w-6 h-6 flex items-center justify-center rounded
               text-success/60 hover:text-success hover:bg-success/10
-              hover:shadow-[0_0_8px_rgba(0,166,81,0.15)] text-xs"
+              hover:shadow-[0_0_8px_rgba(62,224,160,0.15)] text-xs"
             title={isPaused ? 'Resume' : 'Start'}
           >&#9654;</button>
         )}
@@ -170,7 +170,7 @@ export function QueueItem({
           onClick={handleDelete}
           className="w-6 h-6 flex items-center justify-center rounded
             text-error/40 hover:text-error hover:bg-error/10
-            hover:shadow-[0_0_8px_rgba(193,39,45,0.15)] text-xs"
+            hover:shadow-[0_0_8px_rgba(255,116,132,0.15)] text-xs"
           title="Remove"
         >&times;</button>
       </div>

@@ -115,7 +115,7 @@ export function MetricsPanel() {
                       x: { display: false },
                       y: {
                         beginAtZero: true,
-                        ticks: { color: '#3d4d66', font: { size: 9, family: 'monospace' }, callback: v => `${v}` },
+                        ticks: { color: '#474d6b', font: { size: 9, family: 'monospace' }, callback: v => `${v}` },
                         grid: { color: 'rgba(61, 77, 102, 0.15)' },
                         border: { display: false },
                       },

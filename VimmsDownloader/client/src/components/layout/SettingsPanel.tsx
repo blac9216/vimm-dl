@@ -24,7 +24,7 @@ function Toggle({ label, description, checked, onChange }: ToggleProps) {
       >
         <div className={`absolute top-0.5 w-3 h-3 rounded-full transition-all ${
           checked
-            ? 'left-4 bg-accent shadow-[0_0_6px_rgba(91,155,213,0.3)]'
+            ? 'left-4 bg-accent shadow-[0_0_6px_rgba(111,141,255,0.3)]'
             : 'left-0.5 bg-text-4'
         }`} />
       </button>

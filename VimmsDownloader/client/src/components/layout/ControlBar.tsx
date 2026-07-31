@@ -36,7 +36,7 @@ export function ControlBar() {
         disabled={state.running && !state.paused}
         className="px-3.5 py-1 text-xs font-medium rounded
           bg-success/15 text-success border border-success/25
-          hover:bg-success/25 hover:shadow-[0_0_12px_rgba(0,166,81,0.15)]
+          hover:bg-success/25 hover:shadow-[0_0_12px_rgba(62,224,160,0.15)]
           disabled:opacity-30 disabled:hover:shadow-none"
       >
         {state.paused ? '▶ Resume' : '▶ Start'}
@@ -47,7 +47,7 @@ export function ControlBar() {
         disabled={!state.running || state.paused}
         className="px-3.5 py-1 text-xs font-medium rounded
           bg-paused/15 text-paused border border-paused/25
-          hover:bg-paused/25 hover:shadow-[0_0_12px_rgba(155,89,182,0.15)]
+          hover:bg-paused/25 hover:shadow-[0_0_12px_rgba(196,160,255,0.15)]
           disabled:opacity-30 disabled:hover:shadow-none"
       >
         ⏸ Pause
@@ -58,7 +58,7 @@ export function ControlBar() {
         disabled={!state.running && !state.paused}
         className="px-3.5 py-1 text-xs font-medium rounded
           bg-error/15 text-error border border-error/25
-          hover:bg-error/25 hover:shadow-[0_0_12px_rgba(193,39,45,0.15)]
+          hover:bg-error/25 hover:shadow-[0_0_12px_rgba(255,116,132,0.15)]
           disabled:opacity-30 disabled:hover:shadow-none"
       >
         ⏹ Stop

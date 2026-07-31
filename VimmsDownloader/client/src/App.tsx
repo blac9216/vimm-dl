@@ -36,7 +36,7 @@ function AppContent() {
   const [state, dispatch] = useReducer(downloadReducer, initialState)
   const connection = useSignalR(dispatch)
   const { data } = useData()
-  const { data: settings } = useSettings()
+  const { data: settings, isLoading: settingsLoading } = useSettings()
 
   // Restore running state from /api/data response
   useEffect(() => {
@@ -96,6 +96,10 @@ function AppContent() {
   const defaultTab: Tab = settings?.featureLibrary ? 'library' : 'active'
   const effectiveTab = userTab !== null && !hiddenTabs.has(userTab) ? userTab : defaultTab
 
+  // Avoid an Active->Library flash on first load: until settings resolve, we don't know the real
+  // default, so hold off mounting a content panel rather than briefly mounting the wrong one.
+  const tabPending = userTab === null && settingsLoading
+
   const handleViewEvents = useCallback((itemName: string) => {
     setEventsItemFilter(itemName)
     setUserTab('events')
@@ -113,24 +117,24 @@ function AppContent() {
         <ErrorBanner />
         <TabBar activeTab={effectiveTab} onTabChange={setUserTab} counts={counts} hiddenTabs={hiddenTabs} />
         <main className="flex-1 overflow-hidden">
-          {effectiveTab === 'active' && <ActivePanel />}
-          {effectiveTab === 'completed' && (
+          {!tabPending && effectiveTab === 'active' && <ActivePanel />}
+          {!tabPending && effectiveTab === 'completed' && (
             <CompletedPanel
               showEventsLink={eventsEnabled}
               onViewEvents={handleViewEvents}
             />
           )}
-          {effectiveTab === 'library' && <LibraryPanel />}
-          {effectiveTab === 'import' && <ImportPanel />}
-          {effectiveTab === 'metrics' && <MetricsPanel />}
-          {effectiveTab === 'events' && (
+          {!tabPending && effectiveTab === 'library' && <LibraryPanel />}
+          {!tabPending && effectiveTab === 'import' && <ImportPanel />}
+          {!tabPending && effectiveTab === 'metrics' && <MetricsPanel />}
+          {!tabPending && effectiveTab === 'events' && (
             <EventsPanel
               itemFilter={eventsItemFilter}
               onClearItemFilter={() => setEventsItemFilter(null)}
             />
           )}
-          {effectiveTab === 'sync' && <SyncPanel />}
-          {effectiveTab === 'settings' && <SettingsPanel />}
+          {!tabPending && effectiveTab === 'sync' && <SyncPanel />}
+          {!tabPending && effectiveTab === 'settings' && <SettingsPanel />}
         </main>
         <StatusBar />
       </div>

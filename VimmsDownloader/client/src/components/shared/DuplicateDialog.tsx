@@ -79,7 +79,7 @@ export function DuplicateDialog({ duplicates, onConfirm, onCancel, isPending }: 
           <button onClick={onConfirm} disabled={isPending}
             className="px-3.5 py-1.5 text-xs font-medium rounded bg-info/20 text-info
               border border-info/30 hover:bg-info/30
-              hover:shadow-[0_0_16px_rgba(46,109,180,0.2)] transition-all disabled:opacity-40">
+              hover:shadow-[0_0_16px_rgba(111,141,255,0.2)] transition-all disabled:opacity-40">
             {isPending ? 'Adding...' : 'Add Anyway'}
           </button>
         </div>

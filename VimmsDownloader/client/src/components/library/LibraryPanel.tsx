@@ -192,7 +192,7 @@ export function LibraryPanel() {
         </div>
         <button onClick={() => syncMutation.mutate()} disabled={syncing}
           className="px-5 py-2 text-sm font-medium rounded bg-info/20 text-info
-            border border-info/30 hover:bg-info/30 hover:shadow-[0_0_16px_rgba(46,109,180,0.2)]
+            border border-info/30 hover:bg-info/30 hover:shadow-[0_0_16px_rgba(111,141,255,0.2)]
             disabled:opacity-40">
           {syncing ? 'Syncing…' : 'Sync catalog'}
         </button>
@@ -351,7 +351,7 @@ export function LibraryPanel() {
           placeholder={searchPlaceholder}
           className="flex-1 bg-surface/60 border border-border/40 rounded px-3 py-1 text-sm text-text
             placeholder:text-text-4 focus:outline-none focus:border-accent/30
-            focus:shadow-[0_0_10px_rgba(91,155,213,0.08)]" />
+            focus:shadow-[0_0_10px_rgba(111,141,255,0.08)]" />
         <button onClick={() => setShowSets(true)} title="Manage download sources"
           className="px-3 py-1 text-xs font-medium rounded bg-surface-2/40 text-text-3
             border border-border/30 hover:bg-surface-2/70 hover:text-text shrink-0">

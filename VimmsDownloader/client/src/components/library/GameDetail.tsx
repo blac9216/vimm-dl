@@ -3,6 +3,7 @@ import { useGameDescription } from '../../api/queries'
 import type { CatalogGame } from '../../types/api'
 import { compatClass } from '../../lib/compat'
 import { fmtBytes } from '../../lib/format'
+import { getCoverGradient, getCoverInitials } from '../../lib/consoleColors'
 
 // The click-to-expand detail for a Library row (epic #122 / M3): box art + title screen, per-emulator
 // compat badges, owned/Vimm badges, and the IGDB description. Art and description each degrade
@@ -27,9 +28,9 @@ export function GameDetail({ game, emuName }: { game: CatalogGame; emuName: (id:
             className="max-h-44 rounded border border-border/30 bg-surface-3/30 object-contain" />
         )}
         {boxFailed && titleFailed && (
-          <div className="w-32 h-44 rounded border border-border/20 bg-surface-3/20 flex items-center
-            justify-center text-[10px] text-text-4 text-center px-2">
-            No artwork
+          <div className="w-32 h-44 rounded border border-border/20 flex items-center justify-center"
+            style={{ background: getCoverGradient(game.name) }}>
+            <span className="text-2xl font-bold font-mono text-white/90 leading-none">{getCoverInitials(game.name)}</span>
           </div>
         )}
       </div>

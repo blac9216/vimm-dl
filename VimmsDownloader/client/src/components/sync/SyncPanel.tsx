@@ -30,19 +30,19 @@ export function SyncPanel() {
           placeholder="Target path (e.g. H:\PS3ISO)"
           className="flex-1 bg-surface/60 border border-border/40 rounded px-3 py-1 text-sm text-text
             placeholder:text-text-4 focus:outline-none focus:border-accent/30
-            focus:shadow-[0_0_10px_rgba(91,155,213,0.08)]"
+            focus:shadow-[0_0_10px_rgba(111,141,255,0.08)]"
         />
         <button onClick={handleCompare} disabled={compareMutation.isPending}
           className="px-3.5 py-1 text-xs font-medium rounded bg-info/15 text-info
             border border-info/25 hover:bg-info/25
-            hover:shadow-[0_0_12px_rgba(46,109,180,0.15)] disabled:opacity-40">
+            hover:shadow-[0_0_12px_rgba(111,141,255,0.15)] disabled:opacity-40">
           Compare
         </button>
         {newFiles.length > 0 && (
           <button onClick={() => copyAllMutation.mutate(undefined)}
             className="px-3.5 py-1 text-xs font-medium rounded bg-success/15 text-success
               border border-success/25 hover:bg-success/25
-              hover:shadow-[0_0_12px_rgba(0,166,81,0.15)]">
+              hover:shadow-[0_0_12px_rgba(62,224,160,0.15)]">
             Copy All
           </button>
         )}
