@@ -274,7 +274,9 @@ export function LibraryPanel() {
         <div className={`flex-1 min-w-0 min-h-0 overflow-y-auto ${selectedGame ? 'block' : 'hidden sm:block'}`}
           style={{ background: 'radial-gradient(130% 80% at 50% 0%,rgba(111,141,255,.09),transparent 60%)' }}>
           {selectedGame ? (
-            <GameDetailPane game={selectedGame} emuName={emuName}
+            // Keyed by game id: the pane sits in a reused tree position, so without a key React would
+            // preserve its (and its children's) local state across selections.
+            <GameDetailPane key={selectedGame.id} game={selectedGame} emuName={emuName}
               queued={queuedIds.has(selectedGame.id)} queuePending={queueGame.isPending}
               onQueue={handleQueue} onBack={() => patch({ selectedId: null }, false)} />
           ) : (

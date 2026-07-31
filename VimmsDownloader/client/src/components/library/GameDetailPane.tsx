@@ -1,9 +1,8 @@
-import { useState } from 'react'
 import { useGameDescription } from '../../api/queries'
 import type { CatalogGame } from '../../types/api'
 import { compatClass } from '../../lib/compat'
 import { fmtBytes } from '../../lib/format'
-import { getConsoleColor, getCoverGradient } from '../../lib/consoleColors'
+import { getConsoleColor } from '../../lib/consoleColors'
 import { CatalogThumb } from '../shared/CatalogThumb'
 import { fmtLabel, originLabel } from './filters'
 
@@ -14,16 +13,15 @@ import { fmtLabel, originLabel } from './filters'
 
 const CHIP = 'text-[10px] px-2 py-0.5 rounded-[7px] border font-semibold whitespace-nowrap'
 
-/** The 16:9 title-screen box: the cached screenshot when there is one, else the generated gradient. */
+/** The 16:9 title-screen box: the cached screenshot when there is one, else the generated gradient
+ *  with the design's scrim + "no screenshot cached" placeholder. */
 function TitleScreen({ id, title }: { id: number; title: string }) {
-  const [failed, setFailed] = useState(false)
   return (
     <div>
       <div className="text-[10px] uppercase tracking-[0.6px] text-text-4 mb-2">Title screen</div>
-      <div className="relative w-full aspect-video max-h-[250px] rounded-xl overflow-hidden
-        border border-white/[0.08] flex items-center justify-center"
-        style={{ background: getCoverGradient(title) }}>
-        {failed ? (
+      <CatalogThumb id={id} title={title} type="title"
+        className="w-full aspect-video max-h-[250px] rounded-xl"
+        fallback={
           <>
             <span className="absolute inset-0"
               style={{ background: 'radial-gradient(120% 110% at 50% 0%,rgba(0,0,0,.05),rgba(0,0,0,.6))' }} />
@@ -31,11 +29,7 @@ function TitleScreen({ id, title }: { id: number; title: string }) {
               no screenshot cached
             </span>
           </>
-        ) : (
-          <img src={`/api/catalog/games/${id}/image?type=title`} alt="Title screen" loading="lazy"
-            onError={() => setFailed(true)} className="w-full h-full object-cover" />
-        )}
-      </div>
+        } />
     </div>
   )
 }
