@@ -1,13 +1,22 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useCatalogConsoles, useCatalogGames, useCatalogStatus, useEmulators, useSyncCatalog, useScanCatalog, useSyncCompat, useVerifyCatalog, useSyncVimm, useSyncIgdb, useSyncIgdbRank, useSyncRa, useQueueCatalogGame, useQueueCatalogGamesBatch, fetchGameVimm, fetchCurate } from '../../api/queries'
 import type { CatalogGame, CatalogVimmFormat } from '../../types/api'
-import { CatalogThumb } from '../shared/CatalogThumb'
-import { GameDetail } from './GameDetail'
+import { ConsoleRail } from './ConsoleRail'
+import { GameList, type CatalogJobAction } from './GameList'
+import { GameDetailPane } from './GameDetailPane'
 import { SetsDialog } from './SetsDialog'
 import { FormatPickerDialog } from './FormatPickerDialog'
 import { fmtBytes } from '../../lib/format'
-import { COMPAT_STATUSES, compatClass } from '../../lib/compat'
+import { loadFilters, saveFilters, type LibraryFilters } from './filters'
+
+// The Library (issue #257, design handoff "1. Library (home)"): a three-column master/detail browse
+// over the canonical No-Intro/Redump catalog — console rail (A) / game list (B) / detail pane (C).
+// This file owns the state + data wiring only; each column lives in its own component.
+// Backend-is-king: every filter/sort/page is a query parameter of GET /api/catalog/games, and the
+// detail pane renders exactly what the catalog + IGDB endpoints return.
+
+const PAGE_SIZE = 100
 
 // Debounce the search box so we don't query the catalog on every keystroke.
 function useDebounced<T>(value: T, ms: number): T {
@@ -19,73 +28,9 @@ function useDebounced<T>(value: T, ms: number): T {
   return debounced
 }
 
-// Short label for a DAT-source origin (D2b-2): the provenance of the catalog entry, distinct from the
-// download source. 'daily-bundle' → 'bundle'; anything else shown as-is (e.g. 'libretro').
-function originLabel(origin: string): string {
-  return origin === 'daily-bundle' ? 'bundle' : origin
-}
-
-// Human label for a download format alt (PS3 conventions; mirrors the backend FormatLabel).
-function fmtLabel(alt: number): string {
-  switch (alt) {
-    case 0: return 'JB Folder'
-    case 1: return '.dec.iso'
-    default: return `fmt ${alt}`
-  }
-}
-
-// One row per game (Phase C / C5): consolidate the game's available + owned download formats into a
-// compact chip group. Owned formats are highlighted; available-but-not-owned are downloadable.
-function FormatChips({ game }: { game: CatalogGame }) {
-  const owned = new Set(game.ownedFormats)
-  const alts = [...new Set([...game.availableFormats, ...game.ownedFormats])].sort((a, b) => a - b)
-  if (alts.length === 0) return null
-  return (
-    <div className="hidden sm:flex items-center gap-1 shrink-0">
-      {alts.map(alt => (
-        <span key={alt}
-          className={`text-[9px] px-1.5 py-0.5 rounded border ${
-            owned.has(alt)
-              ? 'bg-success/15 text-success border-success/25'
-              : 'bg-surface-3/40 text-text-3 border-border/30'
-          }`}
-          title={owned.has(alt) ? `Owned: ${fmtLabel(alt)}` : `Available: ${fmtLabel(alt)}`}>
-          {owned.has(alt) ? '✓ ' : ''}{fmtLabel(alt)}
-        </span>
-      ))}
-    </div>
-  )
-}
-
-const PAGE_SIZE = 100
-
-// Persist Library filters so they survive tab navigation (the panel unmounts on tab change).
-const FILTERS_KEY = 'vimm:library-filters'
-interface LibraryFilters { console: string; search: string; local: string; dedupe: boolean; english: boolean; excludeCategories: boolean; searchMode: string; emulator: string; compatStatus: string; sort: string; page: number }
-const DEFAULT_FILTERS: LibraryFilters = { console: '', search: '', local: 'all', dedupe: false, english: false, excludeCategories: false, searchMode: 'substring', emulator: '', compatStatus: '', sort: 'name', page: 0 }
-function loadFilters(): LibraryFilters {
-  try {
-    const raw = localStorage.getItem(FILTERS_KEY)
-    return raw ? { ...DEFAULT_FILTERS, ...(JSON.parse(raw) as Partial<LibraryFilters>) } : DEFAULT_FILTERS
-  } catch {
-    return DEFAULT_FILTERS
-  }
-}
-
 export function LibraryPanel() {
-  const [persisted] = useState(loadFilters) // read saved filters once on mount
-  const [selectedConsole, setSelectedConsole] = useState(persisted.console) // '' = all consoles
-  const [searchInput, setSearchInput] = useState(persisted.search)
-  const [local, setLocal] = useState(persisted.local) // all | owned | remote
-  const [dedupe, setDedupe] = useState(persisted.dedupe) // 1G1R
-  const [english, setEnglish] = useState(persisted.english) // English/Western releases only
-  const [excludeCategories, setExcludeCategories] = useState(persisted.excludeCategories) // hide demos/protos
-  const [searchMode, setSearchMode] = useState(persisted.searchMode) // substring | glob | regex
-  const [emulator, setEmulator] = useState(persisted.emulator) // '' = any emulator
-  const [compatStatus, setCompatStatus] = useState(persisted.compatStatus) // '' = any status (needs an emulator)
-  const [sort, setSort] = useState(persisted.sort) // name | rank ("best games" by IGDB score)
-  const [page, setPage] = useState(persisted.page)
-  const query = useDebounced(searchInput, 350)
+  const [filters, setFilters] = useState<LibraryFilters>(loadFilters) // read saved filters once on mount
+  const query = useDebounced(filters.search, 350)
 
   const [showSets, setShowSets] = useState(false)
   const [queuedIds, setQueuedIds] = useState<Set<number>>(new Set())
@@ -93,9 +38,6 @@ export function LibraryPanel() {
   const [batchMsg, setBatchMsg] = useState<string | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set()) // bulk-select for batch queue
   const [picker, setPicker] = useState<{ id: number; name: string; formats: CatalogVimmFormat[] } | null>(null)
-  const [expandedId, setExpandedId] = useState<number | null>(null) // row click-to-expand detail (M3)
-  const [budgetGb, setBudgetGb] = useState('') // R3 curation: "best up to X GB" budget
-  const [maxCount, setMaxCount] = useState('') // R3 curation: optional cap on the number of games
   const [curating, setCurating] = useState(false)
 
   const qc = useQueryClient()
@@ -112,10 +54,13 @@ export function LibraryPanel() {
   const raMutation = useSyncRa()
   const queueGame = useQueueCatalogGame()
   const batchQueue = useQueueCatalogGamesBatch()
-  const { data: gamesResp, isFetching } = useCatalogGames(selectedConsole || null, query, local, dedupe, english, excludeCategories, searchMode, page, PAGE_SIZE, emulator, compatStatus, sort)
+  const { data: gamesResp, isFetching } = useCatalogGames(
+    filters.console || null, query, filters.local, filters.dedupe, filters.english, filters.excludeCategories,
+    filters.searchMode, filters.page, PAGE_SIZE, filters.emulator, filters.compatStatus, filters.sort)
 
   // Map an emulator id to its display name (e.g. 'rpcs3' → 'RPCS3'); falls back to the id.
-  const emuName = (id: string) => emulators?.find(e => e.id === id)?.name ?? id.toUpperCase()
+  const emuName = useCallback(
+    (id: string) => emulators?.find(e => e.id === id)?.name ?? id.toUpperCase(), [emulators])
 
   const syncing = status?.syncing ?? false
   const scanning = status?.scanning ?? false
@@ -137,22 +82,38 @@ export function LibraryPanel() {
     wasBusy.current = busy
   }, [busy, qc])
 
-  // Remember the active filters across tab navigation (panel unmounts when you leave the tab).
-  useEffect(() => {
-    try {
-      localStorage.setItem(FILTERS_KEY, JSON.stringify(
-        { console: selectedConsole, search: searchInput, local, dedupe, english, excludeCategories, searchMode, emulator, compatStatus, sort, page }))
-    } catch { /* ignore storage write errors */ }
-  }, [selectedConsole, searchInput, local, dedupe, english, excludeCategories, searchMode, emulator, compatStatus, sort, page])
+  // Remember the whole view (filters, page, selected game) across tab navigation + reloads.
+  useEffect(() => { saveFilters(filters) }, [filters])
 
-  // Changing any result-defining filter returns to page 0 and drops the now-stale bulk selection.
-  function resetView() { setPage(0); setSelectedIds(new Set()) }
-  function pickConsole(c: string) { setSelectedConsole(c); resetView() }
-  function onSearch(v: string) { setSearchInput(v); resetView() }
-  function pickLocal(v: string) { setLocal(v); resetView() }
-  // Picking "any emulator" also clears the status (status only applies to a chosen emulator).
-  function pickEmulator(v: string) { setEmulator(v); if (!v) setCompatStatus(''); resetView() }
-  function pickCompatStatus(v: string) { setCompatStatus(v); resetView() }
+  // Patch the view state. A result-defining change (`resetView`, the default) also returns to page 0
+  // and drops the now-stale bulk selection + detail selection; navigation-only changes (page, picking
+  // a game) pass resetView=false.
+  const patch = useCallback((p: Partial<LibraryFilters>, resetView = true) => {
+    setFilters(f => (resetView ? { ...f, selectedId: null, ...p, page: 0 } : { ...f, ...p }))
+    if (resetView) setSelectedIds(new Set())
+  }, [])
+
+  const total = gamesResp?.total ?? 0
+  const games = gamesResp?.games ?? []
+  const selectedGame = games.find(g => g.id === filters.selectedId) ?? null
+
+  function toggleSelect(id: number) {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+  function toggleSelectVisible() {
+    const queueableIds = games.filter(g => !g.owned).map(g => g.id)
+    const allSelected = queueableIds.length > 0 && queueableIds.every(id => selectedIds.has(id))
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (allSelected) queueableIds.forEach(id => next.delete(id))
+      else queueableIds.forEach(id => next.add(id))
+      return next
+    })
+  }
 
   // Download: if the game is hash-bound to Vimm with more than one format, let the user choose first;
   // otherwise queue straight away (archive-preferred, single-format, or no Vimm binding).
@@ -181,50 +142,6 @@ export function LibraryPanel() {
     }
   }
 
-  // Empty catalog → sync call-to-action.
-  if (totalInCatalog === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full gap-4 text-center px-6">
-        <div className="text-text-3 text-sm max-w-md leading-relaxed">
-          The game catalog is empty. Sync it from the <span className="text-text-2">No-Intro</span> &amp;
-          <span className="text-text-2"> Redump</span> databases to browse every officially released game,
-          organised by console.
-        </div>
-        <button onClick={() => syncMutation.mutate()} disabled={syncing}
-          className="px-5 py-2 text-sm font-medium rounded bg-info/20 text-info
-            border border-info/30 hover:bg-info/30 hover:shadow-[0_0_16px_rgba(111,141,255,0.2)]
-            disabled:opacity-40">
-          {syncing ? 'Syncing…' : 'Sync catalog'}
-        </button>
-        {syncing && <div className="text-[11px] text-text-4">Fetching DATs in the background…</div>}
-      </div>
-    )
-  }
-
-  const total = gamesResp?.total ?? 0
-  const games = gamesResp?.games ?? []
-  const start = total === 0 ? 0 : page * PAGE_SIZE + 1
-  const end = Math.min((page + 1) * PAGE_SIZE, total)
-  const pageCount = Math.ceil(total / PAGE_SIZE);
-
-  // Bulk-select (E3b): only non-owned rows are queueable. "Select visible" toggles the current page.
-  const queueableIds = games.filter(g => !g.owned).map(g => g.id)
-  const allVisibleSelected = queueableIds.length > 0 && queueableIds.every(id => selectedIds.has(id))
-  function toggleSelect(id: number) {
-    setSelectedIds(prev => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id); else next.add(id)
-      return next
-    })
-  }
-  function toggleSelectVisible() {
-    setSelectedIds(prev => {
-      const next = new Set(prev)
-      if (allVisibleSelected) queueableIds.forEach(id => next.delete(id))
-      else queueableIds.forEach(id => next.add(id))
-      return next
-    })
-  }
   async function queueSelected() {
     const ids = [...selectedIds]
     if (ids.length === 0) return
@@ -249,15 +166,16 @@ export function LibraryPanel() {
   // Curation (R3): ask the backend for the best missing games (by rank) that fit a GB budget under the
   // current filters, and pre-select them — the user reviews, then uses the existing "Queue selected".
   const GB = 1024 ** 3
-  async function pickBest() {
+  async function pickBest(budgetGb: string, maxCount: string) {
     const gb = parseFloat(budgetGb)
     if (!Number.isFinite(gb) || gb <= 0) { setQueueError('Enter a positive GB budget for "best up to X GB"'); return }
     const n = parseInt(maxCount, 10)
     setQueueError(null); setBatchMsg(null); setCurating(true)
     try {
       const res = await fetchCurate({
-        console: selectedConsole || null, q: query, dedupe, english, excludeCategories,
-        searchMode, emulator, compat: compatStatus, budgetBytes: Math.floor(gb * GB),
+        console: filters.console || null, q: query, dedupe: filters.dedupe, english: filters.english,
+        excludeCategories: filters.excludeCategories, searchMode: filters.searchMode, emulator: filters.emulator,
+        compat: filters.compatStatus, budgetBytes: Math.floor(gb * GB),
         maxCount: Number.isFinite(n) && n > 0 ? n : undefined,
       })
       setSelectedIds(new Set(res.ids))
@@ -271,291 +189,103 @@ export function LibraryPanel() {
     }
   }
 
-  const searchPlaceholder = searchMode === 'glob' ? 'Glob: Mario*, Final ?antasy…'
-    : searchMode === 'regex' ? 'Regex: ^Final Fantasy (VII|IX)…'
-    : 'Search games by name…'
+  // Empty catalog → sync call-to-action.
+  if (totalInCatalog === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-4 text-center px-6">
+        <div className="text-text-3 text-sm max-w-md leading-relaxed">
+          The game catalog is empty. Sync it from the <span className="text-text-2">No-Intro</span> &amp;
+          <span className="text-text-2"> Redump</span> databases to browse every officially released game,
+          organised by console.
+        </div>
+        <button onClick={() => syncMutation.mutate()} disabled={syncing}
+          className="px-5 py-2 text-sm font-medium rounded bg-info/20 text-info
+            border border-info/30 hover:bg-info/30 hover:shadow-[0_0_16px_rgba(111,141,255,0.2)]
+            disabled:opacity-40">
+          {syncing ? 'Syncing…' : 'Sync catalog'}
+        </button>
+        {syncing && <div className="text-[11px] text-text-4">Fetching DATs in the background…</div>}
+      </div>
+    )
+  }
+
+  // Catalog background jobs — reachable from the game list's "⋯" overflow menu until they move to the
+  // Jobs tab in L5 (#259), so nothing that shipped becomes unreachable.
+  const jobs: CatalogJobAction[] = [
+    { id: 'sync', label: 'Sync catalog (DATs)', activeLabel: 'Syncing catalog…', active: syncing,
+      title: 'Re-sync from No-Intro / Redump', run: () => syncMutation.mutate() },
+    { id: 'scan', label: 'Scan owned files', activeLabel: 'Scanning…', active: scanning,
+      title: 'Scan completed/ for owned games', run: () => scanMutation.mutate() },
+    { id: 'verify', label: 'Verify owned hashes', activeLabel: 'Verifying…', active: verifying,
+      title: 'Verify owned files against catalog hashes (CRC32)', run: () => verifyMutation.mutate() },
+    { id: 'compat', label: 'Sync emulator compat', activeLabel: 'Syncing compat…', active: compatSyncing,
+      title: 'Sync emulator compatibility lists', run: () => compatMutation.mutate() },
+    { id: 'vimm', label: filters.console ? `Vimm match — ${filters.console}` : 'Vimm match (all consoles)',
+      activeLabel: 'Matching Vimm…', active: vimmSyncing,
+      title: filters.console
+        ? `Match ${filters.console} against Vimm's Lair by hash, binding a vault URL + formats`
+        : "Match the catalog against Vimm's Lair by hash (pick a console to scope; otherwise all Vimm consoles)",
+      run: () => vimmMutation.mutate(filters.console || undefined) },
+    { id: 'igdb', label: 'Sync IGDB descriptions', activeLabel: 'Syncing IGDB…', active: igdbSyncing,
+      title: 'Sync game descriptions from IGDB (needs Twitch credentials in Settings → IGDB)',
+      run: () => igdbMutation.mutate() },
+    { id: 'rank', label: 'Sync IGDB rank ★', activeLabel: 'Ranking…', active: igdbSyncing,
+      title: 'Rank games from IGDB ratings (needs Twitch credentials in Settings → IGDB), then sort by Rank ★',
+      run: () => igdbRankMutation.mutate() },
+    { id: 'ra', label: 'Blend RetroAchievements', activeLabel: 'Syncing RA…', active: raSyncing,
+      title: 'Blend RetroAchievements popularity into the rank for cartridge consoles (needs an API key in Settings → RetroAchievements)',
+      run: () => raMutation.mutate() },
+  ]
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex items-center gap-2 px-3 sm:px-6 py-2.5 bg-surface/30 border-b border-border/20 flex-wrap">
-        <select value={selectedConsole} onChange={e => pickConsole(e.target.value)}
-          title="Console"
-          className="bg-surface/80 border border-border/60 rounded px-2 py-1 text-sm text-text
-            focus:outline-none focus:border-accent/40 shrink-0">
-          <option value="">All consoles</option>
-          {consoles?.map(c => (
-            <option key={c.console} value={c.console}>
-              {c.console} ({c.ownedCount.toLocaleString()}/{c.gameCount.toLocaleString()})
-            </option>
-          ))}
-        </select>
-        <select value={local} onChange={e => pickLocal(e.target.value)} title="Availability"
-          className="bg-surface/80 border border-border/60 rounded px-2 py-1 text-sm text-text
-            focus:outline-none focus:border-accent/40 shrink-0">
-          <option value="all">All</option>
-          <option value="owned">Owned</option>
-          <option value="remote">Missing</option>
-        </select>
-        <button onClick={() => { setDedupe(d => !d); resetView() }} title="One game per title (1G1R) — hide regional/revision duplicates"
-          className={`px-3 py-1 text-xs font-medium rounded border shrink-0 transition-colors ${
-            dedupe ? 'bg-accent/20 text-accent border-accent/40'
-                   : 'bg-surface/80 text-text-3 border-border/60 hover:text-text'}`}>
-          1G1R
-        </button>
-        <button onClick={() => { setEnglish(e => !e); resetView() }} title="English-only — hide titles with no English/Western release"
-          className={`px-3 py-1 text-xs font-medium rounded border shrink-0 transition-colors ${
-            english ? 'bg-accent/20 text-accent border-accent/40'
-                    : 'bg-surface/80 text-text-3 border-border/60 hover:text-text'}`}>
-          English
-        </button>
-        <button onClick={() => { setExcludeCategories(v => !v); resetView() }} title="Hide demos, betas, prototypes, kiosk & sample builds"
-          className={`px-3 py-1 text-xs font-medium rounded border shrink-0 transition-colors ${
-            excludeCategories ? 'bg-accent/20 text-accent border-accent/40'
-                              : 'bg-surface/80 text-text-3 border-border/60 hover:text-text'}`}>
-          Hide demos
-        </button>
-        <select value={searchMode} onChange={e => { setSearchMode(e.target.value); resetView() }} title="Search mode: substring, glob (*,?) or regex"
-          className="bg-surface/80 border border-border/60 rounded px-2 py-1 text-xs text-text-3
-            focus:outline-none focus:border-accent/40 shrink-0">
-          <option value="substring">Name</option>
-          <option value="glob">Glob</option>
-          <option value="regex">Regex</option>
-        </select>
-        <select value={sort} onChange={e => { setSort(e.target.value); resetView() }} title="Sort order — alphabetical or by IGDB &quot;best games&quot; rank (run Rank first)"
-          className="bg-surface/80 border border-border/60 rounded px-2 py-1 text-xs text-text-3
-            focus:outline-none focus:border-accent/40 shrink-0">
-          <option value="name">Sort: Name</option>
-          <option value="rank">Sort: Rank ★</option>
-        </select>
-        {emulators && emulators.length > 0 && (
-          <select value={emulator} onChange={e => pickEmulator(e.target.value)} title="Filter by emulator compatibility"
-            className="bg-surface/80 border border-border/60 rounded px-2 py-1 text-xs text-text-3
-              focus:outline-none focus:border-accent/40 shrink-0">
-            <option value="">Any emulator</option>
-            {emulators.map(e => (
-              <option key={e.id} value={e.id}>{e.name}</option>
-            ))}
-          </select>
-        )}
-        {emulator && (
-          <select value={compatStatus} onChange={e => pickCompatStatus(e.target.value)} title="Filter by playability status"
-            className="bg-surface/80 border border-border/60 rounded px-2 py-1 text-xs text-text-3
-              focus:outline-none focus:border-accent/40 shrink-0">
-            <option value="">Any status</option>
-            {COMPAT_STATUSES.map(s => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-          </select>
-        )}
-        <input type="text" value={searchInput} onChange={e => onSearch(e.target.value)}
-          placeholder={searchPlaceholder}
-          className="flex-1 bg-surface/60 border border-border/40 rounded px-3 py-1 text-sm text-text
-            placeholder:text-text-4 focus:outline-none focus:border-accent/30
-            focus:shadow-[0_0_10px_rgba(111,141,255,0.08)]" />
-        <button onClick={() => setShowSets(true)} title="Manage download sources"
-          className="px-3 py-1 text-xs font-medium rounded bg-surface-2/40 text-text-3
-            border border-border/30 hover:bg-surface-2/70 hover:text-text shrink-0">
-          Sources
-        </button>
-        <button onClick={() => scanMutation.mutate()} disabled={busy} title="Scan completed/ for owned games"
-          className="px-3 py-1 text-xs font-medium rounded bg-surface-2/40 text-text-3
-            border border-border/30 hover:bg-surface-2/70 hover:text-text disabled:opacity-40 shrink-0">
-          {scanning ? 'Scanning…' : 'Scan'}
-        </button>
-        <button onClick={() => verifyMutation.mutate()} disabled={busy} title="Verify owned files against catalog hashes (CRC32)"
-          className="px-3 py-1 text-xs font-medium rounded bg-surface-2/40 text-text-3
-            border border-border/30 hover:bg-surface-2/70 hover:text-text disabled:opacity-40 shrink-0">
-          {verifying ? 'Verifying…' : 'Verify'}
-        </button>
-        <button onClick={() => compatMutation.mutate()} disabled={busy} title="Sync emulator compatibility lists"
-          className="px-3 py-1 text-xs font-medium rounded bg-surface-2/40 text-text-3
-            border border-border/30 hover:bg-surface-2/70 hover:text-text disabled:opacity-40 shrink-0">
-          {compatSyncing ? 'Compat…' : 'Compat'}
-        </button>
-        <button onClick={() => vimmMutation.mutate(selectedConsole || undefined)} disabled={busy}
-          title={selectedConsole
-            ? `Match ${selectedConsole} against Vimm's Lair by hash, binding a vault URL + formats`
-            : "Match the catalog against Vimm's Lair by hash (pick a console to scope; otherwise all Vimm consoles)"}
-          className="px-3 py-1 text-xs font-medium rounded bg-surface-2/40 text-text-3
-            border border-border/30 hover:bg-surface-2/70 hover:text-text disabled:opacity-40 shrink-0">
-          {vimmSyncing ? 'Vimm…' : 'Vimm'}
-        </button>
-        <button onClick={() => igdbMutation.mutate()} disabled={busy}
-          title="Sync game descriptions from IGDB (needs Twitch credentials in Settings → IGDB)"
-          className="px-3 py-1 text-xs font-medium rounded bg-surface-2/40 text-text-3
-            border border-border/30 hover:bg-surface-2/70 hover:text-text disabled:opacity-40 shrink-0">
-          {igdbSyncing ? 'IGDB…' : 'IGDB'}
-        </button>
-        <button onClick={() => igdbRankMutation.mutate()} disabled={busy}
-          title="Rank games from IGDB ratings (needs Twitch credentials in Settings → IGDB), then pick Sort: Rank"
-          className="px-3 py-1 text-xs font-medium rounded bg-surface-2/40 text-text-3
-            border border-border/30 hover:bg-surface-2/70 hover:text-text disabled:opacity-40 shrink-0">
-          {igdbSyncing ? 'Rank…' : 'Rank ★'}
-        </button>
-        <button onClick={() => raMutation.mutate()} disabled={busy}
-          title="Blend RetroAchievements popularity into the rank for cartridge consoles (needs an API key in Settings → RetroAchievements)"
-          className="px-3 py-1 text-xs font-medium rounded bg-surface-2/40 text-text-3
-            border border-border/30 hover:bg-surface-2/70 hover:text-text disabled:opacity-40 shrink-0">
-          {raSyncing ? 'RA…' : 'RA'}
-        </button>
-        <button onClick={() => syncMutation.mutate()} disabled={busy} title="Re-sync from No-Intro / Redump"
-          className="px-3 py-1 text-xs font-medium rounded bg-surface-2/40 text-text-3
-            border border-border/30 hover:bg-surface-2/70 hover:text-text disabled:opacity-40 shrink-0">
-          {syncing ? 'Syncing…' : 'Sync'}
-        </button>
-      </div>
-
-      <div className="px-3 sm:px-6 py-1.5 text-[10px] text-text-4 tracking-wide border-b border-border/10 flex items-center gap-2 flex-wrap">
-        <input type="checkbox" checked={allVisibleSelected} onChange={toggleSelectVisible}
-          disabled={queueableIds.length === 0} title="Select all queueable games on this page"
-          className="accent-accent w-3 h-3 shrink-0 cursor-pointer disabled:opacity-30" />
-        <span>
-          {total > 0 ? `Showing ${start.toLocaleString()}–${end.toLocaleString()} of ${total.toLocaleString()}` : 'No games match'}
-          {' · '}<span className="text-text-3">{totalInCatalog.toLocaleString()} in catalog</span>
-        </span>
-        {/* Curation (R3): pick the best missing games (by rank) up to a GB budget under the current filters. */}
-        <span className="flex items-center gap-1 shrink-0">
-          <span className="text-warning" title="Best N up to X GB — picks the top-ranked missing games that fit the budget">★</span>
-          <input type="number" min="0" step="1" inputMode="decimal" value={budgetGb} onChange={e => setBudgetGb(e.target.value)}
-            placeholder="GB" title="Size budget in GB — picks the best-ranked missing games that fit"
-            className="w-12 bg-surface/80 border border-border/50 rounded px-1 py-0.5 text-[10px] text-text
-              focus:outline-none focus:border-accent/40" />
-          <span>GB</span>
-          <input type="number" min="0" step="1" inputMode="numeric" value={maxCount} onChange={e => setMaxCount(e.target.value)}
-            placeholder="max#" title="Optional cap on the number of games"
-            className="w-12 bg-surface/80 border border-border/50 rounded px-1 py-0.5 text-[10px] text-text
-              focus:outline-none focus:border-accent/40" />
-          <button onClick={pickBest} disabled={curating || busy}
-            title="Select the best-ranked missing games that fit the GB budget (then Queue selected)"
-            className="px-2 py-0.5 text-[10px] font-medium rounded bg-warning/15 text-warning
-              border border-warning/30 hover:bg-warning/25 disabled:opacity-40">
-            {curating ? 'Picking…' : 'Pick best'}
-          </button>
-        </span>
-        {selectedIds.size > 0 && (
-          <span className="ml-auto flex items-center gap-2 shrink-0">
-            <span className="text-accent">{selectedIds.size.toLocaleString()} selected</span>
-            <button onClick={queueSelected} disabled={batchQueue.isPending}
-              className="px-2 py-0.5 text-[10px] font-medium rounded bg-info/20 text-info
-                border border-info/30 hover:bg-info/30 disabled:opacity-40">
-              {batchQueue.isPending ? 'Queuing…' : 'Queue selected'}
-            </button>
-            <button onClick={() => setSelectedIds(new Set())}
-              className="px-2 py-0.5 text-[10px] rounded bg-surface-2/40 text-text-3 border border-border/30 hover:text-text">
-              Clear
-            </button>
-          </span>
-        )}
-      </div>
-
-      {queueError && (
-        <div className="mx-3 sm:mx-6 mt-2 p-2 bg-error/8 border border-error/20 rounded text-xs text-error flex items-center gap-2">
-          <span className="flex-1">{queueError}</span>
-          <button onClick={() => setShowSets(true)} className="underline hover:text-text-2 shrink-0">Manage sources</button>
-          <button onClick={() => setQueueError(null)} className="text-text-4 hover:text-text shrink-0">×</button>
+    <div className="flex flex-col h-full min-h-0">
+      {(queueError || batchMsg) && (
+        <div className="flex flex-col gap-1 px-3 sm:px-[18px] py-2 border-b border-border-subtle shrink-0">
+          {queueError && (
+            <div className="p-2 bg-error/8 border border-error/20 rounded text-xs text-error flex items-center gap-2">
+              <span className="flex-1">{queueError}</span>
+              <button onClick={() => setShowSets(true)} className="underline hover:text-text-2 shrink-0">Manage sources</button>
+              <button onClick={() => setQueueError(null)} className="text-text-4 hover:text-text shrink-0">×</button>
+            </div>
+          )}
+          {batchMsg && (
+            <div className="p-2 bg-info/8 border border-info/20 rounded text-xs text-info flex items-center gap-2">
+              <span className="flex-1">{batchMsg}</span>
+              <button onClick={() => setBatchMsg(null)} className="text-text-4 hover:text-text shrink-0">×</button>
+            </div>
+          )}
         </div>
       )}
 
-      {batchMsg && (
-        <div className="mx-3 sm:mx-6 mt-2 p-2 bg-info/8 border border-info/20 rounded text-xs text-info flex items-center gap-2">
-          <span className="flex-1">{batchMsg}</span>
-          <button onClick={() => setBatchMsg(null)} className="text-text-4 hover:text-text shrink-0">×</button>
-        </div>
-      )}
+      <div className="flex-1 min-h-0 flex flex-col sm:flex-row">
+        <ConsoleRail variant="strip" consoles={consoles} totalInCatalog={totalInCatalog}
+          selected={filters.console} onSelect={c => patch({ console: c })} />
+        <ConsoleRail consoles={consoles} totalInCatalog={totalInCatalog}
+          selected={filters.console} onSelect={c => patch({ console: c })} />
 
-      <div className="flex-1 overflow-y-auto">
-        {games.map(g => (
-          <div key={g.id} className="border-b border-border/10">
-          <div className="flex items-center gap-3 px-3 sm:px-6 py-2 hover:bg-surface/30">
-            {g.owned
-              ? <span className="w-3.5 shrink-0" />
-              : <input type="checkbox" checked={selectedIds.has(g.id)} onChange={() => toggleSelect(g.id)}
-                  title="Select for batch queue"
-                  className="accent-accent w-3.5 h-3.5 shrink-0 cursor-pointer" />}
-            <button type="button" onClick={() => setExpandedId(prev => (prev === g.id ? null : g.id))}
-              title="Show artwork & details" aria-expanded={expandedId === g.id}
-              className="flex items-center gap-3 flex-1 min-w-0 text-left group">
-              <CatalogThumb id={g.id} title={g.name} />
-              <span className="flex-1 min-w-0 block">
-                <span className="block text-sm text-text-2 truncate group-hover:text-text" title={g.name}>{g.name}</span>
-                <span className="flex gap-2 flex-wrap text-[10px] text-text-4">
-                  {g.region && <span>{g.region}</span>}
-                  {g.languages && <span>{g.languages}</span>}
-                  {g.serial && <span className="font-mono">{g.serial}</span>}
-                </span>
-              </span>
-            </button>
-            {g.compat.map(c => (
-              <span key={c.emulator} className={`text-[9px] px-1.5 py-0.5 rounded border shrink-0 ${compatClass(c.status)}`}
-                title={`${emuName(c.emulator)}: ${c.status}`}>{c.status}</span>
-            ))}
-            {g.vimmMatch && g.vimmMatch !== 'none' && (
-              <span className="text-[9px] px-1.5 py-0.5 rounded bg-info/10 text-info
-                border border-info/25 shrink-0" title={`Matched to a Vimm vault entry by ${g.vimmMatch.toUpperCase()}`}>Vimm</span>
-            )}
-            {g.vimmMatch === 'none' && (
-              <span className="text-[9px] px-1.5 py-0.5 rounded bg-surface-3/40 text-text-4
-                border border-border/30 shrink-0" title="No Vimm match found — rectify manually">no Vimm</span>
-            )}
-            {g.origins.length > 0 && (
-              <span className="text-[9px] px-1.5 py-0.5 rounded bg-surface-3/30 text-text-4
-                border border-border/25 shrink-0 hidden sm:inline"
-                title={`Catalog DAT source: ${g.origins.map(originLabel).join(', ')}`}>
-                {g.origins.map(originLabel).join('+')}
-              </span>
-            )}
-            {g.rankScore != null && (
-              <span className="text-[9px] px-1.5 py-0.5 rounded bg-warning/10 text-warning
-                border border-warning/25 shrink-0 tabular-nums"
-                title={`IGDB rank score ${g.rankScore.toFixed(2)} (quality, vote-weighted)`}>★ {Math.round(g.rankScore)}</span>
-            )}
-            {g.size > 0 && (
-              <span className="text-[10px] text-text-4 font-mono tabular-nums shrink-0">{fmtBytes(g.size)}</span>
-            )}
-            <FormatChips game={g} />
-            {g.owned ? (
-              g.verified === true ? (
-                <span className="text-[9px] px-1.5 py-0.5 rounded bg-success/15 text-success
-                  border border-success/25 shrink-0" title="File CRC32 matches the catalog">✓ Verified</span>
-              ) : g.verified === false ? (
-                <span className="text-[9px] px-1.5 py-0.5 rounded bg-error/10 text-error
-                  border border-error/20 shrink-0" title="File CRC32 does not match any catalog hash">✗ Mismatch</span>
-              ) : (
-                <span className="text-[9px] px-1.5 py-0.5 rounded bg-success/15 text-success
-                  border border-success/25 shrink-0" title="Owned — run Verify to check the file hash">Owned</span>
-              )
-            ) : (
-              <button onClick={() => handleQueue(g)} disabled={queuedIds.has(g.id) || queueGame.isPending}
-                className="px-2.5 py-1 text-xs font-medium rounded bg-info/20 text-info
-                  border border-info/30 hover:bg-info/30 disabled:opacity-40 shrink-0">
-                {queuedIds.has(g.id) ? 'Queued' : 'Download'}
-              </button>
-            )}
-          </div>
-          {expandedId === g.id && <GameDetail game={g} emuName={emuName} />}
-          </div>
-        ))}
-        {isFetching && games.length === 0 && (
-          <div className="flex items-center justify-center h-40 text-text-4 text-sm">Loading…</div>
-        )}
-        {!isFetching && games.length === 0 && (
-          <div className="flex items-center justify-center h-40 text-text-4 text-sm">No games match your filter</div>
-        )}
+        <GameList
+          filters={filters} patch={patch} games={games} total={total} pageSize={PAGE_SIZE}
+          isFetching={isFetching} emulators={emulators} detailOpen={selectedGame != null}
+          selectedIds={selectedIds} onToggleSelect={toggleSelect} onToggleSelectVisible={toggleSelectVisible}
+          onQueueSelected={queueSelected} onClearSelection={() => setSelectedIds(new Set())}
+          batchPending={batchQueue.isPending} onPickBest={pickBest} curating={curating}
+          jobs={jobs} jobsBusy={busy} onManageSources={() => setShowSets(true)} />
+
+        <div className={`flex-1 min-w-0 min-h-0 overflow-y-auto ${selectedGame ? 'block' : 'hidden sm:block'}`}
+          style={{ background: 'radial-gradient(130% 80% at 50% 0%,rgba(111,141,255,.09),transparent 60%)' }}>
+          {selectedGame ? (
+            // Keyed by game id: the pane sits in a reused tree position, so without a key React would
+            // preserve its (and its children's) local state across selections.
+            <GameDetailPane key={selectedGame.id} game={selectedGame} emuName={emuName}
+              queued={queuedIds.has(selectedGame.id)} queuePending={queueGame.isPending}
+              onQueue={handleQueue} onBack={() => patch({ selectedId: null }, false)} />
+          ) : (
+            <div className="flex items-center justify-center h-full text-[13px] text-text-4 px-6 text-center">
+              Select a game to see its artwork, compatibility and download options.
+            </div>
+          )}
+        </div>
       </div>
-
-      {pageCount > 1 && (
-        <div className="flex items-center justify-center gap-3 px-3 sm:px-6 py-2 border-t border-border/20 text-xs">
-          <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}
-            className="px-3 py-1 rounded bg-surface-2/40 text-text-3 border border-border/30 hover:text-text disabled:opacity-30">
-            ‹ Prev
-          </button>
-          <span className="text-text-4 tabular-nums">Page {page + 1} of {pageCount.toLocaleString()}</span>
-          <button onClick={() => setPage(p => (end < total ? p + 1 : p))} disabled={end >= total}
-            className="px-3 py-1 rounded bg-surface-2/40 text-text-3 border border-border/30 hover:text-text disabled:opacity-30">
-            Next ›
-          </button>
-        </div>
-      )}
 
       {showSets && <SetsDialog onClose={() => setShowSets(false)} />}
       {picker && (
