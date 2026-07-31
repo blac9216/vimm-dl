@@ -1,8 +1,6 @@
 import { useDownload } from '../../hooks/useDownloadState'
 import { useDeleteFromQueue, usePatchQueueItem, useSettings } from '../../api/queries'
-import { Badge } from '../shared/Badge'
-import { ProgressBar } from '../shared/ProgressBar'
-import { PlatformIcon } from '../shared/PlatformIcon'
+import { ConsoleTile } from '../shared/ConsoleTile'
 import { slugFromUrl } from '../../lib/format'
 import type { QueuedItem, FormatOption } from '../../types/api'
 
@@ -16,6 +14,8 @@ interface QueueItemProps {
   onDrop: () => void
   onDragEnd: () => void
 }
+
+const pillBase = 'shrink-0 px-[9px] py-[3px] text-[10px] font-semibold rounded-[7px] border'
 
 export function QueueItem({
   item, isDragging, isDragOver,
@@ -60,17 +60,18 @@ export function QueueItem({
     patchMutation.mutate({ id: item.id, format: parseInt(e.target.value) })
   }
 
-  let badgeVariant: 'downloading' | 'paused' | 'queued' | 'starting' = 'queued'
-  let badgeText = 'Queued'
+  // State pill (design handoff §2): live percentage (indigo) / Paused (violet) / Queued (neutral).
+  let pillClass = 'border-border-light bg-neutral-bg text-text-2'
+  let pillText = 'Queued'
   if (isDownloading && hasProgress && dlPct) {
-    badgeVariant = 'downloading'
-    badgeText = dlPct
+    pillClass = 'border-info-border bg-info-bg text-info'
+    pillText = dlPct
   } else if (isDownloading) {
-    badgeVariant = 'starting'
-    badgeText = 'Starting'
+    pillClass = 'border-info-border bg-info-bg text-info'
+    pillText = 'Starting'
   } else if (isPaused) {
-    badgeVariant = 'paused'
-    badgeText = 'Paused'
+    pillClass = 'border-paused-border bg-paused-bg text-paused'
+    pillText = 'Paused'
   }
 
   return (
@@ -81,98 +82,100 @@ export function QueueItem({
       onDragLeave={onDragLeave}
       onDrop={onDrop}
       onDragEnd={onDragEnd}
-      className={`group flex items-center gap-2 sm:gap-3 px-3 sm:px-5 py-2 sm:py-2.5
-        border-b transition-all select-none
-        ${isActive ? 'xmb-selected xmb-glow border-border/20' : 'border-border/20 hover:bg-card-hover/40'}
+      className={`group relative border-b border-border-row select-none transition-colors
+        ${isActive ? '' : 'hover:bg-accent/[0.06]'}
         ${isDragging ? 'opacity-30' : ''}
         ${isDragOver ? 'border-t-2 border-t-accent/50' : ''}
         ${!isActive ? 'sm:cursor-grab sm:active:cursor-grabbing' : ''}
       `}
     >
-      {/* Drag handle — subtle dots (hidden on mobile) */}
-      <div className={`hidden sm:flex flex-col gap-[3px] py-1 opacity-0 group-hover:opacity-40 transition-opacity
-        ${isActive ? '!opacity-0' : ''}`}>
-        <div className="flex gap-[3px]">
-          <div className="w-[3px] h-[3px] rounded-full bg-text-4" />
-          <div className="w-[3px] h-[3px] rounded-full bg-text-4" />
-        </div>
-        <div className="flex gap-[3px]">
-          <div className="w-[3px] h-[3px] rounded-full bg-text-4" />
-          <div className="w-[3px] h-[3px] rounded-full bg-text-4" />
-        </div>
-        <div className="flex gap-[3px]">
-          <div className="w-[3px] h-[3px] rounded-full bg-text-4" />
-          <div className="w-[3px] h-[3px] rounded-full bg-text-4" />
-        </div>
-      </div>
-
-      <PlatformIcon platform={item.platform} />
-
-      <div className="flex-1 min-w-0">
-        <div className="text-sm text-text truncate">{title}</div>
-        {item.platform && (
-          <div className="text-[10px] text-text-4 truncate">{item.platform}</div>
-        )}
-      </div>
-
-      {formats.length > 1 && (
-        <select
-          value={item.format}
-          onChange={handleFormatChange}
-          className="hidden sm:block bg-surface-2/60 border border-border/40 text-text-3 text-[10px] rounded px-1.5 py-0.5
-            focus:outline-none focus:border-accent/30"
-        >
-          {formats.map(f => (
-            <option key={f.value} value={f.value}>{f.label}</option>
-          ))}
-        </select>
+      {/* Indigo overlay on the row that is currently downloading */}
+      {isActive && (
+        <span className="absolute inset-0 pointer-events-none
+          bg-[linear-gradient(90deg,rgba(111,141,255,0.12),transparent_80%)]" />
       )}
 
-      <span className="hidden sm:inline text-[11px] font-mono text-text-3 w-16 text-right tabular-nums">
-        {item.size || '--'}
-      </span>
+      <div className="relative flex items-center gap-2 sm:gap-3 px-3 sm:px-[22px] py-2.5 sm:py-[11px]">
+        {/* Drag handle — 6 dots (desktop only) */}
+        <span className={`hidden sm:flex flex-col gap-[2px] shrink-0 opacity-30
+          ${isActive ? 'invisible' : ''}`}>
+          {[0, 1, 2].map(row => (
+            <span key={row} className="flex gap-[2px]">
+              <i className="w-[3px] h-[3px] rounded-full bg-text-3" />
+              <i className="w-[3px] h-[3px] rounded-full bg-text-3" />
+            </span>
+          ))}
+        </span>
 
-      {/* Speed */}
-      <span className="hidden md:inline text-[10px] font-mono text-text-3 w-20 text-right tabular-nums">
-        {isDownloading && dlSpeed ? dlSpeed : ''}
-      </span>
+        <ConsoleTile platform={item.platform} size={32} />
 
-      <div className="hidden sm:block w-28">
-        {(isDownloading && dlWidth) ? (
-          <ProgressBar width={dlWidth} variant="download" />
-        ) : isPaused && dlWidth ? (
-          <ProgressBar width={dlWidth} variant="paused" />
-        ) : null}
-      </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-[13px] text-text-body truncate">{title}</div>
+          {item.platform && (
+            <div className="text-[10px] text-text-faint truncate">{item.platform}</div>
+          )}
+        </div>
 
-      <Badge variant={badgeVariant}>{badgeText}</Badge>
-
-      {/* Actions — always visible on touch, hover-reveal on desktop */}
-      <div className="flex items-center gap-1 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-        {isDownloading ? (
-          <button
-            onClick={handlePause}
-            className="w-6 h-6 flex items-center justify-center rounded
-              text-paused/60 hover:text-paused hover:bg-paused/10
-              hover:shadow-[0_0_8px_rgba(196,160,255,0.15)] text-xs"
-            title="Pause"
-          >&#9208;</button>
-        ) : (
-          <button
-            onClick={handlePlay}
-            className="w-6 h-6 flex items-center justify-center rounded
-              text-success/60 hover:text-success hover:bg-success/10
-              hover:shadow-[0_0_8px_rgba(62,224,160,0.15)] text-xs"
-            title={isPaused ? 'Resume' : 'Start'}
-          >&#9654;</button>
+        {formats.length > 1 && (
+          <select
+            value={item.format}
+            onChange={handleFormatChange}
+            title="Download format"
+            className="hidden sm:block shrink-0 bg-transparent border border-border-light rounded-md
+              px-2 py-[3px] font-mono text-[10px] text-text-2 focus:outline-none focus:border-accent/40"
+          >
+            {formats.map(f => (
+              <option key={f.value} value={f.value}>{f.label}</option>
+            ))}
+          </select>
         )}
-        <button
-          onClick={handleDelete}
-          className="w-6 h-6 flex items-center justify-center rounded
-            text-error/40 hover:text-error hover:bg-error/10
-            hover:shadow-[0_0_8px_rgba(255,116,132,0.15)] text-xs"
-          title="Remove"
-        >&times;</button>
+
+        <span className="hidden sm:inline shrink-0 w-[66px] text-right font-mono text-[11px] text-text-2 tabular-nums">
+          {item.size || '--'}
+        </span>
+
+        <span className="hidden md:inline shrink-0 w-[74px] text-right font-mono text-[10px] text-link tabular-nums">
+          {isDownloading && dlSpeed ? dlSpeed : ''}
+        </span>
+
+        <span className="hidden sm:block shrink-0 w-[120px]">
+          {(isDownloading || isPaused) && dlWidth && (
+            <span className="block h-[5px] rounded-[3px] bg-surface-3/70 overflow-hidden">
+              <span
+                className={`block h-full rounded-[3px] transition-all duration-500 ${
+                  isPaused ? 'bg-paused/60' : 'bg-gradient-to-r from-accent to-accent-2'}`}
+                style={{ width: dlWidth }}
+              />
+            </span>
+          )}
+        </span>
+
+        <span className={`${pillBase} ${pillClass} tabular-nums`}>{pillText}</span>
+
+        {/* Actions — always visible on touch, hover-reveal on desktop */}
+        <div className="flex items-center gap-1 shrink-0 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity duration-150">
+          {isDownloading ? (
+            <button
+              onClick={handlePause}
+              className="w-[25px] h-[25px] flex items-center justify-center rounded-[7px] text-[10px]
+                border border-success/25 text-success hover:bg-success/10"
+              title="Pause"
+            >&#9208;</button>
+          ) : (
+            <button
+              onClick={handlePlay}
+              className="w-[25px] h-[25px] flex items-center justify-center rounded-[7px] text-[10px]
+                border border-success/25 text-success hover:bg-success/10"
+              title={isPaused ? 'Resume' : 'Start'}
+            >&#9654;</button>
+          )}
+          <button
+            onClick={handleDelete}
+            className="w-[25px] h-[25px] flex items-center justify-center rounded-[7px] text-xs
+              border border-error/25 text-error hover:bg-error/10"
+            title="Remove"
+          >&times;</button>
+        </div>
       </div>
     </div>
   )

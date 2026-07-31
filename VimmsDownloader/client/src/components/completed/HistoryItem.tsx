@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { useDeleteCompleted, useConvertPs3, usePs3Action } from '../../api/queries'
 import { Badge } from '../shared/Badge'
-import { PlatformIcon } from '../shared/PlatformIcon'
-import { fmtBytes, fmtDuration } from '../../lib/format'
+import { ConsoleTile } from '../shared/ConsoleTile'
+import { fmtBytes, fmtDuration, fmtRelative } from '../../lib/format'
 import type { HistoryItem as HistoryItemType, TraceStep } from '../../types/api'
 
 type BadgeVariant = 'downloading' | 'paused' | 'queued' | 'starting' |
@@ -16,13 +16,6 @@ const statusBadge: Record<string, BadgeVariant> = {
   skipped: 'skipped',
 }
 
-const pipelineLabels: Record<string, string> = {
-  jb_folder: 'JB Folder',
-  dec_iso: 'Dec ISO',
-  dec_iso_archive: 'Dec ISO (Archive)',
-  none: 'Not converted',
-}
-
 function formatLabel(format: number | null): string {
   if (format === 0) return '0 — JB Folder (.7z)'
   if (format != null && format > 0) return `${format} — .dec.iso`
@@ -31,18 +24,18 @@ function formatLabel(format: number | null): string {
 
 function StepIndicator({ step }: { step: TraceStep }) {
   const variant = statusBadge[step.status] ?? 'queued'
-  const icon = step.status === 'done' ? '\u2713 ' :
-    step.status === 'error' ? '\u2717 ' :
-    step.status === 'active' ? '\u25B6 ' : ''
+  const icon = step.status === 'done' ? '✓ ' :
+    step.status === 'error' ? '✗ ' :
+    step.status === 'active' ? '▶ ' : ''
 
   return (
     <div className="flex items-center gap-1.5">
       <Badge variant={variant}>{icon}{step.name}</Badge>
       {step.durationMs != null && step.status === 'done' && (
-        <span className="text-[10px] font-mono text-text-4/60">{fmtDuration(step.durationMs)}</span>
+        <span className="text-[9px] font-mono text-text-4">{fmtDuration(step.durationMs)}</span>
       )}
       {step.durationMs != null && step.status === 'active' && (
-        <span className="text-[10px] font-mono text-accent/50">{fmtDuration(step.durationMs)}</span>
+        <span className="text-[9px] font-mono text-accent/50">{fmtDuration(step.durationMs)}</span>
       )}
       {step.status === 'active' && step.message && (
         <span className="text-[10px] text-text-4 truncate max-w-48">{step.message}</span>
@@ -54,9 +47,9 @@ function StepIndicator({ step }: { step: TraceStep }) {
 function MetaRow({ label, value }: { label: string; value?: string | null }) {
   if (!value) return null
   return (
-    <div className="flex items-start gap-2 py-0.5">
-      <span className="text-[10px] text-text-4 w-20 shrink-0">{label}</span>
-      <span className="text-[11px] text-text-3 font-mono break-all">{value}</span>
+    <div className="flex items-start gap-2.5 py-0.5">
+      <span className="text-[10px] text-text-faint w-[82px] shrink-0">{label}</span>
+      <span className="text-[11px] text-text-2 font-mono break-all">{value}</span>
     </div>
   )
 }
@@ -79,6 +72,7 @@ export function HistoryItem({ item, showEventsLink, onViewEvents }: HistoryItemP
 
   const lastStep = trace?.steps.at(-1)
   const overallStatus = lastStep?.status ?? (item.fileExists ? 'none' : 'missing')
+  const relative = fmtRelative(item.completedAt)
 
   const overallBadge: BadgeVariant =
     overallStatus === 'done' ? 'done' :
@@ -105,39 +99,45 @@ export function HistoryItem({ item, showEventsLink, onViewEvents }: HistoryItemP
     setExpanded(v => !v)
   }
 
-  return (
-    <div className="group border-b border-border/20 hover:bg-card-hover/40 transition-all">
-      {/* Desktop row */}
-      <div className="hidden sm:flex items-center gap-3 px-5 py-2.5 cursor-pointer" onClick={handleRowClick}>
-        <PlatformIcon platform={item.platform} />
-        <div className="flex-1 min-w-0">
-          <div className="text-sm text-text truncate">{title}</div>
-          <div className="flex items-center gap-2 text-[10px] text-text-4">
-            <span className="truncate font-mono">{item.filename}</span>
-            {item.completedAt && <span>&middot; {item.completedAt}</span>}
-          </div>
-          {trace && trace.steps.length > 0 && (
-            <div className="flex items-center gap-2 mt-1 flex-wrap">
-              {trace.steps.map((step, i) => (
-                <div key={step.name} className="flex items-center gap-2">
-                  {i > 0 && <span className="text-text-4/40">&rarr;</span>}
-                  <StepIndicator step={step} />
-                </div>
-              ))}
-            </div>
-          )}
-          {trace?.isoFilename && overallStatus === 'done' && (
-            <div className="flex items-center gap-1 text-[10px] text-success/70 mt-0.5">
-              <span>&#10003;</span>
-              <span className="truncate font-mono">{trace.isoFilename}</span>
-              {trace.isoSize != null && <span>({fmtBytes(trace.isoSize)})</span>}
-            </div>
-          )}
-          {overallStatus === 'error' && lastStep?.message && (
-            <div className="text-[10px] text-error/70 mt-0.5 truncate">{lastStep.message}</div>
-          )}
+  const traceRow = trace && trace.steps.length > 0 && (
+    <div className="flex items-center gap-[7px] mt-0.5 flex-wrap">
+      {trace.steps.map((step, i) => (
+        <div key={step.name} className="flex items-center gap-[7px]">
+          {i > 0 && <span className="text-text-disabled">&rarr;</span>}
+          <StepIndicator step={step} />
         </div>
-        <span className="text-[11px] font-mono text-text-3 w-16 text-right tabular-nums">
+      ))}
+    </div>
+  )
+
+  const isoLine = trace?.isoFilename && overallStatus === 'done' && (
+    <div className="flex items-center gap-1.5 mt-1 text-[10px] text-success/85">
+      <span>&#10003;</span>
+      <span className="truncate font-mono">{trace.isoFilename}</span>
+      {trace.isoSize != null && <span className="text-text-4">({fmtBytes(trace.isoSize)})</span>}
+    </div>
+  )
+
+  const errorLine = overallStatus === 'error' && lastStep?.message && (
+    <div className="text-[10px] text-error/90 mt-1 truncate">{lastStep.message}</div>
+  )
+
+  return (
+    <div className="group border-b border-border-row hover:bg-accent/[0.06] transition-colors">
+      {/* Desktop row */}
+      <div className="hidden sm:flex items-center gap-[13px] px-[22px] py-3 cursor-pointer" onClick={handleRowClick}>
+        <ConsoleTile platform={item.platform} size={34} />
+        <div className="flex-1 min-w-0">
+          <div className="text-[13px] text-text-body truncate">{title}</div>
+          <div className="flex items-center gap-2 text-[10px] text-text-faint mt-px mb-1">
+            <span className="truncate font-mono max-w-[280px]">{item.filename}</span>
+            {relative && <span className="whitespace-nowrap">&middot; {relative}</span>}
+          </div>
+          {traceRow}
+          {isoLine}
+          {errorLine}
+        </div>
+        <span className="shrink-0 w-[66px] text-right font-mono text-[11px] text-text-2 tabular-nums">
           {item.fileSize ? fmtBytes(item.fileSize) : item.size || '--'}
         </span>
         {badge}
@@ -145,41 +145,25 @@ export function HistoryItem({ item, showEventsLink, onViewEvents }: HistoryItemP
           <Actions trace={trace} item={item} convertMutation={convertMutation}
             actionMutation={actionMutation} onDelete={() => setConfirmDelete(v => !v)} />
         </div>
-        <span className={`text-[10px] text-text-4/40 transition-transform ${expanded ? 'rotate-90' : ''}`}>&#9654;</span>
+        <span className="shrink-0 text-[10px] text-text-faint">{expanded ? '▼' : '▶'}</span>
       </div>
 
       {/* Mobile stacked */}
       <div className="sm:hidden px-3 py-2 cursor-pointer space-y-1.5" onClick={handleRowClick}>
         <div className="flex items-start gap-2">
-          <PlatformIcon platform={item.platform} />
+          <ConsoleTile platform={item.platform} size={30} />
           <div className="flex-1 min-w-0">
-            <div className="text-sm text-text truncate">{title}</div>
-            <div className="text-[10px] text-text-4 truncate font-mono">{item.filename}</div>
+            <div className="text-[13px] text-text-body truncate">{title}</div>
+            <div className="text-[10px] text-text-faint truncate font-mono">{item.filename}</div>
           </div>
-          <span className={`text-[10px] text-text-4/40 transition-transform mt-1 ${expanded ? 'rotate-90' : ''}`}>&#9654;</span>
+          <span className="text-[10px] text-text-faint mt-1">{expanded ? '▼' : '▶'}</span>
         </div>
-        {trace && trace.steps.length > 0 && (
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {trace.steps.map((step, i) => (
-              <div key={step.name} className="flex items-center gap-1.5">
-                {i > 0 && <span className="text-text-4/40">&rarr;</span>}
-                <StepIndicator step={step} />
-              </div>
-            ))}
-          </div>
-        )}
-        {trace?.isoFilename && overallStatus === 'done' && (
-          <div className="flex items-center gap-1 text-[10px] text-success/70">
-            <span>&#10003;</span>
-            <span className="truncate font-mono">{trace.isoFilename}</span>
-          </div>
-        )}
-        {overallStatus === 'error' && lastStep?.message && (
-          <div className="text-[10px] text-error/70 truncate">{lastStep.message}</div>
-        )}
+        {traceRow}
+        {isoLine}
+        {errorLine}
         <div className="flex items-center gap-2">
           {badge}
-          {item.completedAt && <span className="text-[10px] text-text-4">{item.completedAt}</span>}
+          {relative && <span className="text-[10px] text-text-4">{relative}</span>}
           <div className="flex items-center gap-1 ml-auto">
             <Actions trace={trace} item={item} convertMutation={convertMutation}
               actionMutation={actionMutation} onDelete={() => setConfirmDelete(v => !v)} />
@@ -189,25 +173,20 @@ export function HistoryItem({ item, showEventsLink, onViewEvents }: HistoryItemP
 
       {/* Expandable detail */}
       {expanded && (
-        <div className="px-3 sm:px-5 pb-3 pt-1 border-t border-border/10 bg-surface/20 space-y-2">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6">
-            {item.platform && <MetaRow label="Platform" value={item.platform} />}
-            {item.format != null && <MetaRow label="Format" value={formatLabel(item.format)} />}
-            {trace && trace.pipelineType !== 'none' && (
-              <MetaRow label="Pipeline" value={pipelineLabels[trace.pipelineType] ?? trace.pipelineType} />
-            )}
+        <div className="px-3 pb-4 pt-1.5 sm:pl-[69px] sm:pr-[22px] bg-surface-2/50 border-t border-border-row">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-0.5 max-w-[760px]">
+            <MetaRow label="Platform" value={item.platform} />
+            <MetaRow label="Format" value={item.format != null ? formatLabel(item.format) : null} />
             <MetaRow label="Archive" value={item.filename} />
-            {trace?.isoFilename && <MetaRow label="ISO" value={trace.isoFilename} />}
-            {item.fileSize != null && <MetaRow label="Archive size" value={fmtBytes(item.fileSize)} />}
-            {trace?.isoSize != null && <MetaRow label="ISO size" value={fmtBytes(trace.isoSize)} />}
-            {item.completedAt && <MetaRow label="Completed" value={item.completedAt} />}
-            {item.filepath && <MetaRow label="Path" value={item.filepath} />}
+            <MetaRow label="ISO" value={trace?.isoFilename} />
+            <MetaRow label="Completed" value={item.completedAt} />
+            <MetaRow label="Path" value={item.filepath} />
           </div>
 
           {showEventsLink && onViewEvents && (
             <button
               onClick={(e) => { e.stopPropagation(); onViewEvents(item.filename) }}
-              className="w-full sm:w-auto text-[10px] px-3 py-1.5 rounded bg-accent/10 text-accent/80
+              className="mt-2.5 w-full sm:w-auto text-[10px] px-3 py-1.5 rounded-md bg-accent/10 text-accent/80
                 border border-accent/20 hover:bg-accent/15 hover:text-accent transition-colors
                 tracking-wide uppercase"
             >
@@ -219,11 +198,11 @@ export function HistoryItem({ item, showEventsLink, onViewEvents }: HistoryItemP
 
       {/* Delete confirmation */}
       {confirmDelete && (
-        <div className="flex items-center gap-2 px-3 sm:px-5 py-2 bg-error/5 border-t border-error/10 flex-wrap">
-          <span className="text-[10px] text-text-3">Remove?</span>
+        <div className="flex items-center gap-2 px-3 sm:px-[22px] py-2 bg-error/5 border-t border-error/10 flex-wrap">
+          <span className="text-[10px] text-text-2">Remove?</span>
           <button
             onClick={() => { deleteMutation.mutate({ id: item.id }); setConfirmDelete(false) }}
-            className="text-[10px] px-2 py-0.5 rounded bg-surface-3/50 text-text-3
+            className="text-[10px] px-2 py-0.5 rounded bg-surface-3/50 text-text-2
               hover:bg-surface-3 hover:text-text transition-colors">
             Record only
           </button>
@@ -237,7 +216,7 @@ export function HistoryItem({ item, showEventsLink, onViewEvents }: HistoryItemP
           )}
           <button
             onClick={() => setConfirmDelete(false)}
-            className="text-[10px] text-text-4 hover:text-text-3 transition-colors ml-auto">
+            className="text-[10px] text-text-4 hover:text-text-2 transition-colors ml-auto">
             Cancel
           </button>
         </div>
@@ -267,8 +246,8 @@ function Actions({ trace, item, convertMutation, actionMutation, onDelete }: {
       )}
       {trace?.actions.includes('retry') && (
         <button onClick={() => convertMutation.mutate(item.filename)}
-          className="text-[10px] px-1.5 py-0.5 rounded text-amber/60 hover:text-amber
-            hover:bg-amber/10 transition-colors">Retry</button>
+          className="text-[10px] px-1.5 py-0.5 rounded text-warning/60 hover:text-warning
+            hover:bg-warning/10 transition-colors">Retry</button>
       )}
       {trace?.actions.includes('abort') && (
         <button onClick={() => actionMutation.mutate({ filename: item.filename, action: 'abort' })}
@@ -276,8 +255,8 @@ function Actions({ trace, item, convertMutation, actionMutation, onDelete }: {
             hover:bg-error/10 transition-colors">Abort</button>
       )}
       <button onClick={onDelete}
-        className="w-6 h-6 flex items-center justify-center rounded
-          text-error/30 hover:text-error hover:bg-error/10 text-xs"
+        className="w-[25px] h-[25px] flex items-center justify-center rounded-[7px] text-xs
+          border border-error/25 text-error/70 hover:text-error hover:bg-error/10"
         title="Remove">&times;</button>
     </>
   )

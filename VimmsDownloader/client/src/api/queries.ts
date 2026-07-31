@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type {
   DataResponse, VersionResponse, SettingsResponse, MetaResponse,
   QueueImportResponse, Ps3ConvertResponse, SyncCompareResponse, QueueExportItem,
-  EventsResponse, MetricsResponse, AddResponse, SourceInfo,
+  EventsResponse, MetricsResponse,
   CatalogConsole, CatalogGamesResponse, CatalogStatus, CatalogSet, CatalogVimm,
   CatalogQueueBatchResponse, Emulator, CatalogGameDescription, CatalogCurateResponse,
 } from '../types/api'
@@ -95,16 +95,6 @@ export function useMeta(url: string | null) {
     queryKey: ['meta', url],
     queryFn: () => fetchJson<MetaResponse>(`/api/meta?url=${encodeURIComponent(url!)}`),
     enabled: !!url,
-    staleTime: Infinity,
-  })
-}
-
-// --- Queue ---
-
-export function useSources() {
-  return useQuery({
-    queryKey: ['sources'],
-    queryFn: () => fetchJson<SourceInfo[]>('/api/sources'),
     staleTime: Infinity,
   })
 }
@@ -339,16 +329,7 @@ export function useQueueCatalogGamesBatch() {
   })
 }
 
-export function useAddToQueue() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (data: { urls: string[]; format?: number; force?: boolean; source?: string }) =>
-      postJson<AddResponse>('/api/queue', data),
-    onSuccess: (data) => {
-      if (data?.queued) qc.invalidateQueries({ queryKey: ['data'] })
-    },
-  })
-}
+// --- Queue ---
 
 export function usePatchQueueItem() {
   const qc = useQueryClient()

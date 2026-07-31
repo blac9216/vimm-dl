@@ -1,22 +1,20 @@
-// NOTE (#256 scope clarification): the design handoff's tab order is Library · Downloads · Jobs ·
-// Metrics · Sync · Events · Import · Settings, with `active`/`completed` merging into `downloads` and
-// a new `jobs` tab splitting out of it. That merge/split is deferred to #258/#259 (epic #254's own
-// build-order note) — this layer only restyles the shell and reorders Library to the front, keeping
-// the existing tab set/type fully functional.
-export type Tab = 'active' | 'completed' | 'library' | 'import' | 'metrics' | 'events' | 'sync' | 'settings'
+// Tab order per the design handoff: Library · Downloads · Jobs · Metrics · Sync · Events · Import ·
+// Settings. #258 merged the old `active`/`completed` tabs into a single `downloads` tab (its
+// Active/Completed segmented sub-view lives inside `DownloadsPanel`); the `jobs` tab arrives with
+// #259, which also gives the conversion rows their new home.
+export type Tab = 'downloads' | 'library' | 'import' | 'metrics' | 'events' | 'sync' | 'settings'
 
 interface TabBarProps {
   activeTab: Tab
   onTabChange: (tab: Tab) => void
-  counts: { active: number; completed: number; events: number; sync: number }
+  counts: { downloads: number; events: number; sync: number }
   hiddenTabs?: Set<Tab>
 }
 
 export function TabBar({ activeTab, onTabChange, counts, hiddenTabs }: TabBarProps) {
   const allTabs: { id: Tab; label: string; count: number }[] = [
     { id: 'library', label: 'Library', count: 0 },
-    { id: 'active', label: 'Active', count: counts.active },
-    { id: 'completed', label: 'Completed', count: counts.completed },
+    { id: 'downloads', label: 'Downloads', count: counts.downloads },
     { id: 'metrics', label: 'Metrics', count: 0 },
     { id: 'sync', label: 'Sync', count: counts.sync },
     { id: 'events', label: 'Events', count: counts.events },
