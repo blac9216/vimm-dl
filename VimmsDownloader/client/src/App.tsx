@@ -30,7 +30,8 @@ const queryClient = new QueryClient({
 })
 
 function AppContent() {
-  const [activeTab, setActiveTab] = useState<Tab>('active')
+  // null = the user hasn't picked a tab yet, so the settings-driven default (below) applies.
+  const [userTab, setUserTab] = useState<Tab | null>(null)
   const [eventsItemFilter, setEventsItemFilter] = useState<string | null>(null)
   const [state, dispatch] = useReducer(downloadReducer, initialState)
   const connection = useSignalR(dispatch)
@@ -88,13 +89,16 @@ function AppContent() {
     return hidden
   }, [settings?.featureSync, settings?.featureEvents, settings?.featureLibrary, settings?.featureImport])
 
-  // If the active tab is hidden (its feature flag is off), fall back to 'active'. Derived during
-  // render instead of synced through an effect, so the visible tab is always consistent in one pass.
-  const effectiveTab = hiddenTabs.has(activeTab) ? 'active' : activeTab
+  // Default/fallback tab: Library when the beta flag is on, else Active (#256). Used both before the
+  // user has picked a tab (userTab === null, e.g. while settings are still loading) and whenever the
+  // currently-picked tab is hidden (its feature flag turned off). Derived during render — no effect
+  // needed, so there's no cascading-render setState-in-effect.
+  const defaultTab: Tab = settings?.featureLibrary ? 'library' : 'active'
+  const effectiveTab = userTab !== null && !hiddenTabs.has(userTab) ? userTab : defaultTab
 
   const handleViewEvents = useCallback((itemName: string) => {
     setEventsItemFilter(itemName)
-    setActiveTab('events')
+    setUserTab('events')
   }, [])
 
   const eventsEnabled = !!settings?.featureEvents
@@ -107,7 +111,7 @@ function AppContent() {
         <Toolbar />
         <ControlBar />
         <ErrorBanner />
-        <TabBar activeTab={effectiveTab} onTabChange={setActiveTab} counts={counts} hiddenTabs={hiddenTabs} />
+        <TabBar activeTab={effectiveTab} onTabChange={setUserTab} counts={counts} hiddenTabs={hiddenTabs} />
         <main className="flex-1 overflow-hidden">
           {effectiveTab === 'active' && <ActivePanel />}
           {effectiveTab === 'completed' && (

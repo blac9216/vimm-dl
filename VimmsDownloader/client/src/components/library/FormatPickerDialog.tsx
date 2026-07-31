@@ -32,9 +32,9 @@ export function FormatPickerDialog({ gameName, formats, busy, onPick, onClose }:
           {formats.map(f => (
             <label key={f.alt}
               className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer border text-sm ${
-                alt === f.alt ? 'bg-ps-cross/15 border-ps-cross/30' : 'border-transparent hover:bg-surface-2/40'}`}>
+                alt === f.alt ? 'bg-info/15 border-info/30' : 'border-transparent hover:bg-surface-2/40'}`}>
               <input type="radio" name="vimm-format" checked={alt === f.alt} onChange={() => setAlt(f.alt)}
-                className="accent-[#7eb3e0]" />
+                className="accent-info" />
               <span className="flex-1 text-text-2">{f.label}</span>
               {f.sizeBytes > 0 && (
                 <span className="text-[10px] text-text-4 font-mono tabular-nums">{f.sizeText || fmtBytes(f.sizeBytes)}</span>
@@ -46,8 +46,8 @@ export function FormatPickerDialog({ gameName, formats, busy, onPick, onClose }:
         <div className="px-4 py-3 border-t border-border/30 flex items-center justify-end gap-2">
           <button onClick={onClose} className="px-3 py-1 text-sm rounded text-text-4 hover:text-text">Cancel</button>
           <button onClick={() => onPick(alt)} disabled={busy}
-            className="px-4 py-1 text-sm rounded bg-ps-cross/20 text-[#7eb3e0] border border-ps-cross/30
-              hover:bg-ps-cross/30 disabled:opacity-40">
+            className="px-4 py-1 text-sm rounded bg-info/20 text-info border border-info/30
+              hover:bg-info/30 disabled:opacity-40">
             {busy ? 'Queueing…' : 'Download'}
           </button>
         </div>

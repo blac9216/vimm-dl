@@ -53,12 +53,12 @@ export function GameDetail({ game, emuName }: { game: CatalogGame; emuName: (id:
             </span>
           ))}
           {game.owned && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded border bg-ps-triangle/15 text-ps-triangle border-ps-triangle/25">
+            <span className="text-[10px] px-1.5 py-0.5 rounded border bg-success/15 text-success border-success/25">
               {game.verified === true ? '✓ Verified' : game.verified === false ? '✗ Mismatch' : 'Owned'}
             </span>
           )}
           {game.vimmMatch && game.vimmMatch !== 'none' && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded border bg-ps-cross/10 text-[#7eb3e0] border-ps-cross/25"
+            <span className="text-[10px] px-1.5 py-0.5 rounded border bg-info/10 text-info border-info/25"
               title={`Matched to a Vimm vault entry by ${game.vimmMatch.toUpperCase()}`}>Vimm</span>
           )}
         </div>

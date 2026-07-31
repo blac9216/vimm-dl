@@ -35,8 +35,8 @@ export function ControlBar() {
         onClick={handleStart}
         disabled={state.running && !state.paused}
         className="px-3.5 py-1 text-xs font-medium rounded
-          bg-ps-triangle/15 text-ps-triangle border border-ps-triangle/25
-          hover:bg-ps-triangle/25 hover:shadow-[0_0_12px_rgba(0,166,81,0.15)]
+          bg-success/15 text-success border border-success/25
+          hover:bg-success/25 hover:shadow-[0_0_12px_rgba(0,166,81,0.15)]
           disabled:opacity-30 disabled:hover:shadow-none"
       >
         {state.paused ? '▶ Resume' : '▶ Start'}
@@ -46,8 +46,8 @@ export function ControlBar() {
         onClick={handlePause}
         disabled={!state.running || state.paused}
         className="px-3.5 py-1 text-xs font-medium rounded
-          bg-ps-square/15 text-[#c49be0] border border-ps-square/25
-          hover:bg-ps-square/25 hover:shadow-[0_0_12px_rgba(155,89,182,0.15)]
+          bg-paused/15 text-paused border border-paused/25
+          hover:bg-paused/25 hover:shadow-[0_0_12px_rgba(155,89,182,0.15)]
           disabled:opacity-30 disabled:hover:shadow-none"
       >
         ⏸ Pause
@@ -57,8 +57,8 @@ export function ControlBar() {
         onClick={handleStop}
         disabled={!state.running && !state.paused}
         className="px-3.5 py-1 text-xs font-medium rounded
-          bg-ps-circle/15 text-[#e06070] border border-ps-circle/25
-          hover:bg-ps-circle/25 hover:shadow-[0_0_12px_rgba(193,39,45,0.15)]
+          bg-error/15 text-error border border-error/25
+          hover:bg-error/25 hover:shadow-[0_0_12px_rgba(193,39,45,0.15)]
           disabled:opacity-30 disabled:hover:shadow-none"
       >
         ⏹ Stop

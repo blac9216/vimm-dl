@@ -63,7 +63,7 @@ export function SetsDialog({ onClose }: { onClose: () => void }) {
               <button onClick={() => edit(s)}
                 className="text-[11px] text-text-4 hover:text-accent shrink-0">Edit</button>
               <button onClick={() => deleteSet.mutate(s.id)}
-                className="text-[11px] text-text-4 hover:text-[#e06070] shrink-0">Remove</button>
+                className="text-[11px] text-text-4 hover:text-error shrink-0">Remove</button>
             </div>
           )) : (
             <div className="px-4 py-6 text-center text-text-4 text-sm">No sources yet</div>
@@ -94,8 +94,8 @@ export function SetsDialog({ onClose }: { onClose: () => void }) {
               <button onClick={reset} className="px-3 py-1 text-sm rounded text-text-4 hover:text-text shrink-0">Cancel</button>
             )}
             <button onClick={save} disabled={!canSave}
-              className="px-4 py-1 text-sm rounded bg-ps-cross/20 text-[#7eb3e0] border border-ps-cross/30
-                hover:bg-ps-cross/30 disabled:opacity-40 shrink-0">
+              className="px-4 py-1 text-sm rounded bg-info/20 text-info border border-info/30
+                hover:bg-info/30 disabled:opacity-40 shrink-0">
               {editingId != null ? 'Save' : 'Add'}
             </button>
           </div>

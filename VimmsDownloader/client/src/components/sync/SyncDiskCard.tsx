@@ -13,7 +13,7 @@ export function SyncDiskCard({ label, info }: SyncDiskCardProps) {
     ? ((info.totalSpace - info.freeSpace) / info.totalSpace) * 100
     : 0
 
-  const barColor = usedPct > 90 ? 'bg-ps-circle' : usedPct > 75 ? 'bg-amber' : 'bg-ps-triangle'
+  const barColor = usedPct > 90 ? 'bg-error' : usedPct > 75 ? 'bg-amber' : 'bg-success'
 
   return (
     <div className="flex-1 p-3 bg-card/60 rounded border border-border/30 xmb-glow">

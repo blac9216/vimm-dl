@@ -13,17 +13,17 @@ export function StatusBar() {
     : (state.running && !state.paused ? 1 : 0)
 
   return (
-    <footer className="flex items-center justify-between px-3 sm:px-6 py-1.5 bg-surface/60 border-t border-border/30
-      text-[10px] text-text-4 tracking-wide">
-      <div className="flex items-center gap-3">
+    <footer className="flex items-center justify-between px-3 sm:px-[22px] py-2 bg-surface-2/60 border-t border-border-section
+      text-[10px] tracking-[0.06em] text-text-4">
+      <div className="flex items-center gap-2">
         <span>{queued} queued</span>
-        <span className="text-border-light/40">&middot;</span>
+        <span className="text-[#2a2848]">&middot;</span>
         <span>{downloading} downloading</span>
-        <span className="text-border-light/40">&middot;</span>
+        <span className="text-[#2a2848]">&middot;</span>
         <span>{completed} completed</span>
       </div>
-      <div className="flex items-center gap-2 uppercase">
-        <span>{state.connectionState}</span>
+      <div className="uppercase tracking-[0.14em]">
+        VIMM // DL
       </div>
     </footer>
   )

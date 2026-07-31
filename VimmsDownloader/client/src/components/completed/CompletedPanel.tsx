@@ -39,7 +39,7 @@ export function CompletedPanel({ showEventsLink, onViewEvents }: CompletedPanelP
         <button
           onClick={() => convertAllMutation.mutate(undefined)}
           disabled={convertAllMutation.isPending}
-          className="text-[10px] text-ps-cross/50 hover:text-[#7eb3e0] tracking-wide uppercase
+          className="text-[10px] text-info/50 hover:text-info tracking-wide uppercase
             transition-colors disabled:opacity-40"
         >
           Convert All PS3

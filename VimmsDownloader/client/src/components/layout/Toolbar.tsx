@@ -92,8 +92,8 @@ export function Toolbar() {
         <button
           onClick={handleAdd}
           disabled={addMutation.isPending}
-          className="px-5 py-1.5 bg-ps-cross/20 text-[#7eb3e0] border border-ps-cross/30 rounded text-sm
-            font-medium hover:bg-ps-cross/30 hover:shadow-[0_0_16px_rgba(46,109,180,0.2)]
+          className="px-5 py-1.5 bg-info/20 text-info border border-info/30 rounded text-sm
+            font-medium hover:bg-info/30 hover:shadow-[0_0_16px_rgba(46,109,180,0.2)]
             transition-all disabled:opacity-40"
         >
           Add

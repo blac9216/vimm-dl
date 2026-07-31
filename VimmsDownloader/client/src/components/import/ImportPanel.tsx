@@ -56,9 +56,9 @@ export function ImportPanel() {
 
         <div className="flex items-center justify-between gap-2">
           <span className="text-[10px] tracking-wide uppercase shrink-0">
-            <span className="text-ps-triangle">{matchedCount} matched</span>
+            <span className="text-success">{matchedCount} matched</span>
             <span className="mx-1.5 text-border-light/40">·</span>
-            <span className="text-[#e06070]">{rejectedCount} rejected</span>
+            <span className="text-error">{rejectedCount} rejected</span>
           </span>
           <div className="flex items-center gap-1">
             {FILTERS.map(f => (

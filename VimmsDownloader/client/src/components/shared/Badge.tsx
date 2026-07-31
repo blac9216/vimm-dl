@@ -6,17 +6,20 @@ interface BadgeProps {
   children: React.ReactNode
 }
 
+// Status colors per the design handoff's status triplets (issue #256) — retires the old
+// PS3-button (ps-cross/ps-circle/ps-triangle/ps-square) palette. success = green, info = indigo,
+// paused = violet, warning = amber, error = red, neutral = gray.
 const variantStyles: Record<BadgeVariant, string> = {
-  downloading: 'bg-ps-triangle/15 text-ps-triangle border-ps-triangle/20 shadow-[0_0_8px_rgba(0,166,81,0.1)]',
-  paused: 'bg-ps-square/15 text-[#c49be0] border-ps-square/20',
-  queued: 'bg-surface-3/50 text-text-4 border-border/30',
-  starting: 'bg-ps-cross/15 text-[#7eb3e0] border-ps-cross/20',
-  extracting: 'bg-amber/12 text-amber border-amber/20',
-  converting: 'bg-ps-cross/15 text-[#7eb3e0] border-ps-cross/20',
-  done: 'bg-ps-triangle/12 text-ps-triangle border-ps-triangle/20',
-  error: 'bg-ps-circle/12 text-[#e06070] border-ps-circle/20',
-  skipped: 'bg-surface-3/30 text-text-4 border-border/20',
-  waiting: 'bg-surface-3/40 text-text-3 border-border/30',
+  downloading: 'bg-success-bg text-success border-success-border shadow-[0_0_8px_rgba(62,224,160,0.12)]',
+  paused: 'bg-paused-bg text-paused border-paused-border',
+  queued: 'bg-neutral-bg text-text-4 border-neutral-border',
+  starting: 'bg-info-bg text-info border-info-border',
+  extracting: 'bg-warning-bg text-warning border-warning-border',
+  converting: 'bg-info-bg text-info border-info-border',
+  done: 'bg-success-bg text-success border-success-border',
+  error: 'bg-error-bg text-error border-error-border',
+  skipped: 'bg-neutral-bg/60 text-text-4 border-neutral-border/60',
+  waiting: 'bg-neutral-bg/80 text-text-3 border-neutral-border',
 }
 
 export function Badge({ variant, children }: BadgeProps) {
