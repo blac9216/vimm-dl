@@ -65,7 +65,7 @@ All modules follow the convention in `Modules/MODULE_GUIDE.md`. Each module is a
 
 - **SRP file structure** — `Program.cs` (startup/DI), `Models.cs` (records + PathHelpers), `AppJsonContext.cs` (JSON source gen), `QueueRepository.cs`, `SettingsKeys.cs`, `DatabaseMigrator.cs` (embedded SQL migrations), `DownloadHub.cs`, `DownloadQueue.cs`, `QueueItemProvider.cs`, `MetadataFetcher.cs`.
 - **Catalog/source host services** — `CatalogRepository.cs` (implements `ICatalogStore`, all catalog SQL incl. the Vimm binding), `CatalogSyncService` (wired in `Program.cs` over the `libretro` client), `CatalogScanService` (owned scan of `completed/`), `CatalogVerifyService` (CRC32 verify), `CompatSyncService` (per-emulator compat via `CompatSources`), `CatalogResolveService` (archive→Vimm download resolution), `VimmSyncService` (per-console Vimm hash scrape/binding), `DefaultSets.cs` (seeded RomGoGetter archive sets), `ArchiveAuth.cs` (Internet Archive S3 "LOW" auth via a `DelegatingHandler`). The concrete `SourceRegistry` lives in Module.Download/Sources, built from DI.
-- **Endpoints/** — `FileEndpoints` (merged `/api/data` with pipeline trace), `DownloadEndpoints`, `MetadataEndpoints`, `SourceEndpoints`, `CatalogEndpoints` (+ the `BackgroundJobGate` single-flight base & `Catalog*State` markers), `Ps3Endpoints`, `SyncEndpoints`, `SettingsEndpoints`, `EventEndpoints`, `MetricsEndpoints`. **47 endpoints total** (enumerated in the API Endpoints table below — that table is the source of truth for the count).
+- **Endpoints/** — `FileEndpoints` (merged `/api/data` with pipeline trace), `DownloadEndpoints`, `MetadataEndpoints`, `SourceEndpoints`, `CatalogEndpoints` (+ the `BackgroundJobGate` single-flight base & `Catalog*State` markers), `JobsEndpoints` (`GET /api/jobs` + `POST /api/jobs/{kind}/cancel` — L1 #255, reads the same `BackgroundJobGate` instances via `JobsOps`), `Ps3Endpoints`, `SyncEndpoints`, `SettingsEndpoints`, `EventEndpoints`, `MetricsEndpoints`. **49 endpoints total** (enumerated in the API Endpoints table below — that table is the source of truth for the count).
 - **SignalR bridges** — `SignalRPs3PipelineBridge.cs`, `SignalRSyncNotifier.cs`, `SignalRDownloadBridge.cs` route module events to SignalR + append to the events table. Pipeline bridge also updates the `completed_urls` projection for terminal states.
 - **AOT-ready** — `PublishAot=true`, raw ADO.NET (Microsoft.Data.Sqlite), JSON source generator (`AppJsonContext`), all modules `IsAotCompatible`. JSON in the catalog parsers uses `JsonDocument` (DOM, no reflection).
 - **QueueRepository / CatalogRepository** — singletons, all async SQLite operations. Database initialized via `DatabaseMigrator` with embedded SQL files; both repositories share `queue.db`.
@@ -140,7 +140,7 @@ The catalog is the identity layer; sources bind onto it. (See ROADMAP.md.)
 - **Download sets** — a "set" is a named, per-console list of archive.org links (`catalog_set` + `catalog_set_link`). Defaults are seeded once from `DefaultSets` (ported from RomGoGetter). Managed via `/api/catalog/sets` CRUD (and the Library "Sources" dialog / Settings → Archive).
 - **Vimm hash binding** (`POST /api/catalog/vimm-sync?console=`) — `VimmSyncService` scrapes Vimm per console (list sections A–Z+number → each vault page), reads the Redump/No-Intro hash triple (inline `GoodHash`/`GoodMd5`/`GoodSha1`, or `vault/ajax/hashes2.php` for multi-disc), and **matches by hash SHA1→MD5→CRC** against `catalog_rom`. On a match it binds `catalog_game.vault_id` + the available `catalog_vimm_format` rows; unmatched games on a scraped console are flagged `vimm_match='none'` (the "no Vimm match" badge). Throttled, per-console, cancellable (`CatalogVimmState : BackgroundJobGate`).
 - **Download resolution** (`CatalogResolveService.ResolveForQueueAsync`, used by `POST /api/catalog/games/{id}/queue?format=`) — prefer archive.org sets (match a game's file across the console's set links); if none, fall back to the bound Vimm vault URL (`https://vimm.net/vault/{vault_id}`) with the requested format if Vimm offers it, else the first available. Queues `(url, format, source)`; archive uses format 0. Returns 404 when neither source has it.
-- **Background jobs** are single-flight via `BackgroundJobGate` (202 Accepted / 409 Conflict); `GET /api/catalog/status` reports `syncing`/`scanning`/`compatSyncing`/`verifying`/`vimmSyncing` so the UI polls while any runs.
+- **Background jobs** are single-flight via `BackgroundJobGate` (202 Accepted / 409 Conflict); `GET /api/catalog/status` reports `syncing`/`scanning`/`compatSyncing`/`verifying`/`vimmSyncing` so the UI polls while any runs. `BackgroundJobGate` also carries a stable `Kind`, a started-at timestamp, and a thread-safe `Report(message, current?, total?)` that each service calls at natural checkpoints (per DAT / file / console section / emulator / page) — `GET /api/jobs` surfaces one row per kind (`{ kind, running, message, current, total, percent, startedAt, elapsedMs }`, including `import`, whose terminal `Report` carries the `ImportSummary` counts) and `POST /api/jobs/{kind}/cancel` wires through `BackgroundJobGate.Cancel()` (204 signalled / 404 unknown kind / 409 not running). The IGDB description and rank syncs gate independently (`CatalogIgdbDescState` / `CatalogIgdbRankState`) and report as distinct kinds (`igdb-description` / `igdb-rank`), though `/api/catalog/status`'s single `igdbSyncing` flag (frozen shape) still ORs the two for back-compat. PS3/Wii U conversions stay on `ConvertStatus` + `/api/data` traces — out of scope for the Jobs API (L5 #259 merges the two feeds client-side).
 
 ## Download Flow (Module.Download)
 
@@ -228,7 +228,7 @@ Two scoped pipelines sharing `PipelineState` from Module.Core:
 - Two tiers: Beta (Library, Sync) and Developer (Events)
 - Metrics tab is always visible — not behind a flag
 
-## API Endpoints (47 total)
+## API Endpoints (49 total)
 
 | Method | Path | Purpose |
 |--------|------|---------|
@@ -251,7 +251,9 @@ Two scoped pipelines sharing `PipelineState` from Module.Core:
 | GET | `/api/sources` | Registered download sources (for the picker) |
 | GET | `/api/sources/{source}/sets` | Browse a source's sets/collections |
 | GET | `/api/sources/{source}/files` | List files in a source set |
-| GET | `/api/catalog/status` | Per-console counts/versions + running background jobs |
+| GET | `/api/catalog/status` | Per-console counts/versions + running background jobs (legacy shape, frozen) |
+| GET | `/api/jobs` | Unified background-job surface: one row per kind with progress/message/elapsed |
+| POST | `/api/jobs/{kind}/cancel` | Cancel a running background job (204 signalled / 404 unknown / 409 not running) |
 | GET | `/api/catalog/consoles` | Consoles with counts (Library filter) |
 | GET | `/api/catalog/games` | Paged/filtered game browse (carries `vimmMatch` + per-emulator `compat`; `?emulator=&compat=` filter) |
 | GET | `/api/catalog/emulators` | Emulators with ingested compat (Library filter) |

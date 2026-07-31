@@ -129,6 +129,55 @@ public class CatalogImportServiceTests
     }
 
     [TestMethod]
+    public async Task ImportAsync_ReportsProgressPerFile_AndTerminalSummary()
+    {
+        await SeedRom("snes", "Cat (USA).sfc", sha1: HelloSha1);
+        Drop(_importDir, "match.sfc", "hello");
+        Drop(_importDir, "nomatch.sfc", "world");
+
+        var seen = new List<(string? Message, int? Current, int? Total)>();
+        var summary = await _svc.ImportAsync((msg, cur, tot) => seen.Add((msg, cur, tot)), default);
+
+        // One per-file checkpoint (order not guaranteed by the OS) plus a terminal one.
+        Assert.HasCount(3, seen);
+        var perFile = seen.Take(2).ToList();
+        Assert.IsTrue(perFile.All(s => s.Total == 2));
+        CollectionAssert.AreEquivalent(new[] { "match.sfc", "nomatch.sfc" }, perFile.Select(s => s.Message).ToList());
+        CollectionAssert.AreEquivalent(new[] { 1, 2 }, perFile.Select(s => s.Current).ToList());
+
+        // L1 #255: the terminal Report carries the ImportSummary counts, previously silently discarded.
+        var terminal = seen[^1];
+        Assert.AreEqual(summary.Total, terminal.Current);
+        Assert.AreEqual(summary.Total, terminal.Total);
+        StringAssert.Contains(terminal.Message, $"{summary.Matched} matched");
+        StringAssert.Contains(terminal.Message, $"{summary.Rejected} rejected");
+    }
+
+    [TestMethod]
+    public async Task ImportAsync_Cancelled_ThrowsAndStopsBeforeSecondFile()
+    {
+        await SeedRom("snes", "Cat (USA).sfc", sha1: HelloSha1);
+        Drop(_importDir, "a.sfc", "hello");
+        Drop(_importDir, "b.sfc", "world");
+        using var cts = new CancellationTokenSource();
+
+        var reported = 0;
+        var thrown = false;
+        try
+        {
+            await _svc.ImportAsync((_, _, _) => { reported++; if (reported == 1) cts.Cancel(); }, cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            thrown = true;
+        }
+
+        Assert.IsTrue(thrown, "ImportAsync should exit via OperationCanceledException once cancelled");
+        Assert.AreEqual(1, reported, "cancellation should stop before the second file is reported");
+        Assert.IsEmpty(await ImportEvents(), "no file should have been recorded once cancellation cut the run short");
+    }
+
+    [TestMethod]
     public void Gate_IsSingleFlight_AcceptsThenConflictsWhileRunning()
     {
         var gate = new CatalogImportState();

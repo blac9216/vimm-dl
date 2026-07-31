@@ -14,62 +14,66 @@ static class CatalogEndpoints
                 IDatSource source = await repo.GetSettingAsync(SettingsKeys.CatalogDatSource) == "daily-bundle"
                     ? bundle
                     : libretro;
-                await sync.SyncAsync(CatalogSystems.All, source, ct);
+                await sync.SyncAsync(CatalogSystems.All, source, state.Report, ct);
             }));
 
-        // Per-console counts + versions, plus which background jobs are currently running.
+        // Per-console counts + versions, plus which background jobs are currently running. Shape is
+        // frozen (L1 #255) — the Jobs tab reads progress from GET /api/jobs instead; IgdbSyncing folds
+        // both the description and rank IGDB gates (split in L1) back into the one legacy flag.
         app.MapGet("/api/catalog/status", async (CatalogRepository repo, CatalogSyncState sync, CatalogScanState scan,
             CatalogCompatState compat, CatalogVerifyState verify, CatalogVimmState vimm, CatalogImportState import,
-            CatalogIgdbState igdb, CatalogRaState ra) =>
+            CatalogIgdbDescState igdbDesc, CatalogIgdbRankState igdbRank, CatalogRaState ra) =>
         {
             var systems = await repo.GetSystemsAsync();
             return new CatalogStatusResponse(sync.IsRunning, scan.IsRunning, compat.IsRunning, verify.IsRunning,
-                vimm.IsRunning, import.IsRunning, igdb.IsRunning, ra.IsRunning, systems.Sum(s => s.GameCount), systems);
+                vimm.IsRunning, import.IsRunning, igdbDesc.IsRunning || igdbRank.IsRunning, ra.IsRunning,
+                systems.Sum(s => s.GameCount), systems);
         });
 
         // Ingest the import drop folder: hash-match each file → place into completed/{console}/ or
         // set aside in rejected/, one per-file event each. Background, single-flight (202/409).
         app.MapPost("/api/catalog/import", (CatalogImportService svc, CatalogImportState state,
             ILogger<CatalogImportService> log) =>
-            state.Run(log, "Import", async ct => { await svc.ImportAsync(ct); }));
+            state.Run(log, "Import", async ct => { await svc.ImportAsync(state.Report, ct); }));
 
         // Scrape Vimm's Lair and bind each catalog game to its vault entry by hash (background,
         // single-flight). Optional ?console= to scrape one console; otherwise every Vimm-carried one.
         app.MapPost("/api/catalog/vimm-sync", (string? console, VimmSyncService svc, CatalogVimmState state,
             ILogger<VimmSyncService> log) =>
-            state.Run(log, "Vimm sync", ct => svc.SyncAsync(console, ct)));
+            state.Run(log, "Vimm sync", ct => svc.SyncAsync(console, state.Report, ct)));
 
         // Verify owned files' CRC32 against the catalog (background, single-flight).
         app.MapPost("/api/catalog/verify", (CatalogVerifyService svc, CatalogVerifyState state,
             ILogger<CatalogVerifyService> log) =>
-            state.Run(log, "Verify", svc.VerifyAsync));
+            state.Run(log, "Verify", ct => svc.VerifyAsync(state.Report, ct)));
 
         // Sync every registered emulator's compatibility list in the background (single-flight).
         app.MapPost("/api/catalog/compat/sync", (CompatSyncService svc, CatalogCompatState state,
             ILogger<CompatSyncService> log) =>
-            state.Run(log, "Compatibility sync", svc.SyncAsync));
+            state.Run(log, "Compatibility sync", ct => svc.SyncAsync(state.Report, ct)));
 
         // Sync game descriptions from IGDB (Twitch OAuth) in the background, single-flight. No-ops when
         // the user hasn't set Twitch creds (GET /api/settings → igdbClientId/igdbClientSecret).
         // Incremental by default; ?force=true re-pulls + re-stores every game's description.
-        app.MapPost("/api/catalog/igdb-sync", (bool? force, IgdbSyncService svc, CatalogIgdbState state,
+        app.MapPost("/api/catalog/igdb-sync", (bool? force, IgdbSyncService svc, CatalogIgdbDescState state,
             ILogger<IgdbSyncService> log) =>
-            state.Run(log, "IGDB sync", ct => svc.SyncAsync(force ?? false, ct)));
+            state.Run(log, "IGDB sync", ct => svc.SyncAsync(force ?? false, state.Report, ct)));
 
         // Sync game RANKINGS from IGDB (total_rating → a per-game quality score the Library sorts by) in
-        // the background, single-flight. Shares the CatalogIgdbState gate with the description sync, so
-        // the two IGDB jobs serialize under one Twitch token + rate limit. No-ops without Twitch creds.
-        // Incremental by default; ?force=true re-pulls + re-ranks every game.
-        app.MapPost("/api/catalog/igdb-rank-sync", (bool? force, IgdbRankSyncService svc, CatalogIgdbState state,
+        // the background, single-flight. Has its own gate (L1 #255 split it from the description sync's),
+        // so the two IGDB jobs run/gate independently and report as distinct Jobs API kinds — they still
+        // share one Twitch token + rate limit via IgdbClient. No-ops without Twitch creds. Incremental by
+        // default; ?force=true re-pulls + re-ranks every game.
+        app.MapPost("/api/catalog/igdb-rank-sync", (bool? force, IgdbRankSyncService svc, CatalogIgdbRankState state,
             ILogger<IgdbRankSyncService> log) =>
-            state.Run(log, "IGDB rank sync", ct => svc.SyncAsync(force ?? false, ct)));
+            state.Run(log, "IGDB rank sync", ct => svc.SyncAsync(force ?? false, state.Report, ct)));
 
         // Sync RetroAchievements popularity (NumDistinctPlayers, hash-joined for cartridge consoles) and
         // blend it into rank_score, in the background (single-flight). No-ops without an RA API key
         // (GET /api/settings → raApiKey). Incremental by default; ?force=true refetches every matched game.
         app.MapPost("/api/catalog/ra-sync", (bool? force, RetroAchievementsSyncService svc, CatalogRaState state,
             ILogger<RetroAchievementsSyncService> log) =>
-            state.Run(log, "RetroAchievements sync", ct => svc.SyncAsync(force ?? false, ct)));
+            state.Run(log, "RetroAchievements sync", ct => svc.SyncAsync(force ?? false, state.Report, ct)));
 
         // Emulators with ingested compatibility — drives the Library emulator/status filter.
         app.MapGet("/api/catalog/emulators", () =>
@@ -78,7 +82,7 @@ static class CatalogEndpoints
         // Scan completed/ and record which catalog games are present on disk (background, single-flight).
         app.MapPost("/api/catalog/scan", (CatalogScanService scanner, CatalogScanState state,
             ILogger<CatalogScanService> log) =>
-            state.Run(log, "Catalog scan", scanner.ScanAsync));
+            state.Run(log, "Catalog scan", ct => scanner.ScanAsync(state.Report, ct)));
 
         // Consoles with counts — for the Library filter.
         app.MapGet("/api/catalog/consoles", async (CatalogRepository repo) => await repo.GetConsolesAsync());
@@ -228,14 +232,24 @@ static class CatalogEndpoints
 }
 
 /// <summary>
-/// Single-flight guard + cancellation shared by every background catalog job. The single-flight
-/// implementation lives here once; the marker subclasses below exist only so DI hands each job its
-/// own independent instance (so e.g. a scan and a verify can run concurrently but neither twice).
+/// Single-flight guard + cancellation + progress shared by every background catalog job (L1 #255 — the
+/// Jobs API). The implementation lives here once; the marker subclasses below exist only so DI hands
+/// each job its own independent instance (so e.g. a scan and a verify can run concurrently but neither
+/// twice), tagged with a stable <see cref="Kind"/> string that <c>GET /api/jobs</c> and
+/// <c>POST /api/jobs/{kind}/cancel</c> key off of.
 /// </summary>
-abstract class BackgroundJobGate
+abstract class BackgroundJobGate(string kind)
 {
     private int _running;
     private CancellationTokenSource _cts = new();
+    private readonly Lock _lock = new();
+    private string? _message;
+    private int? _current;
+    private int? _total;
+    private DateTimeOffset? _startedAt;
+
+    /// <summary>Stable identifier for this job — the Jobs API route/response key.</summary>
+    public string Kind { get; } = kind;
 
     public bool IsRunning => Volatile.Read(ref _running) == 1;
     public CancellationToken Token => _cts.Token;
@@ -244,14 +258,39 @@ abstract class BackgroundJobGate
     {
         if (Interlocked.CompareExchange(ref _running, 1, 0) != 0) return false;
         _cts = new CancellationTokenSource();
+        lock (_lock) { _message = null; _current = null; _total = null; _startedAt = DateTimeOffset.UtcNow; }
         return true;
     }
 
     public void End() => Volatile.Write(ref _running, 0);
 
+    /// <summary>Request cancellation of the running job. No-op (and safe to call) when not running.</summary>
+    public void Cancel() => _cts.Cancel();
+
+    /// <summary>
+    /// Thread-safe progress checkpoint — services call this at natural checkpoints (per DAT / file /
+    /// console section / emulator / page). <paramref name="current"/>/<paramref name="total"/> drive the
+    /// Jobs API's <c>percent</c>; either may be omitted when the job doesn't know a total up front.
+    /// </summary>
+    public void Report(string? message, int? current = null, int? total = null)
+    {
+        lock (_lock) { _message = message; _current = current; _total = total; }
+    }
+
+    /// <summary>Current snapshot for <c>GET /api/jobs</c> — running state, latest progress, elapsed time.</summary>
+    public JobStatusDto Snapshot()
+    {
+        string? message; int? current; int? total; DateTimeOffset? startedAt;
+        lock (_lock) { message = _message; current = _current; total = _total; startedAt = _startedAt; }
+        double? percent = current is { } c && total is { } t and > 0 ? Math.Round(100.0 * c / t, 2) : null;
+        long? elapsedMs = startedAt is { } s ? (long)(DateTimeOffset.UtcNow - s).TotalMilliseconds : null;
+        return new JobStatusDto(Kind, IsRunning, message, current, total, percent, startedAt, elapsedMs);
+    }
+
     /// <summary>
     /// Run <paramref name="work"/> on a background task if no run is in progress (202 Accepted);
-    /// otherwise 409 Conflict. The running flag is always cleared when the work finishes or throws.
+    /// otherwise 409 Conflict. The running flag is always cleared when the work finishes, throws, or is
+    /// cancelled via <see cref="Cancel"/>.
     /// </summary>
     public IResult Run(ILogger log, string name, Func<CancellationToken, Task> work)
     {
@@ -259,6 +298,7 @@ abstract class BackgroundJobGate
         _ = Task.Run(async () =>
         {
             try { await work(Token); }
+            catch (OperationCanceledException) { log.LogInformation("{Job} cancelled", name); }
             catch (Exception ex) { log.LogError(ex, "{Job} crashed", name); }
             finally { End(); }
         });
@@ -266,11 +306,12 @@ abstract class BackgroundJobGate
     }
 }
 
-sealed class CatalogSyncState : BackgroundJobGate;
-sealed class CatalogScanState : BackgroundJobGate;
-sealed class CatalogCompatState : BackgroundJobGate;
-sealed class CatalogVerifyState : BackgroundJobGate;
-sealed class CatalogVimmState : BackgroundJobGate;
-sealed class CatalogImportState : BackgroundJobGate;
-sealed class CatalogIgdbState : BackgroundJobGate;
-sealed class CatalogRaState : BackgroundJobGate;
+sealed class CatalogSyncState() : BackgroundJobGate("sync");
+sealed class CatalogScanState() : BackgroundJobGate("scan");
+sealed class CatalogCompatState() : BackgroundJobGate("compat");
+sealed class CatalogVerifyState() : BackgroundJobGate("verify");
+sealed class CatalogVimmState() : BackgroundJobGate("vimm");
+sealed class CatalogImportState() : BackgroundJobGate("import");
+sealed class CatalogIgdbDescState() : BackgroundJobGate("igdb-description");
+sealed class CatalogIgdbRankState() : BackgroundJobGate("igdb-rank");
+sealed class CatalogRaState() : BackgroundJobGate("ra");

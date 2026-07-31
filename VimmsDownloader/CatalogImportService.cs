@@ -14,8 +14,13 @@ class CatalogImportService(ImportService import, QueueRepository queue, ILogger<
     /// <summary>Default reject folder when <c>rejected_path</c> is unset: <c>downloads/rejected</c>.</summary>
     public string DefaultRejectedDir => Path.Combine(queue.GetDownloadPath(), "rejected");
 
-    /// <summary>Ingest every top-level file in the import folder; returns a matched/rejected summary.</summary>
-    public async Task<ImportSummary> ImportAsync(CancellationToken ct)
+    /// <summary>
+    /// Ingest every top-level file in the import folder; returns a matched/rejected summary.
+    /// <paramref name="report"/>, when given, is called once per file (message = file name, current =
+    /// 1-based file index, total = file count) plus a terminal call carrying the run's
+    /// <see cref="ImportSummary"/> counts — the L1 Jobs API progress checkpoint.
+    /// </summary>
+    public async Task<ImportSummary> ImportAsync(Action<string?, int?, int?>? report, CancellationToken ct)
     {
         var importDir = await ResolveAsync(SettingsKeys.ImportPath, DefaultImportDir);
         var rejectedDir = await ResolveAsync(SettingsKeys.RejectedPath, DefaultRejectedDir);
@@ -25,9 +30,12 @@ class CatalogImportService(ImportService import, QueueRepository queue, ILogger<
         var rejected = 0;
         // Top-level files only: subfolders / multi-file disc sets are handled later (epic open question).
         // A raw file yields one result; an archive yields one per inner file (L3) — record + count each.
-        foreach (var file in Directory.EnumerateFiles(importDir))
+        var files = Directory.GetFiles(importDir);
+        for (var i = 0; i < files.Length; i++)
         {
             ct.ThrowIfCancellationRequested();
+            var file = files[i];
+            report?.Invoke(Path.GetFileName(file), i + 1, files.Length);
             foreach (var result in await import.ImportFileAsync(file, rejectedDir, ct))
             {
                 await RecordAsync(result);
@@ -35,9 +43,14 @@ class CatalogImportService(ImportService import, QueueRepository queue, ILogger<
             }
         }
 
+        var summary = new ImportSummary(matched + rejected, matched, rejected);
         log.LogInformation("Import: {Matched} matched, {Rejected} rejected from {Dir}", matched, rejected, importDir);
-        return new ImportSummary(matched + rejected, matched, rejected);
+        report?.Invoke($"Done: {summary.Matched} matched, {summary.Rejected} rejected of {summary.Total}",
+            summary.Total, summary.Total);
+        return summary;
     }
+
+    public Task<ImportSummary> ImportAsync(CancellationToken ct) => ImportAsync(null, ct);
 
     /// <summary>The configured path (trimmed), or the default when the setting is unset/blank.</summary>
     private async Task<string> ResolveAsync(string key, string fallback)

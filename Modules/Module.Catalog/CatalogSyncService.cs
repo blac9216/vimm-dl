@@ -18,8 +18,13 @@ public sealed class CatalogSyncService(ICatalogStore store, ILogger<CatalogSyncS
     /// <summary>Delay seam — defaults to <see cref="Task.Delay(TimeSpan, CancellationToken)"/>; tests substitute a no-op recorder.</summary>
     internal Func<TimeSpan, CancellationToken, Task> Delay { get; set; } = Task.Delay;
 
-    /// <summary>Sync every system from <paramref name="source"/>, skipping any that fail. Returns a run summary.</summary>
-    public async Task<CatalogSyncSummary> SyncAsync(IReadOnlyList<CatalogSystemInfo> systems, IDatSource source, CancellationToken ct = default)
+    /// <summary>
+    /// Sync every system from <paramref name="source"/>, skipping any that fail. Returns a run summary.
+    /// <paramref name="report"/>, when given, is called once per system (message = DAT name, current =
+    /// 1-based system index, total = system count) — the L1 Jobs API progress checkpoint.
+    /// </summary>
+    public async Task<CatalogSyncSummary> SyncAsync(IReadOnlyList<CatalogSystemInfo> systems, IDatSource source,
+        Action<string?, int?, int?>? report = null, CancellationToken ct = default)
     {
         int synced = 0, failed = 0, games = 0;
         for (int i = 0; i < systems.Count; i++)
@@ -28,6 +33,7 @@ public sealed class CatalogSyncService(ICatalogStore store, ILogger<CatalogSyncS
             // Pace the run: pause before every system after the first so we don't burst a rate cap.
             if (i > 0 && source.InterSystemDelay > TimeSpan.Zero) await Delay(source.InterSystemDelay, ct);
             var sys = systems[i];
+            report?.Invoke(sys.DatName, i + 1, systems.Count);
             var r = await SyncSystemAsync(sys, source, ct);
             if (r.IsOk)
             {

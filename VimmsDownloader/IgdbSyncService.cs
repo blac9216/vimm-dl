@@ -18,7 +18,11 @@ class IgdbSyncService(CatalogRepository catalog, QueueRepository settings, IgdbC
     private const int PageSize = 500;                              // IGDB's max page size
     private static readonly TimeSpan PageDelay = TimeSpan.FromMilliseconds(300); // ~3.3 req/s, under IGDB's 4 req/s
 
-    public async Task<int> SyncAsync(bool force, CancellationToken ct)
+    /// <summary>
+    /// <paramref name="report"/>, when given, is called once per console (message = console, current =
+    /// 1-based console index, total = console count) — the L1 Jobs API progress checkpoint.
+    /// </summary>
+    public async Task<int> SyncAsync(bool force, Action<string?, int?, int?>? report, CancellationToken ct)
     {
         var s = await settings.GetAllSettingsAsync();
         var clientId = s.GetValueOrDefault(SettingsKeys.IgdbClientId, "").Trim();
@@ -37,9 +41,12 @@ class IgdbSyncService(CatalogRepository catalog, QueueRepository settings, IgdbC
         }
 
         var totalMatched = 0;
-        foreach (var console in (await catalog.GetConsolesAsync()).Select(c => c.Console))
+        var consoles = (await catalog.GetConsolesAsync()).Select(c => c.Console).ToList();
+        for (var ci = 0; ci < consoles.Count; ci++)
         {
+            var console = consoles[ci];
             ct.ThrowIfCancellationRequested();
+            report?.Invoke(console, ci + 1, consoles.Count);
             if (IgdbPlatforms.Ids(console) is not { } platformIds) continue; // no IGDB mapping
 
             // Incremental by default: only undescribed games. A fully-described console yields an empty
@@ -63,6 +70,8 @@ class IgdbSyncService(CatalogRepository catalog, QueueRepository settings, IgdbC
         }
         return totalMatched;
     }
+
+    public Task<int> SyncAsync(bool force, CancellationToken ct) => SyncAsync(force, null, ct);
 
     /// <summary>
     /// Page one IGDB platform's described games (offset pagination, id-sorted), yielding each page's
