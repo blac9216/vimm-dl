@@ -5,6 +5,7 @@ import type {
   EventsResponse, MetricsResponse,
   CatalogConsole, CatalogGamesResponse, CatalogStatus, CatalogSet, CatalogVimm,
   CatalogQueueBatchResponse, Emulator, CatalogGameDescription, CatalogCurateResponse,
+  JobStatus,
 } from '../types/api'
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -151,12 +152,42 @@ export function useCatalogStatus() {
   })
 }
 
+// --- Background jobs (L1 #255) ---
+
+/**
+ * The unified background-job feed (`GET /api/jobs`) that powers the Jobs tab (#259) — one row per
+ * registered gate. Polls fast while anything runs and slowly when idle (a job can be started from
+ * another browser tab), mirroring the catalog-status poll pattern above.
+ */
+export function useJobs() {
+  return useQuery({
+    queryKey: ['jobs'],
+    queryFn: () => fetchJson<JobStatus[]>('/api/jobs'),
+    refetchInterval: q => (q.state.data?.some(j => j.running) ? 2000 : 15000),
+  })
+}
+
+/** Ask a running job to stop: 204 on success, 404 unknown kind, 409 when it isn't running. */
+export function useCancelJob() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (kind: string) => postJson(`/api/jobs/${encodeURIComponent(kind)}/cancel`),
+    onSuccess: () => invalidateJobs(qc),
+  })
+}
+
+/** Every catalog trigger moves both the legacy status poll and the Jobs feed forward. */
+function invalidateJobs(qc: ReturnType<typeof useQueryClient>) {
+  qc.invalidateQueries({ queryKey: ['catalog-status'] })
+  qc.invalidateQueries({ queryKey: ['jobs'] })
+}
+
 // Ingest the import drop folder (hash-match → place/reject). Background, single-flight.
 export function useImportCatalog() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: () => postJson('/api/catalog/import'),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['catalog-status'] }),
+    onSuccess: () => invalidateJobs(qc),
   })
 }
 
@@ -164,7 +195,7 @@ export function useSyncCatalog() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: () => postJson('/api/catalog/sync'),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['catalog-status'] }),
+    onSuccess: () => invalidateJobs(qc),
   })
 }
 
@@ -172,7 +203,7 @@ export function useScanCatalog() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: () => postJson('/api/catalog/scan'),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['catalog-status'] }),
+    onSuccess: () => invalidateJobs(qc),
   })
 }
 
@@ -180,7 +211,7 @@ export function useSyncCompat() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: () => postJson('/api/catalog/compat/sync'),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['catalog-status'] }),
+    onSuccess: () => invalidateJobs(qc),
   })
 }
 
@@ -188,7 +219,7 @@ export function useVerifyCatalog() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: () => postJson('/api/catalog/verify'),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['catalog-status'] }),
+    onSuccess: () => invalidateJobs(qc),
   })
 }
 
@@ -198,7 +229,7 @@ export function useSyncVimm() {
   return useMutation({
     mutationFn: (console?: string) =>
       postJson('/api/catalog/vimm-sync' + (console ? `?console=${encodeURIComponent(console)}` : '')),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['catalog-status'] }),
+    onSuccess: () => invalidateJobs(qc),
   })
 }
 
@@ -207,7 +238,7 @@ export function useSyncIgdb() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: () => postJson('/api/catalog/igdb-sync'),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['catalog-status'] }),
+    onSuccess: () => invalidateJobs(qc),
   })
 }
 
@@ -217,7 +248,7 @@ export function useSyncIgdbRank() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: () => postJson('/api/catalog/igdb-rank-sync'),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['catalog-status'] }),
+    onSuccess: () => invalidateJobs(qc),
   })
 }
 
@@ -227,7 +258,7 @@ export function useSyncRa() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: () => postJson('/api/catalog/ra-sync'),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['catalog-status'] }),
+    onSuccess: () => invalidateJobs(qc),
   })
 }
 

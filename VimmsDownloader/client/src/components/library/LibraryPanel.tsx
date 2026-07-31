@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useCatalogConsoles, useCatalogGames, useCatalogStatus, useEmulators, useSyncCatalog, useScanCatalog, useSyncCompat, useVerifyCatalog, useSyncVimm, useSyncIgdb, useSyncIgdbRank, useSyncRa, useQueueCatalogGame, useQueueCatalogGamesBatch, fetchGameVimm, fetchCurate } from '../../api/queries'
+import { useCatalogConsoles, useCatalogGames, useCatalogStatus, useEmulators, useSyncCatalog, useQueueCatalogGame, useQueueCatalogGamesBatch, fetchGameVimm, fetchCurate } from '../../api/queries'
 import type { CatalogGame, CatalogVimmFormat } from '../../types/api'
 import { ConsoleRail } from './ConsoleRail'
-import { GameList, type CatalogJobAction } from './GameList'
+import { GameList } from './GameList'
 import { GameDetailPane } from './GameDetailPane'
 import { SetsDialog } from './SetsDialog'
 import { FormatPickerDialog } from './FormatPickerDialog'
@@ -44,14 +44,9 @@ export function LibraryPanel() {
   const { data: consoles } = useCatalogConsoles()
   const { data: emulators } = useEmulators()
   const { data: status } = useCatalogStatus()
+  // The only catalog job still triggered from the Library: the empty-catalog "Sync catalog" CTA
+  // below. Every other trigger moved to the Jobs tab (#259).
   const syncMutation = useSyncCatalog()
-  const scanMutation = useScanCatalog()
-  const compatMutation = useSyncCompat()
-  const verifyMutation = useVerifyCatalog()
-  const vimmMutation = useSyncVimm()
-  const igdbMutation = useSyncIgdb()
-  const igdbRankMutation = useSyncIgdbRank()
-  const raMutation = useSyncRa()
   const queueGame = useQueueCatalogGame()
   const batchQueue = useQueueCatalogGamesBatch()
   const { data: gamesResp, isFetching } = useCatalogGames(
@@ -63,13 +58,10 @@ export function LibraryPanel() {
     (id: string) => emulators?.find(e => e.id === id)?.name ?? id.toUpperCase(), [emulators])
 
   const syncing = status?.syncing ?? false
-  const scanning = status?.scanning ?? false
-  const compatSyncing = status?.compatSyncing ?? false
-  const verifying = status?.verifying ?? false
-  const vimmSyncing = status?.vimmSyncing ?? false
-  const igdbSyncing = status?.igdbSyncing ?? false
-  const raSyncing = status?.raSyncing ?? false
-  const busy = syncing || scanning || compatSyncing || verifying || vimmSyncing || igdbSyncing || raSyncing
+  // Any catalog job running (started from the Jobs tab, or by another browser): the Library refreshes
+  // its views when one finishes and holds off curation while one runs.
+  const busy = !!status && (status.syncing || status.scanning || status.compatSyncing || status.verifying
+    || status.vimmSyncing || status.importing || status.igdbSyncing || status.raSyncing)
   const totalInCatalog = status?.totalGames ?? 0
 
   // When a sync or scan finishes, refresh the catalog views so new games/counts/owned appear.
@@ -209,34 +201,6 @@ export function LibraryPanel() {
     )
   }
 
-  // Catalog background jobs — reachable from the game list's "⋯" overflow menu until they move to the
-  // Jobs tab in L5 (#259), so nothing that shipped becomes unreachable.
-  const jobs: CatalogJobAction[] = [
-    { id: 'sync', label: 'Sync catalog (DATs)', activeLabel: 'Syncing catalog…', active: syncing,
-      title: 'Re-sync from No-Intro / Redump', run: () => syncMutation.mutate() },
-    { id: 'scan', label: 'Scan owned files', activeLabel: 'Scanning…', active: scanning,
-      title: 'Scan completed/ for owned games', run: () => scanMutation.mutate() },
-    { id: 'verify', label: 'Verify owned hashes', activeLabel: 'Verifying…', active: verifying,
-      title: 'Verify owned files against catalog hashes (CRC32)', run: () => verifyMutation.mutate() },
-    { id: 'compat', label: 'Sync emulator compat', activeLabel: 'Syncing compat…', active: compatSyncing,
-      title: 'Sync emulator compatibility lists', run: () => compatMutation.mutate() },
-    { id: 'vimm', label: filters.console ? `Vimm match — ${filters.console}` : 'Vimm match (all consoles)',
-      activeLabel: 'Matching Vimm…', active: vimmSyncing,
-      title: filters.console
-        ? `Match ${filters.console} against Vimm's Lair by hash, binding a vault URL + formats`
-        : "Match the catalog against Vimm's Lair by hash (pick a console to scope; otherwise all Vimm consoles)",
-      run: () => vimmMutation.mutate(filters.console || undefined) },
-    { id: 'igdb', label: 'Sync IGDB descriptions', activeLabel: 'Syncing IGDB…', active: igdbSyncing,
-      title: 'Sync game descriptions from IGDB (needs Twitch credentials in Settings → IGDB)',
-      run: () => igdbMutation.mutate() },
-    { id: 'rank', label: 'Sync IGDB rank ★', activeLabel: 'Ranking…', active: igdbSyncing,
-      title: 'Rank games from IGDB ratings (needs Twitch credentials in Settings → IGDB), then sort by Rank ★',
-      run: () => igdbRankMutation.mutate() },
-    { id: 'ra', label: 'Blend RetroAchievements', activeLabel: 'Syncing RA…', active: raSyncing,
-      title: 'Blend RetroAchievements popularity into the rank for cartridge consoles (needs an API key in Settings → RetroAchievements)',
-      run: () => raMutation.mutate() },
-  ]
-
   return (
     <div className="flex flex-col h-full min-h-0">
       {(queueError || batchMsg) && (
@@ -269,7 +233,7 @@ export function LibraryPanel() {
           selectedIds={selectedIds} onToggleSelect={toggleSelect} onToggleSelectVisible={toggleSelectVisible}
           onQueueSelected={queueSelected} onClearSelection={() => setSelectedIds(new Set())}
           batchPending={batchQueue.isPending} onPickBest={pickBest} curating={curating}
-          jobs={jobs} jobsBusy={busy} onManageSources={() => setShowSets(true)} />
+          catalogBusy={busy} onManageSources={() => setShowSets(true)} />
 
         <div className={`flex-1 min-w-0 min-h-0 overflow-y-auto ${selectedGame ? 'block' : 'hidden sm:block'}`}
           style={{ background: 'radial-gradient(130% 80% at 50% 0%,rgba(111,141,255,.09),transparent 60%)' }}>
