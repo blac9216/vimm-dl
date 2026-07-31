@@ -41,10 +41,28 @@ export function parseProgress(msg: string): ParsedProgress | null {
   return null
 }
 
-export function parseUrls(text: string): string[] {
-  const split = text.replace(/(https?:\/\/)/gi, '\n$1')
-  const matches = split.match(/https?:\/\/[^\s]+/gi) || []
-  return [...new Set(matches)]
+/**
+ * Relative "3h ago" label for a completed timestamp (design handoff §2 — Completed row).
+ * The backend stores `datetime('now')`, i.e. UTC "YYYY-MM-DD HH:MM:SS" with no zone marker, so the
+ * plain form is normalised to an ISO instant before parsing. Unparsable input is returned as-is.
+ */
+export function fmtRelative(ts: string | null | undefined): string | null {
+  if (!ts) return null
+  const normalized = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?$/.test(ts)
+    ? ts.replace(' ', 'T') + 'Z'
+    : ts
+  const parsed = Date.parse(normalized)
+  if (Number.isNaN(parsed)) return ts
+
+  const seconds = Math.max(0, (Date.now() - parsed) / 1000)
+  if (seconds < 60) return 'just now'
+  const minutes = seconds / 60
+  if (minutes < 60) return `${Math.floor(minutes)}m ago`
+  const hours = minutes / 60
+  if (hours < 24) return `${Math.floor(hours)}h ago`
+  const days = hours / 24
+  if (days < 30) return `${Math.floor(days)}d ago`
+  return new Date(parsed).toISOString().slice(0, 10)
 }
 
 export function fmtDuration(ms: number): string {

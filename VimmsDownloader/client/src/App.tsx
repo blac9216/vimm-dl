@@ -1,14 +1,11 @@
 import { useState, useMemo, useReducer, useEffect, useCallback } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Header } from './components/layout/Header'
-import { Toolbar } from './components/layout/Toolbar'
-import { ControlBar } from './components/layout/ControlBar'
 import { TabBar, type Tab } from './components/layout/TabBar'
 import { StatusBar } from './components/layout/StatusBar'
 import { ErrorBanner } from './components/shared/ErrorBanner'
 import { UpdateBanner } from './components/shared/UpdateBanner'
-import { ActivePanel } from './components/active/ActivePanel'
-import { CompletedPanel } from './components/completed/CompletedPanel'
+import { DownloadsPanel } from './components/downloads/DownloadsPanel'
 import { SyncPanel } from './components/sync/SyncPanel'
 import { LibraryPanel } from './components/library/LibraryPanel'
 import { ImportPanel } from './components/import/ImportPanel'
@@ -68,14 +65,10 @@ function AppContent() {
   }, [state.activeDlInfo, state.running])
 
   const queued = data?.queued ?? []
-  const history = data?.history ?? []
-  const convertingCount = Object.values(state.convStatuses).filter(
-    s => ['queued', 'extracting', 'extracted', 'converting'].includes(s.phase)
-  ).length
 
+  // Downloads pill = queue length (design handoff "Global Shell" — Jobs gets its own count in #259).
   const counts = {
-    active: queued.length + convertingCount,
-    completed: history.length,
+    downloads: queued.length,
     events: 0,
     sync: 0,
   }
@@ -89,14 +82,14 @@ function AppContent() {
     return hidden
   }, [settings?.featureSync, settings?.featureEvents, settings?.featureLibrary, settings?.featureImport])
 
-  // Default/fallback tab: Library when the beta flag is on, else Active (#256). Used both before the
+  // Default/fallback tab: Library when the beta flag is on, else Downloads (#256/#258). Used both before the
   // user has picked a tab (userTab === null, e.g. while settings are still loading) and whenever the
   // currently-picked tab is hidden (its feature flag turned off). Derived during render — no effect
   // needed, so there's no cascading-render setState-in-effect.
-  const defaultTab: Tab = settings?.featureLibrary ? 'library' : 'active'
+  const defaultTab: Tab = settings?.featureLibrary ? 'library' : 'downloads'
   const effectiveTab = userTab !== null && !hiddenTabs.has(userTab) ? userTab : defaultTab
 
-  // Avoid an Active->Library flash on first load: until settings resolve, we don't know the real
+  // Avoid a Downloads->Library flash on first load: until settings resolve, we don't know the real
   // default, so hold off mounting a content panel rather than briefly mounting the wrong one.
   const tabPending = userTab === null && settingsLoading
 
@@ -112,14 +105,11 @@ function AppContent() {
       <div className="flex flex-col h-screen bg-bg">
         <Header />
         <UpdateBanner />
-        <Toolbar />
-        <ControlBar />
         <ErrorBanner />
         <TabBar activeTab={effectiveTab} onTabChange={setUserTab} counts={counts} hiddenTabs={hiddenTabs} />
         <main className="flex-1 overflow-hidden">
-          {!tabPending && effectiveTab === 'active' && <ActivePanel />}
-          {!tabPending && effectiveTab === 'completed' && (
-            <CompletedPanel
+          {!tabPending && effectiveTab === 'downloads' && (
+            <DownloadsPanel
               showEventsLink={eventsEnabled}
               onViewEvents={handleViewEvents}
             />

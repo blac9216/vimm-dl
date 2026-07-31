@@ -201,7 +201,7 @@ Two scoped pipelines sharing `PipelineState` from Module.Core:
 - PS3 rules: active conversions always block, terminal states check disk (archive + ISO existence)
 - No files on disk → not a duplicate (user can re-download freely)
 - `AddRequest.Force` flag to override duplicate check
-- Frontend `DuplicateDialog` shows per-file status with force-add option
+- No frontend force-add dialog since #258 removed the URL paste bar — the Library's batch queue reports per-game statuses (`queued` / `duplicate` / `unavailable`) instead
 
 ## Frontend (React + Vite + Tailwind)
 
@@ -209,8 +209,9 @@ Two scoped pipelines sharing `PipelineState` from Module.Core:
 - **PWA** — installable via vite-plugin-pwa, auto-update service worker, workbox caching
 - PS3 XMB-inspired dark theme with blue glow accents, PS3 controller button colors (X=blue, O=red, △=green, □=purple)
 - **Responsive** — mobile-friendly with `sm:` breakpoint, touch actions always visible, horizontal scroll tabs
-- qBittorrent-style layout: Header → Toolbar → ControlBar → TabBar → Content → StatusBar
-- Tabs: Active, Completed, Metrics (always visible), Library (beta flag), Sync (beta flag), Events (developer flag), Settings
+- Shell layout (#256/#258): Header → TabBar → Content → StatusBar. There is **no URL paste bar and no global transport bar** — downloads are queued from the Library, and the engine transport lives in the Downloads toolbar.
+- Tabs: Library (beta flag, default when on), Downloads, Metrics (always visible), Sync (beta flag), Events (developer flag), Import (beta flag), Settings
+- **Downloads tab** (`components/downloads/DownloadsPanel.tsx`) — Active/Completed segmented sub-view + ENGINE transport (Start/Resume · Pause · Stop · Clear over the same SignalR invokes) + an overflow menu (queue JSON export/import, Convert all PS3). Active = queue rows only (console color tile, format chip, live progress, drag-reorder); Completed = per-game grouped history with pipeline trace, actions and two-stage delete.
 - **Library tab** (`components/library/`) — three-column master/detail browse (#257): `ConsoleRail` (212px; color code chip + console name + count, "All consoles" first), `GameList` (430px; search, availability + sort segments, advanced-filters popover for 1G1R / English / hide-demos / search-mode / emulator + compat status, batch-select + curation sub-bar, 100-per-page footer, and the catalog job triggers in a `⋯` overflow menu until L5 moves them to Jobs), `GameDetailPane` (cover, console pill, compat / Vimm / rank chips, 16:9 title-screen box, IGDB description, format chips with owned = green ✓, Download → "✓ Queued" / owned status). All three art surfaces (list thumb, detail cover, title-screen box) render through `shared/CatalogThumb` (`?type=boxart|title`, per-image 404 fallback to the generated gradient). View state (filters + page + selected game) persists to `localStorage` (`vimm:library-filters`); `SetsDialog` (manage archive.org sets, also reachable from Settings → Archive); `FormatPickerDialog` (choose the Vimm download format when a bound game offers more than one). Columns stack below `sm` (rail → chip strip, detail → drill-in).
 - State: React Query for REST data, `DownloadContext` (useReducer) for SignalR live state
 - `useSignalR` hook with auto-reconnect, invalidates React Query on data events + `MetaReady` for instant metadata refresh

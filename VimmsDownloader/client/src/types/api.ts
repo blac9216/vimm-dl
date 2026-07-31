@@ -83,12 +83,6 @@ export interface MetaResponse {
   serial: string | null
 }
 
-export interface SourceInfo {
-  id: string
-  displayName: string
-  catalog: boolean
-}
-
 // Canonical catalog (No-Intro / Redump)
 export interface CatalogConsole {
   console: string
@@ -220,24 +214,9 @@ export interface VersionResponse {
   changelog: string | null
 }
 
-export interface AddResponse {
-  queued: { id: number; url: string; format: number }[] | null
-  duplicates: DuplicateInfo[] | null
-}
-
-export interface DuplicateInfo {
-  url: string
-  source: 'queued' | 'completed'
-  reason: string
-  title: string | null
-  filename: string | null
-  isoFilename: string | null
-  archiveExists: boolean
-  isoExists: boolean
-  /** Phase C (C4): this is the same catalog game in a different format/source, not an exact duplicate. */
-  crossFormat: boolean
-  existingFormat: number | null
-}
+// NOTE (#258): the URL paste bar and its force-add duplicate dialog were removed — all downloads are
+// queued from the Library, whose batch-queue response reports duplicates per game (CatalogQueueResult
+// above). `POST /api/queue` and its duplicate payload still exist server-side for queue JSON import.
 
 export interface QueueExportItem {
   url: string

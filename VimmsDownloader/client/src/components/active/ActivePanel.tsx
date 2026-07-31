@@ -1,35 +1,17 @@
-import { useRef, useState, useMemo } from 'react'
-import { useData, useImportQueue, useReorderQueue, exportQueue } from '../../api/queries'
-import { useDownload } from '../../hooks/useDownloadState'
-import type { Ps3IsoStatusEvent } from '../../types/signalr'
+import { useState } from 'react'
+import { useData, useReorderQueue } from '../../api/queries'
 import { QueueItem } from './QueueItem'
-import { ConvertItem } from './ConvertItem'
 
+/**
+ * The Downloads → Active sub-view (#258): the download queue only. Conversion/extraction rows moved
+ * to the Jobs tab (#259) — this list is downloads, nothing else. The toolbar (sub-view switcher,
+ * engine transport, queue JSON export/import) lives in the parent `DownloadsPanel`.
+ */
 export function ActivePanel() {
   const { data } = useData()
-  const { state, connection } = useDownload()
-  const importMutation = useImportQueue()
   const reorderMutation = useReorderQueue()
-  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const queued = data?.queued ?? []
-
-  const converting = Object.values(state.convStatuses).filter(
-    s => ['queued', 'extracting', 'extracted', 'converting'].includes(s.phase)
-  )
-
-  // Group live conversions by game (#151/A): multiple formats of one game render together, each row
-  // keeping its filename for display + abort. Unmatched items (no gameId) group by their own filename.
-  const convGroups = useMemo(() => {
-    const map = new Map<string, Ps3IsoStatusEvent[]>()
-    for (const c of converting) {
-      const key = c.gameId != null ? `g${c.gameId}` : `f:${c.itemName}`
-      const arr = map.get(key)
-      if (arr) arr.push(c)
-      else map.set(key, [c])
-    }
-    return [...map.values()]
-  }, [converting])
 
   // --- Drag and drop state ---
   const [dragId, setDragId] = useState<number | null>(null)
@@ -75,86 +57,26 @@ export function ActivePanel() {
     setDragOverId(null)
   }
 
-  async function handleExport() {
-    const items = await exportQueue()
-    const blob = new Blob([JSON.stringify(items, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'queue-export.json'
-    a.click()
-    URL.revokeObjectURL(url)
-  }
-
-  async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    try {
-      const text = await file.text()
-      const items = JSON.parse(text)
-      const result = await importMutation.mutateAsync(items)
-      if (result.added > 0 && !state.running && connection) {
-        const settingsRes = await fetch('/api/settings')
-        const settings = await settingsRes.json()
-        connection.invoke('StartDownload', settings.activePath)
-      }
-    } catch {
-      // handled by mutation
-    }
-    if (fileInputRef.current) fileInputRef.current.value = ''
-  }
-
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between px-3 sm:px-6 py-2 bg-surface/30 border-b border-border/20">
-        <span className="text-[10px] text-text-4 tracking-wide uppercase">
-          {queued.length} queued{converting.length > 0 ? ` · ${converting.length} converting` : ''}
-        </span>
-        <div className="flex items-center gap-3">
-          <button onClick={handleExport}
-            className="text-[10px] text-accent/50 hover:text-accent tracking-wide uppercase transition-colors">
-            Export
-          </button>
-          <button onClick={() => fileInputRef.current?.click()}
-            className="text-[10px] text-accent/50 hover:text-accent tracking-wide uppercase transition-colors">
-            Import
-          </button>
-          <input ref={fileInputRef} type="file" accept=".json" onChange={handleImport} className="hidden" />
+    <div className="h-full overflow-y-auto">
+      {queued.map(item => (
+        <QueueItem
+          key={item.id}
+          item={item}
+          isDragging={dragId === item.id}
+          isDragOver={dragOverId === item.id}
+          onDragStart={() => handleDragStart(item.id)}
+          onDragOver={(e) => handleDragOver(e, item.id)}
+          onDragLeave={handleDragLeave}
+          onDrop={() => handleDrop(item.id)}
+          onDragEnd={handleDragEnd}
+        />
+      ))}
+      {queued.length === 0 && (
+        <div className="flex items-center justify-center h-[200px] px-6 text-center text-text-4 text-[13px]">
+          Queue is empty &mdash; add games from the Library
         </div>
-      </div>
-
-      <div className="flex-1 overflow-y-auto">
-        {convGroups.map(group => group.length === 1 ? (
-          <ConvertItem key={group[0].itemName} status={group[0]} />
-        ) : (
-          <div key={`grp-${group[0].gameId}`} className="border-l-2 border-l-amber/40 bg-surface-2/10">
-            <div className="px-3 sm:px-5 py-1 text-[10px] text-text-4 tracking-wide uppercase">
-              Same game · {group.length} formats
-            </div>
-            {group.map(s => (
-              <ConvertItem key={s.itemName} status={s} grouped />
-            ))}
-          </div>
-        ))}
-        {queued.map(item => (
-          <QueueItem
-            key={item.id}
-            item={item}
-            isDragging={dragId === item.id}
-            isDragOver={dragOverId === item.id}
-            onDragStart={() => handleDragStart(item.id)}
-            onDragOver={(e) => handleDragOver(e, item.id)}
-            onDragLeave={handleDragLeave}
-            onDrop={() => handleDrop(item.id)}
-            onDragEnd={handleDragEnd}
-          />
-        ))}
-        {queued.length === 0 && converting.length === 0 && (
-          <div className="flex items-center justify-center h-40 text-text-4 text-sm tracking-wide">
-            Queue is empty
-          </div>
-        )}
-      </div>
+      )}
     </div>
   )
 }
