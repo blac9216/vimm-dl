@@ -134,15 +134,36 @@ public class CatalogSystemsTests
     // ---- Display names (#286) ------------------------------------------------------------------
 
     [TestMethod]
-    public void DisplayNameFor_EveryConsoleSlug_ResolvesToNonEmptyName()
+    public void DisplayNames_CoverEveryConsoleSlug()
     {
-        // Every slug CatalogSystems.All can emit must have a friendly name — no raw slugs surfaced in
-        // the UI (issue #286 acceptance criteria).
-        foreach (var s in CatalogSystems.All)
-        {
-            var name = CatalogSystems.DisplayNameFor(s.Console);
-            Assert.IsFalse(string.IsNullOrWhiteSpace(name), $"{s.Console} → blank display name");
-        }
+        // Drift guard (same shape as Excluded_And_All_AreDisjoint): every slug this app can put on
+        // /api/catalog/consoles must have an entry in DisplayNames, so the Library never shows a raw
+        // folder slug (issue #286 acceptance criteria).
+        //
+        // Assert *key membership*, not a non-empty result: DisplayNameFor falls back to the slug
+        // itself, which is always non-empty, so asserting on its return value can never fail and
+        // would let a newly added console ship nameless.
+        //
+        // Both registries are covered — DAT-sourced systems (CatalogSystems.All) and the
+        // Vimm-authoritative ones (VimmSourceSystems.All), which reach the same endpoint through
+        // VimmCatalogSeedService's catalog_system row and could introduce a slug All never emits.
+        var slugs = CatalogSystems.All.Select(s => s.Console)
+            .Concat(VimmSourceSystems.All.Select(s => s.Console))
+            .Distinct();
+        var missing = slugs.Where(c => !CatalogSystems.DisplayNames.ContainsKey(c)).ToList();
+        Assert.IsEmpty(missing, $"consoles with no display name: {string.Join(", ", missing)}");
+    }
+
+    [TestMethod]
+    public void DisplayNames_HasNoOrphanEntries()
+    {
+        // The reverse direction: a name for a slug no registry emits is dead weight (usually a typo
+        // in the key, which the guard above would then report as "missing").
+        var slugs = CatalogSystems.All.Select(s => s.Console)
+            .Concat(VimmSourceSystems.All.Select(s => s.Console))
+            .ToHashSet();
+        var orphans = CatalogSystems.DisplayNames.Keys.Where(k => !slugs.Contains(k)).ToList();
+        Assert.IsEmpty(orphans, $"display names for unknown consoles: {string.Join(", ", orphans)}");
     }
 
     [TestMethod]
@@ -160,6 +181,23 @@ public class CatalogSystemsTests
         Assert.AreEqual("WonderSwan", CatalogSystems.DisplayNameFor("wonderswan"));
         Assert.AreEqual("Atari 2600", CatalogSystems.DisplayNameFor("atari2600"));
         Assert.AreEqual("Wii U", CatalogSystems.DisplayNameFor("wiiu"));
+        Assert.AreEqual("Pokémon Mini", CatalogSystems.DisplayNameFor("pokemini"));  // retail styling
+        Assert.AreEqual("Atari 8-bit Family", CatalogSystems.DisplayNameFor("atari800")); // family DAT
+        Assert.AreEqual("Commodore 16", CatalogSystems.DisplayNameFor("c16"));       // agrees with the C16 chip
+    }
+
+    [TestMethod]
+    public void DisplayNames_SegaFamily_IsUniformlyBrandPrefixed()
+    {
+        // Naming policy (documented on DisplayNames): the Sega block is brand-prefixed to a machine,
+        // never bare — "Sega Dreamcast", not "Dreamcast" beside "Sega Genesis".
+        string[] segaSlugs =
+        [
+            "sg-1000", "mastersystem", "genesis", "sega32x", "gamegear", "segacd",
+            "saturn", "dreamcast", "naomi", "naomi2", "segapico", "beena",
+        ];
+        foreach (var slug in segaSlugs)
+            Assert.StartsWith("Sega ", CatalogSystems.DisplayNameFor(slug), $"{slug} → missing the Sega prefix");
     }
 
     [TestMethod]

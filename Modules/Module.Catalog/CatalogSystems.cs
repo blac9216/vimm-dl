@@ -193,8 +193,17 @@ public static class CatalogSystems
     /// <c>wiiu</c> has both the digital CDN DAT and the Vimm-sourced disc track, #267/#285), so the
     /// name lives once here rather than duplicated per DAT entry. The slug itself remains the API
     /// filter key / localStorage value; this is a label only. <see cref="DisplayNameFor"/> falls back
-    /// to the slug for anything not listed (should not happen for any slug in <see cref="All"/> —
-    /// test-guarded).
+    /// to the slug for anything not listed — but no slug this app can emit may rely on that fallback:
+    /// <c>DisplayNames_CoverEveryConsoleSlug</c> asserts key membership for every <see cref="All"/>
+    /// and <see cref="VimmSourceSystems.All"/> console, so adding a console without a name here fails
+    /// the suite. The fallback exists only for slugs already stored in a user's database by an older
+    /// build (or hand-inserted), never as a licence to skip an entry.
+    ///
+    /// <para>Naming policy: the common retail name of the hardware, in its US form where the machine
+    /// shipped there. The Sega family is <b>uniformly brand-prefixed</b> ("Sega Master System", "Sega
+    /// Dreamcast", …) so the shelf reads consistently rather than mixing "Sega Genesis" with a bare
+    /// "Dreamcast". Where a slug names a family rather than one model, the label says so (e.g.
+    /// <c>atari800</c> → "Atari 8-bit Family").</para>
     /// </summary>
     public static readonly IReadOnlyDictionary<string, string> DisplayNames = new Dictionary<string, string>
     {
@@ -210,24 +219,25 @@ public static class CatalogSystems
         ["gbc"] = "Game Boy Color",
         ["gba"] = "Game Boy Advance",
         ["virtualboy"] = "Virtual Boy",
-        ["pokemini"] = "Pokemon Mini",
+        ["pokemini"] = "Pokémon Mini",
         ["nds"] = "Nintendo DS",
         ["n3ds"] = "Nintendo 3DS",
         ["gc"] = "GameCube",
         ["wii"] = "Wii",
         ["wiiu"] = "Wii U",
 
-        // Sega
-        ["sg-1000"] = "SG-1000",
-        ["mastersystem"] = "Master System",
+        // Sega — brand-prefixed uniformly (see the naming policy above): every entry in this block
+        // carries "Sega ", so the rail never mixes "Sega Genesis" with a bare "Dreamcast".
+        ["sg-1000"] = "Sega SG-1000",
+        ["mastersystem"] = "Sega Master System",
         ["genesis"] = "Sega Genesis",
         ["sega32x"] = "Sega 32X",
-        ["gamegear"] = "Game Gear",
+        ["gamegear"] = "Sega Game Gear",
         ["segacd"] = "Sega CD",
         ["saturn"] = "Sega Saturn",
-        ["dreamcast"] = "Dreamcast",
-        ["naomi"] = "Naomi",
-        ["naomi2"] = "Naomi 2",
+        ["dreamcast"] = "Sega Dreamcast",
+        ["naomi"] = "Sega Naomi",
+        ["naomi2"] = "Sega Naomi 2",
         ["segapico"] = "Sega Pico",
         ["beena"] = "Sega Beena",
 
@@ -248,7 +258,8 @@ public static class CatalogSystems
         ["atari2600"] = "Atari 2600",
         ["atari5200"] = "Atari 5200",
         ["atari7800"] = "Atari 7800",
-        ["atari800"] = "Atari 800",
+        // The DAT is "Atari - 8-bit Family" (400/800/XL/XE), not the 800 alone — name the family.
+        ["atari800"] = "Atari 8-bit Family",
         ["atarilynx"] = "Atari Lynx",
         ["atarijaguar"] = "Atari Jaguar",
         ["atarijaguarcd"] = "Atari Jaguar CD",
@@ -263,7 +274,10 @@ public static class CatalogSystems
 
         // Commodore
         ["c64"] = "Commodore 64",
-        ["c16"] = "Commodore Plus/4",
+        // The "Commodore - Plus-4" DAT covers the whole 264 series (C16 / C116 / Plus-4), and the slug
+        // — plus the UI's short chip code — is C16, so the label names the C16 rather than the Plus/4
+        // sibling: chip and label must not name different machines.
+        ["c16"] = "Commodore 16",
         ["vic20"] = "Commodore VIC-20",
         ["amiga"] = "Commodore Amiga",
         ["amigacd32"] = "Amiga CD32",
