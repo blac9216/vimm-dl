@@ -15,7 +15,7 @@ static class MetadataEndpoints
             {
                 var http = httpFactory.CreateClient();
                 http.DefaultRequestHeaders.Add("User-Agent", "vimm-dl");
-                var resp = await http.GetAsync("https://api.github.com/repos/eduvhc/vimm-dl/releases/latest");
+                var resp = await http.GetAsync("https://api.github.com/repos/blac9216/vimm-dl/releases/latest");
                 if (resp.IsSuccessStatusCode)
                 {
                     var json = await resp.Content.ReadFromJsonAsync(AppJsonContext.Default.JsonElement);
