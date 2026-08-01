@@ -9,7 +9,7 @@ A self-hosted ROM management toolkit. Browse the full **No-Intro / Redump** cata
 ```bash
 docker run -d -p 5000:5000 \
   -v ~/vimm:/vimms \
-  --name vimm-dl ghcr.io/eduvhc/vimm-dl:latest
+  --name vimm-dl ghcr.io/blac9216/vimm-dl:latest
 ```
 
 Open **http://localhost:5000** — browse the catalog and queue games, or paste vault URLs directly.
@@ -37,18 +37,18 @@ Everything lives under a single `/vimms` mount:
 # Linux / macOS
 docker run -d -p 5000:5000 \
   -v ~/vimm:/vimms \
-  --name vimm-dl ghcr.io/eduvhc/vimm-dl:latest
+  --name vimm-dl ghcr.io/blac9216/vimm-dl:latest
 
 # With sync to external drive
 docker run -d -p 5000:5000 \
   -v ~/vimm:/vimms \
   -v /mnt/usb/PS3ISO:/sync-target \
-  --name vimm-dl ghcr.io/eduvhc/vimm-dl:latest
+  --name vimm-dl ghcr.io/blac9216/vimm-dl:latest
 
 # Windows
 docker run -d -p 5000:5000 \
   -v %USERPROFILE%\vimm:/vimms \
-  --name vimm-dl ghcr.io/eduvhc/vimm-dl:latest
+  --name vimm-dl ghcr.io/blac9216/vimm-dl:latest
 ```
 
 > **Note:** Sync is in beta. Enable it in Settings under Feature Flags. The target drive must be bind-mounted (e.g., `/sync-target`).

@@ -11,16 +11,17 @@ namespace Module.Core.Testing;
 ///
 /// Image resolution order:
 ///   1. Pull the registry image (the VIMM_TOOLS_IMAGE env var if set — CI points it at this fork's
-///      ghcr.io/&lt;owner&gt;/vimm-dl-tools:latest — otherwise the upstream default)
+///      ghcr.io/&lt;owner&gt;/vimm-dl-tools:latest — otherwise this fork's published image)
 ///   2. Fall back to local docker build from Dockerfile.tools
 /// </summary>
 public sealed class ToolsContainer : IAsyncDisposable
 {
-    // Overridable so a fork's CI can pull its own published image; defaults to upstream for local dev.
+    // Overridable so a fork's CI can pull its own published image; defaults to this fork's own
+    // published image (ghcr.io/blac9216/vimm-dl-tools), which tools-image.yml publishes here.
     private static readonly string RegistryImage =
         Environment.GetEnvironmentVariable("VIMM_TOOLS_IMAGE") is { Length: > 0 } img
             ? img
-            : "ghcr.io/eduvhc/vimm-dl-tools:latest";
+            : "ghcr.io/blac9216/vimm-dl-tools:latest";
     private const string LocalImage = "vimm-dl-tools:local";
 
     private IContainer? _container;
