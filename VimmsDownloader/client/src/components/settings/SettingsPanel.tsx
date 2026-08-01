@@ -190,8 +190,8 @@ export function SettingsPanel() {
                     autoComplete="off"
                     spellCheck={false}
                     placeholder="32 hexadecimal characters"
-                    defaultValue={settings.wiiuCommonKey}
-                    onBlur={e => saveText('wiiu_common_key', e.target.value, settings.wiiuCommonKey)}
+                    defaultValue={settings.wiiUCommonKey}
+                    onBlur={e => saveText('wiiu_common_key', e.target.value, settings.wiiUCommonKey)}
                     className={inputCls}
                   />
                 </SettingsStackRow>
