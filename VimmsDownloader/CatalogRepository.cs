@@ -282,7 +282,10 @@ class CatalogRepository : ICatalogStore
         await using var r = await cmd.ExecuteReaderAsync();
         var list = new List<CatalogConsole>();
         while (await r.ReadAsync())
-            list.Add(new CatalogConsole(r.GetString(0), r.GetInt32(1), r.GetInt32(2)));
+        {
+            var console = r.GetString(0);
+            list.Add(new CatalogConsole(console, r.GetInt32(1), r.GetInt32(2), CatalogSystems.DisplayNameFor(console)));
+        }
         return list;
     }
 

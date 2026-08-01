@@ -130,4 +130,48 @@ public class CatalogSystemsTests
             Assert.Contains(variant, CatalogSystems.ExcludedDats.Keys, $"{variant} needs an exclusion reason");
         }
     }
+
+    // ---- Display names (#286) ------------------------------------------------------------------
+
+    [TestMethod]
+    public void DisplayNameFor_EveryConsoleSlug_ResolvesToNonEmptyName()
+    {
+        // Every slug CatalogSystems.All can emit must have a friendly name — no raw slugs surfaced in
+        // the UI (issue #286 acceptance criteria).
+        foreach (var s in CatalogSystems.All)
+        {
+            var name = CatalogSystems.DisplayNameFor(s.Console);
+            Assert.IsFalse(string.IsNullOrWhiteSpace(name), $"{s.Console} → blank display name");
+        }
+    }
+
+    [TestMethod]
+    public void DisplayNameFor_SpotChecksCommonConsoles()
+    {
+        Assert.AreEqual("Game Boy", CatalogSystems.DisplayNameFor("gb"));
+        Assert.AreEqual("GameCube", CatalogSystems.DisplayNameFor("gc"));
+        Assert.AreEqual("PlayStation 1", CatalogSystems.DisplayNameFor("psx"));
+        Assert.AreEqual("PlayStation 2", CatalogSystems.DisplayNameFor("ps2"));
+        Assert.AreEqual("PlayStation 3", CatalogSystems.DisplayNameFor("ps3"));
+        Assert.AreEqual("Super Nintendo", CatalogSystems.DisplayNameFor("snes"));
+        Assert.AreEqual("Sega Genesis", CatalogSystems.DisplayNameFor("genesis"));
+        Assert.AreEqual("TurboGrafx-16", CatalogSystems.DisplayNameFor("pcengine"));
+        Assert.AreEqual("Neo Geo Pocket", CatalogSystems.DisplayNameFor("ngp"));
+        Assert.AreEqual("WonderSwan", CatalogSystems.DisplayNameFor("wonderswan"));
+        Assert.AreEqual("Atari 2600", CatalogSystems.DisplayNameFor("atari2600"));
+        Assert.AreEqual("Wii U", CatalogSystems.DisplayNameFor("wiiu"));
+    }
+
+    [TestMethod]
+    public void DisplayNameFor_UnknownSlug_FallsBackToSlugItself()
+    {
+        Assert.AreEqual("totally-made-up-slug", CatalogSystems.DisplayNameFor("totally-made-up-slug"));
+    }
+
+    [TestMethod]
+    public void DisplayNames_HasNoBlankValues()
+    {
+        foreach (var (slug, name) in CatalogSystems.DisplayNames)
+            Assert.IsFalse(string.IsNullOrWhiteSpace(name), $"{slug} → blank display name entry");
+    }
 }

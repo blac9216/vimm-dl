@@ -186,4 +186,140 @@ public static class CatalogSystems
         ["Sony - PlayStation Portable (UMD Video)"] = "non-game (video UMDs)",
         ["Sony - PlayStation Vita (PSN)"] = "digital (PSN) — gamecards are the synced 'Sony - PlayStation Vita' DAT",
     };
+
+    /// <summary>
+    /// Console (EmuDeck folder) slug → common retail display name, for UI presentation only (issue
+    /// #286). Keyed by slug, not DAT — a slug can back more than one <c>catalog_system</c> row (e.g.
+    /// <c>wiiu</c> has both the digital CDN DAT and the Vimm-sourced disc track, #267/#285), so the
+    /// name lives once here rather than duplicated per DAT entry. The slug itself remains the API
+    /// filter key / localStorage value; this is a label only. <see cref="DisplayNameFor"/> falls back
+    /// to the slug for anything not listed (should not happen for any slug in <see cref="All"/> —
+    /// test-guarded).
+    /// </summary>
+    public static readonly IReadOnlyDictionary<string, string> DisplayNames = new Dictionary<string, string>
+    {
+        // Nintendo
+        ["nes"] = "Nintendo Entertainment System",
+        ["fds"] = "Famicom Disk System",
+        ["snes"] = "Super Nintendo",
+        ["satellaview"] = "Satellaview",
+        ["sufami"] = "Sufami Turbo",
+        ["n64"] = "Nintendo 64",
+        ["n64dd"] = "Nintendo 64DD",
+        ["gb"] = "Game Boy",
+        ["gbc"] = "Game Boy Color",
+        ["gba"] = "Game Boy Advance",
+        ["virtualboy"] = "Virtual Boy",
+        ["pokemini"] = "Pokemon Mini",
+        ["nds"] = "Nintendo DS",
+        ["n3ds"] = "Nintendo 3DS",
+        ["gc"] = "GameCube",
+        ["wii"] = "Wii",
+        ["wiiu"] = "Wii U",
+
+        // Sega
+        ["sg-1000"] = "SG-1000",
+        ["mastersystem"] = "Master System",
+        ["genesis"] = "Sega Genesis",
+        ["sega32x"] = "Sega 32X",
+        ["gamegear"] = "Game Gear",
+        ["segacd"] = "Sega CD",
+        ["saturn"] = "Sega Saturn",
+        ["dreamcast"] = "Dreamcast",
+        ["naomi"] = "Naomi",
+        ["naomi2"] = "Naomi 2",
+        ["segapico"] = "Sega Pico",
+        ["beena"] = "Sega Beena",
+
+        // Sony
+        ["psx"] = "PlayStation 1",
+        ["ps2"] = "PlayStation 2",
+        ["ps3"] = "PlayStation 3",
+        ["psp"] = "PlayStation Portable",
+        ["psvita"] = "PlayStation Vita",
+
+        // Microsoft
+        ["msx1"] = "MSX",
+        ["msx2"] = "MSX2",
+        ["xbox"] = "Xbox",
+        ["xbox360"] = "Xbox 360",
+
+        // Atari
+        ["atari2600"] = "Atari 2600",
+        ["atari5200"] = "Atari 5200",
+        ["atari7800"] = "Atari 7800",
+        ["atari800"] = "Atari 800",
+        ["atarilynx"] = "Atari Lynx",
+        ["atarijaguar"] = "Atari Jaguar",
+        ["atarijaguarcd"] = "Atari Jaguar CD",
+        ["atarist"] = "Atari ST",
+
+        // NEC
+        ["pcengine"] = "TurboGrafx-16",
+        ["supergrafx"] = "PC Engine SuperGrafx",
+        ["pcenginecd"] = "TurboGrafx-CD",
+        ["pcfx"] = "PC-FX",
+        ["pc98"] = "PC-98",
+
+        // Commodore
+        ["c64"] = "Commodore 64",
+        ["c16"] = "Commodore Plus/4",
+        ["vic20"] = "Commodore VIC-20",
+        ["amiga"] = "Commodore Amiga",
+        ["amigacd32"] = "Amiga CD32",
+        ["cdtv"] = "Commodore CDTV",
+
+        // SNK
+        ["ngp"] = "Neo Geo Pocket",
+        ["ngpc"] = "Neo Geo Pocket Color",
+        ["neogeocd"] = "Neo Geo CD",
+
+        // Bandai
+        ["wonderswan"] = "WonderSwan",
+        ["wonderswancolor"] = "WonderSwan Color",
+
+        // Other cartridge / handheld systems
+        ["arduboy"] = "Arduboy",
+        ["pockchalv2"] = "Pocket Challenge V2",
+        ["casloopy"] = "Casio Loopy",
+        ["pv1000"] = "Casio PV-1000",
+        ["colecovision"] = "ColecoVision",
+        ["arcadia"] = "Emerson Arcadia 2001",
+        ["advision"] = "Entex Adventure Vision",
+        ["scv"] = "Super Cassette Vision",
+        ["channelf"] = "Fairchild Channel F",
+        ["supracan"] = "Super A'Can",
+        ["gp32"] = "GP32",
+        ["vectrex"] = "Vectrex",
+        ["gmaster"] = "Game Master",
+        ["vc4000"] = "Interton VC 4000",
+        ["picno"] = "Konami Picno",
+        ["leappad"] = "LeapPad",
+        ["leapster"] = "Leapster",
+        ["odyssey2"] = "Magnavox Odyssey2",
+        ["intellivision"] = "Intellivision",
+        ["videopac"] = "Philips Videopac+",
+        ["studio2"] = "RCA Studio II",
+        ["x1"] = "Sharp X1",
+        ["x68000"] = "Sharp X68000",
+        ["zxspectrum"] = "ZX Spectrum",
+        ["gamecom"] = "Game.com",
+        ["vsmile"] = "V.Smile",
+        ["crvision"] = "CreatiVision",
+        ["supervision"] = "Watara Supervision",
+
+        // Mobile
+        ["j2me"] = "J2ME",
+        ["palm"] = "Palm OS",
+        ["symbian"] = "Symbian",
+        ["zeebo"] = "Zeebo",
+
+        // Other disc systems
+        ["cdimono1"] = "Philips CD-i",
+        ["3do"] = "3DO",
+    };
+
+    /// <summary>Friendly display name for a console slug, falling back to the slug itself when unknown.</summary>
+    public static string DisplayNameFor(string console) =>
+        DisplayNames.TryGetValue(console, out var name) ? name : console;
 }

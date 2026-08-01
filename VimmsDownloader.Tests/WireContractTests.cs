@@ -169,10 +169,10 @@ public class WireContractTests
     [TestMethod]
     public void CatalogConsole_WireNames_MatchExpected()
     {
-        var console = new CatalogConsole("PS3", 100, 10);
+        var console = new CatalogConsole("PS3", 100, 10, "PlayStation 3");
 
         AssertWireNames(AppJsonContext.Default.CatalogConsole, console,
-            "console", "gameCount", "ownedCount");
+            "console", "gameCount", "ownedCount", "displayName");
     }
 
     [TestMethod]

@@ -59,6 +59,18 @@ public class CatalogQueryTests
     }
 
     [TestMethod]
+    public async Task Consoles_DisplayName_ResolvesFriendlyNameForEachSlug()
+    {
+        // CatalogRepository.GetConsolesAsync attaches CatalogSystems.DisplayNameFor(console) to each
+        // row returned by this SQL (#286) — verify it resolves to the expected retail name for both
+        // seeded consoles rather than leaking the raw slug.
+        var consoles = await Consoles();
+        var displayNames = consoles.ToDictionary(c => c.Console, c => CatalogSystems.DisplayNameFor(c.Console));
+        Assert.AreEqual("PlayStation 3", displayNames["ps3"]);
+        Assert.AreEqual("Super Nintendo", displayNames["snes"]);
+    }
+
+    [TestMethod]
     public async Task Games_FilterByConsole()
     {
         var (total, games) = await Games("snes", null, 0, 100);
