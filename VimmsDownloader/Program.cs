@@ -274,7 +274,6 @@ app.MapHub<DownloadHub>("/hub");
 app.MapFileEndpoints();
 app.MapDownloadEndpoints();
 app.MapMetadataEndpoints();
-app.MapSourceEndpoints();
 app.MapCatalogEndpoints();
 app.MapJobsEndpoints();
 app.MapPs3Endpoints();
