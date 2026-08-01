@@ -41,7 +41,7 @@ quick invocation cheat-sheet; this is the install-and-locate reference for a fre
 - **clang** — at `/usr/bin/clang` (pre-installed). Needed only for the AOT native publish
   (`PublishAot=true`, i.e. `dotnet publish` / the Docker image); plain Debug builds + tests don't use it.
 - **7-Zip (`7z`) and Docker** — optional. `Module.Extractor` tests and the Testcontainers-backed tests
-  (`ghcr.io/eduvhc/vimm-dl-tools`) **skip gracefully** when these are absent, so the suite stays green
+  (`ghcr.io/blac9216/vimm-dl-tools`) **skip gracefully** when these are absent, so the suite stays green
   without them. Install only when working on the extractor itself.
 - **Outbound HTTPS** — required for catalog / IGDB / libretro-thumbnails fetches and NuGet + bun
   restores; it routes through the sandbox proxy.
@@ -53,7 +53,7 @@ quick invocation cheat-sheet; this is the install-and-locate reference for a fre
 All modules follow the convention in `Modules/MODULE_GUIDE.md`. Each module is a standalone class library with zero web dependencies, communicating with the host via a typed bridge (`IModuleBridge<TEvent>`).
 
 - **Module.Core** — `IModuleBridge<TEvent>` interface, `Result<T>` (generic result type + `FileOps` safe I/O helpers), `SharedConstants` (`FileExtensions`, `Platforms`), `ConsoleDirectories` (platform name → EmuDeck folder, e.g. "PlayStation 3" → `ps3`, "GameCube" → `gc`; null for unknown), and `Pipeline/` infrastructure (`IPipeline`, `PipelineState`, `PipelinePhase`, `PipelineStatusEvent`, `PipelineFlowInfo`, `DuplicateCheckResult`). Every module references this.
-- **Module.Core.Testing** — Shared test infrastructure: `FakeBridge<T>`, `TempDirectory`, `ToolsContainer` (Testcontainers with `ghcr.io/eduvhc/vimm-dl-tools`).
+- **Module.Core.Testing** — Shared test infrastructure: `FakeBridge<T>`, `TempDirectory`, `ToolsContainer` (Testcontainers with `ghcr.io/blac9216/vimm-dl-tools`).
 - **Module.Download** — Download service + the **source seam**: `DownloadService` (download loop, resume, progress, Result-based error handling, `StreamDownload` with per-source headers), `VaultPageParser` (Vimm HTML parsing + format resolution with fallback). `Sources/` holds `IDownloadSource` (`ResolveAsync` → `ResolvedDownload`), `ISourceRegistry`, `ICatalogSource` (browse/search), and the concrete `VimmSource` (wraps `VaultPageParser`) + `ArchiveSource` (archive.org direct + listing). `IDownloadItemProvider` (async, host provides queue items keyed by `(source, source_id, format)`). Bridge: `IDownloadBridge` emitting `DownloadStatusEvent`, `DownloadProgressEvent`, `DownloadCompletedEvent`, `DownloadErrorEvent`, `DownloadDoneEvent`.
 - **Module.Catalog** — The canonical catalog + Vimm binding (web-free; persists via `ICatalogStore`). `ClrMameProParser` + `CatalogSyncService` (fetch No-Intro/Redump DATs from the libretro-database mirror), `CatalogSystems` (the consoles synced — DAT name + group + EmuDeck folder), `CatalogMatcher` (name normalization / file match), `Dedup` (1G1R title-key + parent selection), the **compat seam** (`ICompatSource.LoadAsync(fetch)` adapters — `Rpcs3CompatSource` JSON + `Pcsx2CompatSource`/`DuckStationCompatSource` YAML via the AOT `YamlScanner` (single-GET via `SingleUrlCompatSource`) + `DolphinCompatSource` (paginated MediaWiki, name-keyed) + `AzaharCompatSource` (3DS JSON, name-keyed) — feeding the `CompatSources`/`Emulators` registries with a per-emulator `CompatMatchKind` (serial/name; name joins by `title_key`, per-row console-gated to the emulator's `Consoles` so colliding titles can't cross consoles), normalized to `CompatStatuses` via `CompatKeys`/`Dedup.TitleKey`), `Crc32`, and the Vimm layer: `VimmSystems` (catalog console → Vimm vault code) + `VimmVaultParser` (list rows, inline `media` JSON hashes, `hashes2.php`, `dl_format`).
 - **Module.Extractor** — 7z wrapper (`ZipExtract.QuickCheckAsync`, `ExtractAsync` returning `Result<bool>`). Auto-detects `7z` on PATH or `C:\Program Files\7-Zip\7z.exe` on Windows.
@@ -321,12 +321,12 @@ Single bind mount: `-v ~/vimm:/vimms`
 - 17 Ps3Pipeline (pipeline state, rename, extract, abort, IPipeline contract)
 - 10 Ps3IsoTools (ParamSfo, FindJbFolder, IsoFilenameFormatter)
 
-Most integration tests use real file I/O via `TempDirectory` or a temp SQLite file. Container tests use `ghcr.io/eduvhc/vimm-dl-tools`.
+Most integration tests use real file I/O via `TempDirectory` or a temp SQLite file. Container tests use `ghcr.io/blac9216/vimm-dl-tools`.
 
 ## Docker
 
 - Main app: `Dockerfile` at repo root. Multi-stage (Bun frontend → ps3tools → .NET AOT → runtime).
-- Tools image: `Modules/Module.Core.Testing/Dockerfile.tools`. Published to `ghcr.io/eduvhc/vimm-dl-tools:latest`.
+- Tools image: `Modules/Module.Core.Testing/Dockerfile.tools`. Published to `ghcr.io/blac9216/vimm-dl-tools:latest`.
 - Single volume: `/vimms` (data/ + downloads/)
 - Port 5000
 - Assembly version set from git tag via `ARG VERSION` build arg
@@ -335,7 +335,7 @@ Most integration tests use real file I/O via `TempDirectory` or a temp SQLite fi
   docker run -p 5000:5000 \
     -v ~/vimm:/vimms \
     -v /mnt/usb/PS3ISO:/sync-target \
-    --name vimm-dl ghcr.io/eduvhc/vimm-dl:latest
+    --name vimm-dl ghcr.io/blac9216/vimm-dl:latest
   ```
 
 ## Roadmap

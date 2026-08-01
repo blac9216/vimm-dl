@@ -31,7 +31,7 @@ cp -r /path/to/old/downloads/* ~/vimm/downloads/
 # Start with the new volume
 docker run -d -p 5000:5000 \
   -v ~/vimm:/vimms \
-  --name vimm-dl ghcr.io/eduvhc/vimm-dl:latest
+  --name vimm-dl ghcr.io/blac9216/vimm-dl:latest
 ```
 
 > The old layout (`/app/data` + `/downloads`) still works for backward compatibility. The app checks for `/vimms/downloads` first, then falls back to `/downloads`.
@@ -46,12 +46,12 @@ docker stop vimm-dl
 docker rm vimm-dl
 
 # Pull the latest image
-docker pull ghcr.io/eduvhc/vimm-dl:latest
+docker pull ghcr.io/blac9216/vimm-dl:latest
 
 # Start with the same volume
 docker run -d -p 5000:5000 \
   -v ~/vimm:/vimms \
-  --name vimm-dl ghcr.io/eduvhc/vimm-dl:latest
+  --name vimm-dl ghcr.io/blac9216/vimm-dl:latest
 ```
 
 Your queue, history, settings, events, and downloaded files all persist through the `/vimms` volume.
@@ -61,7 +61,7 @@ Your queue, history, settings, events, and downloaded files all persist through 
 ```yaml
 services:
   vimm-dl:
-    image: ghcr.io/eduvhc/vimm-dl:latest
+    image: ghcr.io/blac9216/vimm-dl:latest
     ports:
       - "5000:5000"
     volumes:
@@ -78,7 +78,7 @@ docker compose up -d
 Replace `latest` with a version tag:
 
 ```bash
-docker pull ghcr.io/eduvhc/vimm-dl:v0.6.0
+docker pull ghcr.io/blac9216/vimm-dl:v0.6.0
 ```
 
 ## Bare metal
@@ -111,7 +111,7 @@ Without the `/vimms` mount, **all data is lost** on container update.
 
 ## Changelog
 
-See the [Releases](https://github.com/eduvhc/vimm-dl/releases) page for version history and changelogs.
+See the [Releases](https://github.com/blac9216/vimm-dl/releases) page for version history and changelogs.
 
 ## Troubleshooting
 
