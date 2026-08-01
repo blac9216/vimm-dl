@@ -24,6 +24,13 @@ interface JobRowProps {
    * backend's frozen `lastDurationMs` instead — never the still-growing `elapsedMs` from GET /api/jobs.
    */
   elapsedMs?: number | null
+  /**
+   * The duration is final (a finished run). It is then rendered whatever its magnitude, including
+   * sub-second runs — `fmtDuration` shows those as e.g. "10ms", which reads as "instant" rather than
+   * as a missing value (round 1 review). Live rows leave this off and keep the >1s gate, so a
+   * just-started job doesn't flicker through 0ms.
+   */
+  durationFinal?: boolean
   onStop?: () => void
   stopTitle?: string
   stopDisabled?: boolean
@@ -37,10 +44,12 @@ interface JobRowProps {
 }
 
 export function JobRow({
-  kind, color, name, message, percent, active, status, elapsedMs,
+  kind, color, name, message, percent, active, status, elapsedMs, durationFinal,
   onStop, stopTitle = 'Stop', stopDisabled, grouped, meta,
 }: JobRowProps) {
   const pct = percent == null ? null : Math.max(0, Math.min(100, Math.round(percent)))
+  // Finished runs always show their duration; live ones only past a second (see `durationFinal`).
+  const showDuration = elapsedMs != null && (durationFinal === true || elapsedMs > 1000)
 
   return (
     <div
@@ -80,9 +89,9 @@ export function JobRow({
 
       <Badge variant={status.variant}>{status.text}</Badge>
 
-      {elapsedMs != null && elapsedMs > 1000 ? (
+      {showDuration ? (
         <span className="hidden sm:inline shrink-0 w-[54px] text-right font-mono text-[10px] text-text-4 tabular-nums">
-          {fmtDuration(elapsedMs)}
+          {fmtDuration(elapsedMs!)}
         </span>
       ) : (
         <span className="hidden sm:inline shrink-0 w-[54px]" />

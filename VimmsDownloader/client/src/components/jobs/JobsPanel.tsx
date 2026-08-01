@@ -29,6 +29,15 @@ import type { Ps3IsoStatusEvent } from '../../types/signalr'
 
 type SubView = 'active' | 'completed'
 
+/**
+ * Dismissal key for a background job's completed row. Keyed on the *run* (`lastCompletedAt`), not on
+ * the kind — dismissing a kind's finished row must not hide that kind's future runs for the rest of
+ * the session (round 1 review). A re-run publishes a new `lastCompletedAt`, so its row re-surfaces.
+ */
+function jobRunKey(job: JobStatus): string {
+  return `${job.kind}@${job.lastCompletedAt}`
+}
+
 /** One catalog trigger in the header's "Run job" group, keyed by its backend job kind. */
 interface Trigger {
   kind: string
@@ -86,9 +95,10 @@ export function JobsPanel() {
   const runningJobs = useMemo(() => (jobs ?? []).filter(j => j.running), [jobs])
   const isRunning = (kind: string) => runningJobs.some(j => j.kind === kind)
 
-  // Completed view: each job kind's last finished run, once it has one and hasn't been dismissed.
+  // Completed view: each job kind's last finished run, once it has one and that *run* hasn't been
+  // dismissed (per-run key, so a later run of a cleared kind comes back — round 1 review).
   const finishedJobs = useMemo(
-    () => (jobs ?? []).filter(j => !j.running && j.lastCompletedAt != null && !dismissedJobs.has(j.kind)),
+    () => (jobs ?? []).filter(j => !j.running && j.lastCompletedAt != null && !dismissedJobs.has(jobRunKey(j))),
     [jobs, dismissedJobs])
 
   // Active conversions: everything the pipeline has told us about this session that hasn't reached a
@@ -117,7 +127,7 @@ export function JobsPanel() {
     })
     setDismissedJobs(prev => {
       const next = new Set(prev)
-      for (const j of finishedJobs) next.add(j.kind)
+      for (const j of finishedJobs) next.add(jobRunKey(j))
       return next
     })
   }
@@ -376,7 +386,7 @@ function CompletedJobRow({ job }: { job: JobStatus }) {
     <JobRow
       kind={meta.label} color={meta.color} name={meta.name}
       message={job.message} percent={null} active={false} status={badge}
-      elapsedMs={job.lastDurationMs}
+      elapsedMs={job.lastDurationMs} durationFinal
       meta={relative ? `Finished ${relative}` : undefined}
     />
   )

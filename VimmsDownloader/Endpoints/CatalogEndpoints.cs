@@ -310,6 +310,10 @@ abstract class BackgroundJobGate(string kind)
     /// cancelled via <see cref="Cancel"/>. On every path, records the last-run outcome
     /// ("completed"/"failed"/"cancelled"), its completion time and its frozen duration (#292) — the
     /// message left by the last <see cref="Report"/> call already survives past completion.
+    /// Only a cancellation of <em>this gate's</em> token counts as "cancelled": an
+    /// <see cref="OperationCanceledException"/> raised by anything else (notably the
+    /// <see cref="TaskCanceledException"/> an <c>HttpClient</c> throws on timeout) is a genuine
+    /// failure and falls through to the "failed" path, so the UI badges it as Failed.
     /// </summary>
     public IResult Run(ILogger log, string name, Func<CancellationToken, Task> work)
     {
@@ -319,7 +323,8 @@ abstract class BackgroundJobGate(string kind)
         {
             var outcome = "failed";
             try { await work(Token); outcome = "completed"; }
-            catch (OperationCanceledException) { log.LogInformation("{Job} cancelled", name); outcome = "cancelled"; }
+            catch (OperationCanceledException) when (Token.IsCancellationRequested)
+            { log.LogInformation("{Job} cancelled", name); outcome = "cancelled"; }
             catch (Exception ex) { log.LogError(ex, "{Job} crashed", name); outcome = "failed"; }
             finally
             {

@@ -125,10 +125,31 @@ public class JobsApiTests
     {
         var gate = new TestGate();
 
-        gate.Run(NullLogger.Instance, "Test", _ => throw new OperationCanceledException());
+        // A real cancellation: the gate's own token is signalled, then the work observes it.
+        gate.Run(NullLogger.Instance, "Test", token =>
+        {
+            gate.Cancel();
+            token.ThrowIfCancellationRequested();
+            return Task.CompletedTask;
+        });
         await WaitUntilStopped(gate);
 
         Assert.AreEqual("cancelled", gate.Snapshot().LastOutcome);
+    }
+
+    [TestMethod]
+    public async Task Run_TaskCanceledWithoutGateCancel_RecordsFailedOutcome()
+    {
+        var gate = new TestGate();
+
+        // An HttpClient timeout surfaces as TaskCanceledException (an OperationCanceledException)
+        // even though nobody cancelled the job — that is a failure, not a user cancellation.
+        gate.Run(NullLogger.Instance, "Test", _ => throw new TaskCanceledException("timeout"));
+        await WaitUntilStopped(gate);
+
+        var snap = gate.Snapshot();
+        Assert.IsFalse(gate.Token.IsCancellationRequested, "the gate's token must not have been signalled");
+        Assert.AreEqual("failed", snap.LastOutcome);
     }
 
     [TestMethod]
