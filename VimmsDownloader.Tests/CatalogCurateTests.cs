@@ -100,9 +100,47 @@ public class CatalogCurateTests
         Assert.AreEqual(0, total);
     }
 
-    private Task<(List<int> Ids, long TotalBytes)> Select(string? console = null, long budgetBytes = 0, int maxCount = 0) =>
-        _catalog.SelectBestWithinBudgetAsync(console, query: null, dedupe: false, english: false,
-            excludeCategories: false, searchMode: "substring", emulator: null, compatStatus: null,
+    [TestMethod]
+    public async Task SelectBest_RegexMode_FiltersByPattern_RespectingRankAndBudget()
+    {
+        var mario1 = await AddGame(_snes, "Super Mario World", rank: 95, size: 10);
+        await AddGame(_snes, "Super Mario All-Stars", rank: 90, size: 100); // matches pattern, doesn't fit → skipped
+        var mario2 = await AddGame(_snes, "Super Mario Kart", rank: 80, size: 10);
+        await AddGame(_snes, "Chrono Trigger", rank: 99, size: 10); // highest rank but doesn't match the pattern
+
+        var (ids, total) = await Select(budgetBytes: 25, query: "^Super Mario", searchMode: "regex");
+
+        // Only pattern-matching rows are considered, in rank order: Mario World(10) ✓, All-Stars(100) ✗ skip
+        // (doesn't fit), Kart(10) ✓ → 20; Chrono Trigger never enters the running (name doesn't match).
+        CollectionAssert.AreEqual(new[] { (int)mario1, (int)mario2 }, ids.ToArray());
+        Assert.AreEqual(20, total);
+    }
+
+    [TestMethod]
+    public async Task SelectBest_RegexMode_IsCaseInsensitive()
+    {
+        var game = await AddGame(_snes, "Super Mario World", rank: 90, size: 10);
+
+        var (ids, _) = await Select(budgetBytes: 1_000, query: "SUPER mario", searchMode: "regex");
+
+        CollectionAssert.AreEqual(new[] { (int)game }, ids.ToArray());
+    }
+
+    [TestMethod]
+    public async Task SelectBest_RegexMode_InvalidPattern_ReturnsEmpty_DoesNotThrow()
+    {
+        await AddGame(_snes, "Super Mario World", rank: 90, size: 10);
+
+        var (ids, total) = await Select(budgetBytes: 1_000, query: "(unclosed", searchMode: "regex");
+
+        Assert.IsEmpty(ids);
+        Assert.AreEqual(0, total);
+    }
+
+    private Task<(List<int> Ids, long TotalBytes)> Select(string? console = null, long budgetBytes = 0, int maxCount = 0,
+            string? query = null, string searchMode = "substring") =>
+        _catalog.SelectBestWithinBudgetAsync(console, query, dedupe: false, english: false,
+            excludeCategories: false, searchMode: searchMode, emulator: null, compatStatus: null,
             budgetBytes, maxCount);
 
     private async Task<long> AddGame(long systemId, string name, double? rank, long size, bool owned = false)
