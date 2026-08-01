@@ -100,7 +100,9 @@ record QueueImportResponse(int Added, int Skipped);
 
 record Ps3ConvertRequest(string? Filename = null);
 record Ps3ConvertResponse(int Queued, int Skipped, List<string> Files);
-record Ps3ActionRequest(string Filename, string Action);
+// Platform is optional and defaults to the PS3 pipeline (back-compat with existing callers); a Wii U
+// row passes its platform so the action routes to WiiUConversionPipeline instead (#274).
+record Ps3ActionRequest(string Filename, string Action, string? Platform = null);
 record Ps3ActionResponse(bool Success);
 
 record SyncCompareRequest(string Path);

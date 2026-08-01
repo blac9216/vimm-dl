@@ -240,7 +240,7 @@ function Actions({ trace, item, convertMutation, actionMutation, onDelete }: {
             hover:bg-info/10 transition-colors">Convert</button>
       )}
       {trace?.actions.includes('mark-done') && (
-        <button onClick={() => actionMutation.mutate({ filename: item.filename, action: 'mark-done' })}
+        <button onClick={() => actionMutation.mutate({ filename: item.filename, action: 'mark-done', platform: item.platform })}
           className="text-[10px] px-1.5 py-0.5 rounded text-text-4 hover:text-text-2
             hover:bg-surface-3/40 transition-colors">Done</button>
       )}
@@ -250,7 +250,7 @@ function Actions({ trace, item, convertMutation, actionMutation, onDelete }: {
             hover:bg-warning/10 transition-colors">Retry</button>
       )}
       {trace?.actions.includes('abort') && (
-        <button onClick={() => actionMutation.mutate({ filename: item.filename, action: 'abort' })}
+        <button onClick={() => actionMutation.mutate({ filename: item.filename, action: 'abort', platform: item.platform })}
           className="text-[10px] px-1.5 py-0.5 rounded text-error/60 hover:text-error
             hover:bg-error/10 transition-colors">Abort</button>
       )}

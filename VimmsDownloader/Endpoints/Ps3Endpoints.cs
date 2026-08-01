@@ -1,3 +1,4 @@
+using Module.Core.Pipeline;
 using Module.Ps3Pipeline;
 
 static class Ps3Endpoints
@@ -41,9 +42,13 @@ static class Ps3Endpoints
             return Results.Ok(new Ps3ConvertResponse(queued, skipped, files));
         });
 
-        // Merged: mark-done + abort
-        app.MapPost("/api/ps3/action", (Ps3ActionRequest req, Ps3ConversionPipeline pipeline) =>
+        // Merged: mark-done + abort. Pipeline-generic (#274): resolves by req.Platform via
+        // DownloadQueue.GetPipeline (mirrors how FileEndpoints.BuildTrace picks a pipeline), so a Wii U
+        // conversion routes to WiiUConversionPipeline instead of silently hitting the PS3 one. No
+        // platform (existing callers) keeps the PS3 default for back-compat.
+        app.MapPost("/api/ps3/action", (Ps3ActionRequest req, DownloadQueue queue, Ps3ConversionPipeline ps3Pipeline) =>
         {
+            IPipeline pipeline = queue.GetPipeline(req.Platform) ?? ps3Pipeline;
             bool success;
             switch (req.Action)
             {
