@@ -54,7 +54,7 @@ record CatalogStatusResponse(bool Syncing, bool Scanning, bool CompatSyncing, bo
 // first run.
 record JobStatusDto(string Kind, bool Running, string? Message, int? Current, int? Total, double? Percent,
     DateTimeOffset? StartedAt, long? ElapsedMs);
-record CatalogConsole(string Console, int GameCount, int OwnedCount);
+record CatalogConsole(string Console, int GameCount, int OwnedCount, string DisplayName);
 // One emulator's playability verdict for a game (e.g. "rpcs3" → "Playable"). A game carries one per
 // emulator that targets its console and has a compat entry.
 record CompatStatus(string Emulator, string Status);

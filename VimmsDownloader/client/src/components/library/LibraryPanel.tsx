@@ -242,7 +242,8 @@ export function LibraryPanel() {
             // preserve its (and its children's) local state across selections.
             <GameDetailPane key={selectedGame.id} game={selectedGame} emuName={emuName}
               queued={queuedIds.has(selectedGame.id)} queuePending={queueGame.isPending}
-              onQueue={handleQueue} onBack={() => patch({ selectedId: null }, false)} />
+              onQueue={handleQueue} onBack={() => patch({ selectedId: null }, false)}
+              consoleDisplayName={consoles?.find(c => c.console === selectedGame.console)?.displayName} />
           ) : (
             <div className="flex items-center justify-center h-full text-[13px] text-text-4 px-6 text-center">
               Select a game to see its artwork, compatibility and download options.

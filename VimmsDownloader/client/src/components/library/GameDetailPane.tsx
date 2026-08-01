@@ -38,13 +38,17 @@ function TitleScreen({ id, title }: { id: number; title: string }) {
   )
 }
 
-export function GameDetailPane({ game, emuName, queued, queuePending, onQueue, onBack }: {
+export function GameDetailPane({ game, emuName, queued, queuePending, onQueue, onBack, consoleDisplayName }: {
   game: CatalogGame
   emuName: (id: string) => string
   queued: boolean
   queuePending: boolean
   onQueue: (game: CatalogGame) => void
   onBack: () => void
+  // Friendly console name for the chip tooltip (from GET /api/catalog/consoles, issue #286). The game
+  // payload only carries the slug, so the caller looks it up from the consoles list it already has;
+  // falls back to the slug when the console isn't in that list (e.g. still loading).
+  consoleDisplayName?: string
 }) {
   const { data: desc, isLoading } = useGameDescription(game.id)
   const { code, color } = getConsoleColor(game.console)
@@ -67,7 +71,7 @@ export function GameDetailPane({ game, emuName, queued, queuePending, onQueue, o
           <div className="text-[19px] font-extrabold leading-[1.2] text-text break-words">{game.name}</div>
           <div className="flex items-center gap-[9px] flex-wrap">
             <span className="px-[9px] py-[3px] rounded-md text-[9px] font-bold font-mono text-bg"
-              style={{ background: color }} title={game.console}>{code}</span>
+              style={{ background: color }} title={consoleDisplayName ?? game.console}>{code}</span>
             {metaLine && <span className="text-[11px] font-mono text-text-3">{metaLine}</span>}
           </div>
           {game.serial && <span className="text-[11px] font-mono text-text-4">{game.serial}</span>}

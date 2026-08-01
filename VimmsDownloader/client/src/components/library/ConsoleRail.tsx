@@ -26,8 +26,8 @@ function buildEntries(consoles: CatalogConsole[] | undefined, totalInCatalog: nu
   for (const c of consoles ?? []) {
     const { code, color } = getConsoleColor(c.console)
     entries.push({
-      value: c.console, label: c.console, code, color, count: c.gameCount,
-      title: `${c.console} — ${c.ownedCount.toLocaleString()} owned of ${c.gameCount.toLocaleString()}`,
+      value: c.console, label: c.displayName, code, color, count: c.gameCount,
+      title: `${c.displayName} — ${c.ownedCount.toLocaleString()} owned of ${c.gameCount.toLocaleString()}`,
     })
   }
   return entries

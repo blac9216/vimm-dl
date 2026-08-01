@@ -88,6 +88,7 @@ export interface CatalogConsole {
   console: string
   gameCount: number
   ownedCount: number
+  displayName: string
 }
 
 // One emulator's playability verdict for a game (e.g. { emulator: 'rpcs3', status: 'Playable' }).

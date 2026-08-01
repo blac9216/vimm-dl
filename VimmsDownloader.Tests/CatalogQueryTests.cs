@@ -1,13 +1,16 @@
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.Logging.Abstractions;
 using Module.Catalog;
 
 namespace VimmsDownloader.Tests;
 
 /// <summary>
 /// Validates the catalog query shapes (consoles + paged/filtered games) used by
-/// CatalogRepository. The repository type is internal to the host, so — like the other
-/// host tests — these mirror the repo's SQL against an in-memory SQLite database while
-/// applying the *real* migration 012 from disk and seeding representative rows.
+/// CatalogRepository. Like the other host tests, most of these mirror the repo's SQL against an
+/// in-memory SQLite database while applying the *real* migrations from disk and seeding
+/// representative rows. The exception is <see cref="Consoles_DisplayName_ComesFromTheRepository"/>,
+/// which drives the real <c>CatalogRepository</c> over a temp file database because the behaviour it
+/// covers (the display-name mapping, #286) lives in C#, not in the SQL a mirror could reproduce.
 /// </summary>
 [TestClass]
 public class CatalogQueryTests
@@ -56,6 +59,49 @@ public class CatalogQueryTests
         // ORDER BY console → ps3 before snes; owned: ps3=1 (Heavy), snes=1 (SMW)
         Assert.AreEqual(("ps3", 1, 1), consoles[0]);
         Assert.AreEqual(("snes", 3, 1), consoles[1]);
+    }
+
+    [TestMethod]
+    public async Task Consoles_DisplayName_ComesFromTheRepository()
+    {
+        // Exercises the REAL production path — CatalogRepository.GetConsolesAsync over a migrated
+        // file-backed database — rather than the SQL mirror above, so the assertion covers the
+        // repository's DisplayNameFor mapping (#286) and not just DisplayNameFor itself. A file DB is
+        // needed because the repository opens its own connection (:memory: is per-connection).
+        var dir = Path.Combine(Path.GetTempPath(), $"consoles-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(Path.Combine(dir, "data"));
+        var connStr = $"Data Source={Path.Combine(dir, "data", "queue.db")}";
+        try
+        {
+            await using (var db = new SqliteConnection(connStr))
+            {
+                await db.OpenAsync();
+                await DatabaseMigrator.MigrateAsync(db, NullLogger.Instance);
+                await using var cmd = db.CreateCommand();
+                cmd.CommandText = """
+                    INSERT INTO catalog_system (id, dat_name, console, source, game_count) VALUES
+                      (1, 'Nintendo - Super Nintendo Entertainment System', 'snes', 'no-intro', 3),
+                      (2, 'Sony - PlayStation 3', 'ps3', 'redump', 1),
+                      (3, 'Fictional - Unmapped Machine', 'notaconsole', 'no-intro', 2)
+                    """;
+                await cmd.ExecuteNonQueryAsync();
+            }
+
+            var repo = new CatalogRepository();
+            repo.Configure(connStr);
+            var consoles = await repo.GetConsolesAsync();
+
+            var bySlug = consoles.ToDictionary(c => c.Console, c => c.DisplayName);
+            Assert.AreEqual("PlayStation 3", bySlug["ps3"]);
+            Assert.AreEqual("Super Nintendo", bySlug["snes"]);
+            // Unmapped slug falls back to the slug itself — never null/blank on the wire.
+            Assert.AreEqual("notaconsole", bySlug["notaconsole"]);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        }
     }
 
     [TestMethod]

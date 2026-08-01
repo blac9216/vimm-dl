@@ -186,4 +186,154 @@ public static class CatalogSystems
         ["Sony - PlayStation Portable (UMD Video)"] = "non-game (video UMDs)",
         ["Sony - PlayStation Vita (PSN)"] = "digital (PSN) — gamecards are the synced 'Sony - PlayStation Vita' DAT",
     };
+
+    /// <summary>
+    /// Console (EmuDeck folder) slug → common retail display name, for UI presentation only (issue
+    /// #286). Keyed by slug, not DAT — a slug can back more than one <c>catalog_system</c> row (e.g.
+    /// <c>wiiu</c> has both the digital CDN DAT and the Vimm-sourced disc track, #267/#285), so the
+    /// name lives once here rather than duplicated per DAT entry. The slug itself remains the API
+    /// filter key / localStorage value; this is a label only. <see cref="DisplayNameFor"/> falls back
+    /// to the slug for anything not listed — but no slug this app can emit may rely on that fallback:
+    /// <c>DisplayNames_CoverEveryConsoleSlug</c> asserts key membership for every <see cref="All"/>
+    /// and <see cref="VimmSourceSystems.All"/> console, so adding a console without a name here fails
+    /// the suite. The fallback exists only for slugs already stored in a user's database by an older
+    /// build (or hand-inserted), never as a licence to skip an entry.
+    ///
+    /// <para>Naming policy: the common retail name of the hardware, in its US form where the machine
+    /// shipped there. The Sega family is <b>uniformly brand-prefixed</b> ("Sega Master System", "Sega
+    /// Dreamcast", …) so the shelf reads consistently rather than mixing "Sega Genesis" with a bare
+    /// "Dreamcast". Where a slug names a family rather than one model, the label says so (e.g.
+    /// <c>atari800</c> → "Atari 8-bit Family").</para>
+    /// </summary>
+    public static readonly IReadOnlyDictionary<string, string> DisplayNames = new Dictionary<string, string>
+    {
+        // Nintendo
+        ["nes"] = "Nintendo Entertainment System",
+        ["fds"] = "Famicom Disk System",
+        ["snes"] = "Super Nintendo",
+        ["satellaview"] = "Satellaview",
+        ["sufami"] = "Sufami Turbo",
+        ["n64"] = "Nintendo 64",
+        ["n64dd"] = "Nintendo 64DD",
+        ["gb"] = "Game Boy",
+        ["gbc"] = "Game Boy Color",
+        ["gba"] = "Game Boy Advance",
+        ["virtualboy"] = "Virtual Boy",
+        ["pokemini"] = "Pokémon Mini",
+        ["nds"] = "Nintendo DS",
+        ["n3ds"] = "Nintendo 3DS",
+        ["gc"] = "GameCube",
+        ["wii"] = "Wii",
+        ["wiiu"] = "Wii U",
+
+        // Sega — brand-prefixed uniformly (see the naming policy above): every entry in this block
+        // carries "Sega ", so the rail never mixes "Sega Genesis" with a bare "Dreamcast".
+        ["sg-1000"] = "Sega SG-1000",
+        ["mastersystem"] = "Sega Master System",
+        ["genesis"] = "Sega Genesis",
+        ["sega32x"] = "Sega 32X",
+        ["gamegear"] = "Sega Game Gear",
+        ["segacd"] = "Sega CD",
+        ["saturn"] = "Sega Saturn",
+        ["dreamcast"] = "Sega Dreamcast",
+        ["naomi"] = "Sega Naomi",
+        ["naomi2"] = "Sega Naomi 2",
+        ["segapico"] = "Sega Pico",
+        ["beena"] = "Sega Beena",
+
+        // Sony
+        ["psx"] = "PlayStation 1",
+        ["ps2"] = "PlayStation 2",
+        ["ps3"] = "PlayStation 3",
+        ["psp"] = "PlayStation Portable",
+        ["psvita"] = "PlayStation Vita",
+
+        // Microsoft
+        ["msx1"] = "MSX",
+        ["msx2"] = "MSX2",
+        ["xbox"] = "Xbox",
+        ["xbox360"] = "Xbox 360",
+
+        // Atari
+        ["atari2600"] = "Atari 2600",
+        ["atari5200"] = "Atari 5200",
+        ["atari7800"] = "Atari 7800",
+        // The DAT is "Atari - 8-bit Family" (400/800/XL/XE), not the 800 alone — name the family.
+        ["atari800"] = "Atari 8-bit Family",
+        ["atarilynx"] = "Atari Lynx",
+        ["atarijaguar"] = "Atari Jaguar",
+        ["atarijaguarcd"] = "Atari Jaguar CD",
+        ["atarist"] = "Atari ST",
+
+        // NEC
+        ["pcengine"] = "TurboGrafx-16",
+        ["supergrafx"] = "PC Engine SuperGrafx",
+        ["pcenginecd"] = "TurboGrafx-CD",
+        ["pcfx"] = "PC-FX",
+        ["pc98"] = "PC-98",
+
+        // Commodore
+        ["c64"] = "Commodore 64",
+        // The "Commodore - Plus-4" DAT covers the whole 264 series (C16 / C116 / Plus-4), and the slug
+        // — plus the UI's short chip code — is C16, so the label names the C16 rather than the Plus/4
+        // sibling: chip and label must not name different machines.
+        ["c16"] = "Commodore 16",
+        ["vic20"] = "Commodore VIC-20",
+        ["amiga"] = "Commodore Amiga",
+        ["amigacd32"] = "Amiga CD32",
+        ["cdtv"] = "Commodore CDTV",
+
+        // SNK
+        ["ngp"] = "Neo Geo Pocket",
+        ["ngpc"] = "Neo Geo Pocket Color",
+        ["neogeocd"] = "Neo Geo CD",
+
+        // Bandai
+        ["wonderswan"] = "WonderSwan",
+        ["wonderswancolor"] = "WonderSwan Color",
+
+        // Other cartridge / handheld systems
+        ["arduboy"] = "Arduboy",
+        ["pockchalv2"] = "Pocket Challenge V2",
+        ["casloopy"] = "Casio Loopy",
+        ["pv1000"] = "Casio PV-1000",
+        ["colecovision"] = "ColecoVision",
+        ["arcadia"] = "Emerson Arcadia 2001",
+        ["advision"] = "Entex Adventure Vision",
+        ["scv"] = "Super Cassette Vision",
+        ["channelf"] = "Fairchild Channel F",
+        ["supracan"] = "Super A'Can",
+        ["gp32"] = "GP32",
+        ["vectrex"] = "Vectrex",
+        ["gmaster"] = "Game Master",
+        ["vc4000"] = "Interton VC 4000",
+        ["picno"] = "Konami Picno",
+        ["leappad"] = "LeapPad",
+        ["leapster"] = "Leapster",
+        ["odyssey2"] = "Magnavox Odyssey2",
+        ["intellivision"] = "Intellivision",
+        ["videopac"] = "Philips Videopac+",
+        ["studio2"] = "RCA Studio II",
+        ["x1"] = "Sharp X1",
+        ["x68000"] = "Sharp X68000",
+        ["zxspectrum"] = "ZX Spectrum",
+        ["gamecom"] = "Game.com",
+        ["vsmile"] = "V.Smile",
+        ["crvision"] = "CreatiVision",
+        ["supervision"] = "Watara Supervision",
+
+        // Mobile
+        ["j2me"] = "J2ME",
+        ["palm"] = "Palm OS",
+        ["symbian"] = "Symbian",
+        ["zeebo"] = "Zeebo",
+
+        // Other disc systems
+        ["cdimono1"] = "Philips CD-i",
+        ["3do"] = "3DO",
+    };
+
+    /// <summary>Friendly display name for a console slug, falling back to the slug itself when unknown.</summary>
+    public static string DisplayNameFor(string console) =>
+        DisplayNames.TryGetValue(console, out var name) ? name : console;
 }
