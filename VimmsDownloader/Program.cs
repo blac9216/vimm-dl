@@ -54,6 +54,10 @@ builder.Services.AddSingleton<CatalogVerifyService>();
 builder.Services.AddSingleton<CatalogVerifyState>();
 builder.Services.AddSingleton<VimmSyncService>();
 builder.Services.AddSingleton<CatalogVimmState>();
+// Vimm as the authoritative catalog source for consoles with no public DAT (Wii U discs) — seeds rows
+// from a scrape rather than binding onto DAT-sourced games. See VimmSourceSystems.
+builder.Services.AddSingleton<VimmCatalogSeedService>();
+builder.Services.AddSingleton<CatalogVimmSeedState>();
 builder.Services.AddSingleton<IArchiveExtractor, SevenZipArchiveExtractor>();
 builder.Services.AddSingleton<ImportService>();
 builder.Services.AddSingleton<CatalogImportService>();

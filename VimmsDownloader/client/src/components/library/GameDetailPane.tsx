@@ -4,7 +4,7 @@ import { compatClass } from '../../lib/compat'
 import { fmtBytes } from '../../lib/format'
 import { getConsoleColor } from '../../lib/consoleColors'
 import { CatalogThumb } from '../shared/CatalogThumb'
-import { fmtLabel, originLabel } from './filters'
+import { fmtLabel, originLabel, isVimmSourced, datOrigins } from './filters'
 
 // Column C of the Library (issue #257, design handoff "1. Library (home)" -> Column C): the detail
 // pane for the selected game. Supersedes the old inline GameDetail expansion — cover + identity +
@@ -86,10 +86,16 @@ export function GameDetailPane({ game, emuName, queued, queuePending, onQueue, o
                 ★ {Math.round(game.rankScore)}
               </span>
             )}
-            {game.origins.length > 0 && (
+            {isVimmSourced(game.origins) && (
+              <span className={`${CHIP} bg-warning/[0.13] text-warning border-warning/30`}
+                title="Catalogued from Vimm, not from a No-Intro/Redump DAT — no public datfile exists for this console. The hashes are Redump's own, but nothing independent confirms this entry; it will be superseded if a DAT becomes available.">
+                Vimm-sourced
+              </span>
+            )}
+            {datOrigins(game.origins).length > 0 && (
               <span className={`${CHIP} bg-surface-3/30 text-text-4 border-border`}
-                title={`Catalog DAT source: ${game.origins.map(originLabel).join(', ')}`}>
-                {game.origins.map(originLabel).join('+')}
+                title={`Catalog DAT source: ${datOrigins(game.origins).map(originLabel).join(', ')}`}>
+                {datOrigins(game.origins).map(originLabel).join('+')}
               </span>
             )}
           </div>

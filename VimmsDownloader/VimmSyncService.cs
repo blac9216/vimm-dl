@@ -90,7 +90,7 @@ class VimmSyncService(CatalogRepository catalog, IHttpClientFactory httpFactory,
         }
         if (gameId is null) return false;
 
-        await catalog.BindVimmAsync(gameId.Value, entry.VaultId, kind!, BuildFormats(pageHtml, media), ct);
+        await catalog.BindVimmAsync(gameId.Value, entry.VaultId, kind!, VimmFormats.Build(pageHtml, media), ct);
         return true;
     }
 
@@ -116,41 +116,6 @@ class VimmSyncService(CatalogRepository catalog, IHttpClientFactory httpFactory,
             if (index.ByCrc.TryGetValue(f.Crc, out var g3)) return (g3, "crc");
         }
         return (null, null);
-    }
-
-    /// <summary>
-    /// The game's downloadable formats: the dl_format options (multi-format titles) paired with their
-    /// sizes from the media JSON, or a single implicit format 0 (single-file titles) labelled by the
-    /// ROM extension.
-    /// </summary>
-    private static IReadOnlyList<CatalogRepository.VimmFormatRow> BuildFormats(string pageHtml, IReadOnlyList<VimmMedia> media)
-    {
-        var sizes = media.Count > 0 ? media[0].Sizes : [];
-        var sizeByAlt = sizes.ToDictionary(s => s.Alt);
-        var labels = VimmVaultParser.ParseFormats(pageHtml);
-        var rows = new List<CatalogRepository.VimmFormatRow>();
-        if (labels.Count > 0)
-        {
-            foreach (var f in labels)
-            {
-                sizeByAlt.TryGetValue(f.Alt, out var sz);
-                rows.Add(new(f.Alt, f.Label, sz?.Bytes ?? 0, sz?.Text));
-            }
-        }
-        else
-        {
-            var sz = sizes.Count > 0 ? sizes[0] : null;
-            var label = ExtensionOf(media.Count > 0 ? media[0].Name : null) ?? "Download";
-            rows.Add(new(0, label, sz?.Bytes ?? 0, sz?.Text));
-        }
-        return rows;
-    }
-
-    private static string? ExtensionOf(string? name)
-    {
-        if (string.IsNullOrEmpty(name)) return null;
-        var ext = Path.GetExtension(name);
-        return string.IsNullOrEmpty(ext) ? null : ext;
     }
 
     private async Task<string?> GetStringOrNull(HttpClient http, string url, CancellationToken ct)
