@@ -67,7 +67,7 @@ class VimmCatalogSeedService(CatalogRepository catalog, IHttpClientFactory httpF
     {
         var http = httpFactory.CreateClient("vimms");
         var scraped = new List<Scraped>();
-        var listed = 0;
+        int listed = 0, unreadable = 0, failedSections = 0;
 
         for (var i = 0; i < Sections.Length; i++)
         {
@@ -77,34 +77,48 @@ class VimmCatalogSeedService(CatalogRepository catalog, IHttpClientFactory httpF
 
             var listHtml = await GetStringOrNull(http,
                 $"https://vimm.net/vault/?p=list&system={sys.VimmCode}&section={section}", ct);
-            if (listHtml is null) continue;
+            if (listHtml is null) { failedSections++; continue; }
 
             foreach (var entry in VimmVaultParser.ParseList(listHtml))
             {
                 ct.ThrowIfCancellationRequested();
                 listed++;
-                if (await ScrapeTitleAsync(http, entry, ct) is { } s) scraped.Add(s);
+                var (outcome, item) = await ScrapeTitleAsync(http, entry, ct);
+                if (item is not null) scraped.Add(item);
+                else if (outcome == ScrapeOutcome.Unreadable) unreadable++;
                 if (PoliteDelayMs > 0) await Task.Delay(PoliteDelayMs, ct);
             }
         }
 
+        // The merge is authoritative for this origin: anything absent from what we hand it is deleted as
+        // though Vimm had delisted it. So every guard below asks the same question — did we actually see
+        // the whole console? — and refuses to merge when the answer is no.
+
+        // A section whose list never loaded is the worst case, because its titles are unknown: they were
+        // never counted, so no ratio can detect them, and merging would silently delete that whole letter.
+        if (failedSections > 0)
+        {
+            log.LogWarning(
+                "Vimm seed {Console}: {Failed}/{Total} section listings failed — the console could not be " +
+                "fully enumerated, so the existing catalog is left untouched",
+                sys.Console, failedSections, Sections.Length);
+            return;
+        }
+
         if (scraped.Count == 0)
         {
-            // Never wipe a populated system on a failed scrape: merging an empty set would drop the
-            // 'vimm' origin from every game and delete the ones left with no other origin.
             log.LogWarning("Vimm seed {Console}: scraped 0 titles, leaving the existing catalog untouched", sys.Console);
             return;
         }
 
-        // Same failure mode, partially: the merge is authoritative for this origin, so titles missing
-        // from a half-finished scrape would be deleted as though Vimm had dropped them. Listing a title
-        // but failing to read its page is a transport failure, not a delisting — so require most of what
-        // the list view advertised before letting the merge speak for the whole console.
-        if (scraped.Count < listed * MinScrapeCompletion)
+        // Listing a title but failing to read its page is a transport failure, not a delisting. Measured
+        // on unreadable pages specifically — a title read cleanly that simply publishes no hashes is a
+        // legitimate skip and must not count against the run.
+        if (unreadable > listed * (1 - MinScrapeCompletion))
         {
             log.LogWarning(
-                "Vimm seed {Console}: only {Scraped}/{Listed} listed titles could be read — treating as a " +
-                "failed run and leaving the existing catalog untouched", sys.Console, scraped.Count, listed);
+                "Vimm seed {Console}: {Unreadable}/{Listed} listed titles could not be read — treating as a " +
+                "failed run and leaving the existing catalog untouched", sys.Console, unreadable, listed);
             return;
         }
 
@@ -118,20 +132,36 @@ class VimmCatalogSeedService(CatalogRepository catalog, IHttpClientFactory httpF
             sys.Console, scraped.Count, bound);
     }
 
+    /// <summary>Why a title produced no catalog game — a transport failure, or nothing to store.</summary>
+    private enum ScrapeOutcome
+    {
+        /// <summary>Converted successfully.</summary>
+        Ok,
+        /// <summary>A fetch failed. Counts against the run: the title is presumed still listed.</summary>
+        Unreadable,
+        /// <summary>Read cleanly but publishes no usable hashes. A legitimate skip, not a failure.</summary>
+        NoHashes,
+    }
+
     /// <summary>
     /// Fetch one vault page and convert it into a catalog game. The canonical <c>GoodTitle</c> is the
     /// DAT-style filename ("M&amp;M's Adventure (USA).iso"), so the game name is that minus the
     /// extension and the rom keeps it verbatim — exactly the shape a DAT would have produced.
+    ///
+    /// <para>The outcome distinguishes "could not read" from "nothing to read", because only the former
+    /// means the title may still exist on Vimm and must not be treated as delisted by the merge.</para>
     /// </summary>
-    private async Task<Scraped?> ScrapeTitleAsync(HttpClient http, VimmListEntry entry, CancellationToken ct)
+    private async Task<(ScrapeOutcome Outcome, Scraped? Item)> ScrapeTitleAsync(
+        HttpClient http, VimmListEntry entry, CancellationToken ct)
     {
         var pageHtml = await GetStringOrNull(http, $"https://vimm.net/vault/{entry.VaultId}", ct);
-        if (pageHtml is null) return null;
+        if (pageHtml is null) return (ScrapeOutcome.Unreadable, null);
 
         var media = VimmVaultParser.ParseMedia(pageHtml);
-        if (media.Count == 0) return null;
+        if (media.Count == 0) return (ScrapeOutcome.NoHashes, null);
 
         var roms = new List<DatRom>();
+        var fetchFailed = false;
         foreach (var m in media)
         {
             if (m.Crc is not null || m.Md5 is not null || m.Sha1 is not null)
@@ -142,12 +172,14 @@ class VimmCatalogSeedService(CatalogRepository catalog, IHttpClientFactory httpF
 
             // Multi-disc titles omit the inline hashes — they live behind hashes2.php, keyed by media id.
             var frag = await GetStringOrNull(http, $"https://vimm.net/vault/ajax/hashes2.php?id={m.Id}", ct);
-            if (frag is null) continue;
+            if (frag is null) { fetchFailed = true; continue; }
             foreach (var f in VimmVaultParser.ParseHashes2(frag))
                 roms.Add(new DatRom(f.FileName, 0, f.Crc, f.Md5, f.Sha1, m.Serial));
         }
 
-        if (roms.Count == 0) return null;
+        // A title left with nothing because a hashes2 fetch died is unreadable, not hash-less.
+        if (roms.Count == 0)
+            return (fetchFailed ? ScrapeOutcome.Unreadable : ScrapeOutcome.NoHashes, null);
 
         var name = GameNameFrom(media[0].Name, entry.Title);
         var game = new DatGame(
@@ -160,7 +192,7 @@ class VimmCatalogSeedService(CatalogRepository catalog, IHttpClientFactory httpF
             Roms: roms,
             Languages: ClrMameProParser.ParseLanguages(name));
 
-        return new Scraped(game, entry.VaultId, VimmFormats.Build(pageHtml, media));
+        return (ScrapeOutcome.Ok, new Scraped(game, entry.VaultId, VimmFormats.Build(pageHtml, media)));
     }
 
     /// <summary>

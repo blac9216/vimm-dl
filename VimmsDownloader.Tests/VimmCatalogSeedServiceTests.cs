@@ -136,6 +136,46 @@ public class VimmCatalogSeedServiceTests
         Assert.HasCount(2, await GamesOfSystem("Nintendo - Wii U (Discs)"));
     }
 
+    /// <summary>
+    /// The worst partial case, and the one a completion ratio cannot catch: a section listing that
+    /// fails contributes no titles to either counter, so the run looks 100% complete while an entire
+    /// letter is missing. Merging then deletes that letter's games.
+    /// </summary>
+    [TestMethod]
+    public async Task Seed_SectionListingFails_LeavesExistingCatalogIntact()
+    {
+        await NewService(Route).SeedAsync("wiiu", default);
+        Assert.HasCount(2, await GamesOfSystem("Nintendo - Wii U (Discs)"));
+
+        // Section T's listing 404s; section A still lists and reads perfectly.
+        var svc = NewService(url =>
+            url.Contains("p=list") && url.Contains("section=T") ? null : Route(url));
+        await svc.SeedAsync("wiiu", default);
+
+        var games = await GamesOfSystem("Nintendo - Wii U (Discs)");
+        Assert.HasCount(2, games);
+        Assert.Contains("Two Disc Game (USA)", games);   // the unlisted section's game survives
+    }
+
+    /// <summary>
+    /// A title that reads cleanly but publishes no hashes is a legitimate skip, not a transport
+    /// failure, so it must not count toward the incomplete-run threshold and block the merge.
+    /// </summary>
+    [TestMethod]
+    public async Task Seed_TitleWithoutHashes_DoesNotBlockTheMerge()
+    {
+        // Section A's title has no media JSON at all; section T's reads fine. 1 of 2 has no hashes,
+        // which is well past the 10% threshold — yet the run must still be accepted.
+        const string noMedia = "<html><body>no media here</body></html>";
+        var svc = NewService(url => url.EndsWith("/vault/128227") ? noMedia : Route(url));
+
+        await svc.SeedAsync("wiiu", default);
+
+        var games = await GamesOfSystem("Nintendo - Wii U (Discs)");
+        Assert.HasCount(1, games);
+        Assert.Contains("Two Disc Game (USA)", games);
+    }
+
     /// <summary>A scrape that reads everything it listed is allowed through, even if that shrank.</summary>
     [TestMethod]
     public async Task Seed_CompleteScrape_IsAccepted()
