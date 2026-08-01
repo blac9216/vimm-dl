@@ -45,6 +45,56 @@ public class CatalogSyncServiceTests
         Assert.IsEmpty(store.Systems);
     }
 
+    // The daily bundles serve XML, not clrmamepro — the parser is chosen from the DAT's own format so
+    // a bundle-sourced sync persists games instead of silently parsing to nothing (#265).
+    private const string GbaXmlDat = """
+        <?xml version="1.0"?>
+        <datafile>
+        	<header><name>Nintendo - Game Boy Advance</name><version>20260707-143610</version></header>
+        	<game name="Advance Wars (USA)"><rom name="Advance Wars (USA).gba" size="4194304" crc="dbef116c" serial="AWRE"/></game>
+        	<game name="Mother 3 (Japan)"><rom name="Mother 3 (Japan).gba" size="33554432" crc="abcdef12"/></game>
+        </datafile>
+        """;
+
+    [TestMethod]
+    public async Task SyncSystem_XmlDat_ParsesAndPersists()
+    {
+        var store = new FakeStore();
+        var svc = NewService(store);
+
+        var r = await svc.SyncSystemAsync(
+            new CatalogSystemInfo("Nintendo - Game Boy Advance", "no-intro", "gba"),
+            new FakeSource(_ => Result<string>.Ok(GbaXmlDat)) { Origin = "daily-bundle" });
+
+        Assert.IsTrue(r.IsOk, r.Error);
+        Assert.AreEqual(2, r.Value);
+        Assert.HasCount(2, store.Games);
+        Assert.AreEqual("Advance Wars (USA)", store.Games[0].Name);
+        Assert.AreEqual("AWRE", store.Games[0].Serial);            // rom serial promoted to the game
+        Assert.AreEqual("20260707-143610", store.LastVersion);
+        Assert.AreEqual("daily-bundle", store.LastOrigin);
+    }
+
+    /// <summary>
+    /// A DAT that fetched fine but parsed to nothing is a format failure, not an empty system. Before
+    /// #265 this reported success with 0 games, which is exactly how the XML mismatch stayed invisible.
+    /// </summary>
+    [TestMethod]
+    public async Task SyncSystem_ParsesZeroGames_Fails_NoPersist()
+    {
+        var store = new FakeStore();
+        var svc = NewService(store);
+
+        var r = await svc.SyncSystemAsync(
+            new CatalogSystemInfo("Nintendo - Game Boy Advance", "no-intro", "gba"),
+            new FakeSource(_ => Result<string>.Ok("this is neither clrmamepro nor xml")));
+
+        Assert.IsFalse(r.IsOk);
+        StringAssert.Contains(r.Error!, "0 games");
+        Assert.IsEmpty(store.Systems);   // nothing persisted, so an existing catalog is left intact
+        Assert.IsEmpty(store.Games);
+    }
+
     [TestMethod]
     public async Task Sync_SkipsFailedSystem_ContinuesOthers()
     {

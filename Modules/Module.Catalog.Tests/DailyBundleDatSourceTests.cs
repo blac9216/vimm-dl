@@ -5,9 +5,16 @@ using Microsoft.Extensions.Logging.Abstractions;
 [TestClass]
 public class DailyBundleDatSourceTests
 {
+    // The real bundles ship XML (DAT-o-MATIC v3 in no-intro.zip, Logiqx in redump.zip) — NOT the
+    // clrmamepro text the libretro mirror serves. This fixture mirrors the real wire format; the
+    // earlier clrmamepro fixture let #265 hide, because these tests only ever asserted on the
+    // extracted text and never parsed it.
     private const string GbaDat = """
-        clrmamepro ( name "Nintendo - Game Boy Advance" version "2026.06.01" )
-        game ( name "Advance Wars (USA)" region "USA" rom ( name "Advance Wars (USA).gba" size 4194304 crc DBEF116C ) )
+        <?xml version="1.0"?>
+        <datafile>
+        	<header><name>Nintendo - Game Boy Advance</name><version>20260601-000000</version></header>
+        	<game name="Advance Wars (USA)"><rom name="Advance Wars (USA).gba" size="4194304" crc="dbef116c" serial="AWRE"/></game>
+        </datafile>
         """;
 
     private static readonly CatalogSystemInfo Gba = new("Nintendo - Game Boy Advance", "no-intro", "gba");
@@ -56,6 +63,38 @@ public class DailyBundleDatSourceTests
         Assert.IsFalse(r.IsOk);
     }
 
+    /// <summary>
+    /// Wii U regression (#266): "Nintendo - Wii U (Digital) (CDN)" shares its filename prefix with the
+    /// "(CDN) (Dev)" and "(CDN) (Lotcheck)" DATs in the same bundle, so all three satisfy the prefix
+    /// test. The retail DAT is the least-qualified match and must win regardless of zip ordering.
+    /// </summary>
+    [TestMethod]
+    [DataRow(0)]
+    [DataRow(1)]
+    [DataRow(2)]
+    public void ExtractDat_PrefersLeastQualifiedMatch_WiiUVariants(int retailIndex)
+    {
+        const string name = "Nintendo - Wii U (Digital) (CDN)";
+        var entries = new List<(string, string)>
+        {
+            ($"{name} (Dev) (20220718-071500).dat", "DEV"),
+            ($"{name} (Lotcheck) (20220718-071500).dat", "LOTCHECK"),
+        };
+        entries.Insert(retailIndex, ($"{name} (20260618-192853).dat", "RETAIL"));
+
+        var r = DailyBundleDatSource.ExtractDat(Zip([.. entries]), name);
+
+        Assert.IsTrue(r.IsOk, r.Error);
+        Assert.AreEqual("RETAIL", r.Value);
+    }
+
+    [TestMethod]
+    [DataRow("Nintendo - Wii U (Digital) (CDN) (20260618-192853).dat", 1)]
+    [DataRow("Nintendo - Wii U (Digital) (CDN) (Dev) (20220718-071500).dat", 2)]
+    [DataRow("Nintendo - Wii U (Digital) (CDN).dat", 0)]
+    public void CountQualifiers_CountsTrailingGroups(string fileName, int expected)
+        => Assert.AreEqual(expected, DailyBundleDatSource.CountQualifiers(fileName, "Nintendo - Wii U (Digital) (CDN)"));
+
     [TestMethod]
     [DataRow(true)]   // parent-clone entry listed first
     [DataRow(false)]  // standard entry listed first
@@ -83,6 +122,29 @@ public class DailyBundleDatSourceTests
 
         Assert.IsTrue(r.IsOk, r.Error);
         StringAssert.Contains(r.Value!, "Advance Wars");
+    }
+
+    /// <summary>
+    /// The end-to-end guard for #265: what the bundle actually serves must survive the parser the sync
+    /// service picks for it. Asserting on parsed games (not extracted text) is the check that was
+    /// missing — with the clrmamepro-only parser this yielded 0 while every other test stayed green.
+    /// </summary>
+    [TestMethod]
+    public async Task GetDat_ExtractedBundleText_ActuallyParses()
+    {
+        var zip = Zip(("Nintendo - Game Boy Advance (20260601-000000).dat", GbaDat));
+        var src = NewSource(_ => (HttpStatusCode.OK, zip));
+
+        var r = await src.GetDatAsync(Gba, default);
+        Assert.IsTrue(r.IsOk, r.Error);
+
+        var parser = DatParsers.For(r.Value!);
+        var games = parser.Parse(new StringReader(r.Value!)).ToList();
+
+        Assert.IsInstanceOfType<XmlDatParser>(parser);
+        Assert.HasCount(1, games);
+        Assert.AreEqual("Advance Wars (USA)", games[0].Name);
+        Assert.AreEqual("Nintendo - Game Boy Advance", parser.Header?.Name);
     }
 
     [TestMethod]

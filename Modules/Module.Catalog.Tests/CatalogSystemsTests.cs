@@ -88,14 +88,46 @@ public class CatalogSystemsTests
     {
         // The digital / non-game / folder-colliding variants must NOT be synced as their own systems
         // (they belong in ExcludedDats, where the dedup epic #119 D2 will fold them onto physical twins).
+        //
+        // Wii U is the one deliberate exception, asserted separately below: its digital CDN DAT IS
+        // synced because the physical twin it would fold onto does not exist in the catalog — Redump's
+        // Wii U disc set has no public DAT — so excluding it would leave Wii U with no identity layer
+        // at all rather than deduplicating it against something (#266).
         string[] mustNotHave =
         [
             "Sony - PlayStation 3 (PSN)", "Sony - PlayStation Portable (UMD Video)",
-            "Nintendo - Wii (Digital)", "Nintendo - Wii U (Digital)", "Nintendo - Nintendo DSi",
+            "Nintendo - Wii (Digital)", "Nintendo - Nintendo DSi",
             "Nintendo - New Nintendo 3DS", "Nintendo - e-Reader", "Microsoft - Xbox 360 (Digital)",
         ];
         var synced = CatalogSystems.All.Select(s => s.DatName).ToHashSet();
         var leaked = mustNotHave.Where(synced.Contains).ToList();
         Assert.IsEmpty(leaked, $"digital/variant DATs leaked into the synced set: {string.Join(", ", leaked)}");
+    }
+
+    /// <summary>
+    /// The Wii U digital exception is intentional and load-bearing for the NUS path — pin it, so
+    /// removing it is a deliberate act rather than a quiet regression. Its dev/lotcheck/deprecated
+    /// siblings stay excluded.
+    /// </summary>
+    [TestMethod]
+    public void All_Syncs_WiiUDigitalCdn_ButNotItsVariants()
+    {
+        var synced = CatalogSystems.All.Select(s => s.DatName).ToHashSet();
+
+        Assert.Contains("Nintendo - Wii U (Digital) (CDN)", synced);
+        Assert.AreEqual("wiiu", CatalogSystems.All.Single(s => s.DatName.StartsWith("Nintendo - Wii U")).Console);
+
+        foreach (var variant in new[]
+                 {
+                     "Nintendo - Wii U (Digital) (CDN) (Dev)",
+                     "Nintendo - Wii U (Digital) (CDN) (Lotcheck)",
+                     "Nintendo - Wii U (Development Kit Hard Drives)",
+                     "Non-Redump - Nintendo - Wii U",
+                     "Unofficial - Nintendo - Wii U (Digital) (Deprecated)",
+                 })
+        {
+            Assert.DoesNotContain(variant, synced, $"{variant} should not be synced");
+            Assert.Contains(variant, CatalogSystems.ExcludedDats.Keys, $"{variant} needs an exclusion reason");
+        }
     }
 }

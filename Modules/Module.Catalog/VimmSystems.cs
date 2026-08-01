@@ -26,6 +26,10 @@ public static class VimmSystems
         new("n3ds", "3DS"),
         new("gc", "GameCube"),
         new("wii", "Wii"),
+        // NOTE: Vimm carries Wii U (vault code "WiiU", 541 discs) but it is deliberately NOT listed
+        // yet (#267). The `wiiu` console now holds *digital* CDN content hashes (#266), which can never
+        // match Vimm's *disc* hashes — adding it here before the serial-keyed binding lands would
+        // scrape 541 pages for zero matches and flag every digital title "no Vimm match".
 
         // Sega
         new("genesis", "Genesis"),

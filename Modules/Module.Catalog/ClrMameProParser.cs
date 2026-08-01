@@ -15,7 +15,7 @@ namespace Module.Catalog;
 /// like <c>"Game (USA) (Disc 1)"</c>, so the lexer — not paren-counting — defines structure.
 /// Unknown keys/blocks are skipped, so new DAT fields never break parsing.
 /// </remarks>
-public sealed class ClrMameProParser
+public sealed class ClrMameProParser : IDatParser
 {
     /// <summary>Set from the leading <c>clrmamepro</c> block during enumeration (it is the first block).</summary>
     public DatHeader? Header { get; private set; }

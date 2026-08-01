@@ -70,7 +70,11 @@ class DownloadQueue
             platform = Module.Core.Platforms.WiiU;
         if (Module.Core.Platforms.IsWiiU(platform))
         {
-            _wiiuPipeline.Enqueue(completedFilePath);
+            // Only an encrypted NUS set gets decrypted. Wii U *discs* (Vimm serves .wux inside .7z)
+            // are the same platform but need no conversion — routing them here made a good download
+            // report "Missing title.tmd or title.tik" (#267).
+            if (IsNusTitleSet(completedFilePath))
+                _wiiuPipeline.Enqueue(completedFilePath);
             return;
         }
 
@@ -109,6 +113,14 @@ class DownloadQueue
         var val = await _repo.GetSettingAsync(SettingsKeys.Ps3PreserveArchive);
         return val != "false";
     }
+
+    /// <summary>
+    /// True when <paramref name="path"/> is a downloaded NUS title set — a directory holding the
+    /// <c>title.tmd</c> that <see cref="WiiUConversionPipeline"/> reads first. A Wii U disc download is
+    /// a single .wux/.7z file and fails this, so it completes without a conversion step.
+    /// </summary>
+    private static bool IsNusTitleSet(string path)
+        => Directory.Exists(path) && File.Exists(Path.Combine(path, "title.tmd"));
 
     /// <summary>True when <paramref name="path"/>'s immediate parent folder is the given console dir
     /// (e.g. a Wii U title folder completed/wiiu/{TitleID} sits directly under "wiiu").</summary>

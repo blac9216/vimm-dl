@@ -42,6 +42,10 @@ public static class CatalogSystems
         new("Nintendo - Nintendo 3DS", "no-intro", "n3ds"),
         new("Nintendo - GameCube", "redump", "gc"),
         new("Nintendo - Wii", "redump", "wii"),
+        // Wii U digital (eShop/NUS), the identity layer for the clean-room NUS download path (#266).
+        // Its <game_id> is the 16-hex title id WiiUNusSource resolves against. Wii U *discs* are a
+        // separate release set with no public DAT — see ExcludedDats and the Vimm-sourced disc track.
+        new("Nintendo - Wii U (Digital) (CDN)", "no-intro", "wiiu"),
 
         // Sega
         new("Sega - SG-1000", "no-intro", "sg-1000"),
@@ -169,7 +173,11 @@ public static class CatalogSystems
         ["Nintendo - Nintendo DS (Download Play)"] = "download-play demos, not standalone releases",
         ["Nintendo - Nintendo DSi"] = "DSi (DSiWare digital + enhanced) — same emulator + nds folder as the synced DS DAT",
         ["Nintendo - Wii (Digital)"] = "WiiWare/digital — discs are the Redump 'Nintendo - Wii' DAT",
-        ["Nintendo - Wii U (Digital)"] = "Wii U reserved for the clean-room NUS download path",
+        ["Nintendo - Wii U (Digital) (CDN) (Dev)"] = "Wii U dev/debug CDN titles, not retail releases",
+        ["Nintendo - Wii U (Digital) (CDN) (Lotcheck)"] = "Wii U Lotcheck submission builds, not retail releases",
+        ["Nintendo - Wii U (Development Kit Hard Drives)"] = "dev-kit drive images, not standalone releases",
+        ["Unofficial - Nintendo - Wii U (Digital) (Deprecated)"] = "deprecated unofficial Wii U digital set",
+        ["Non-Redump - Nintendo - Wii U"] = "3 protos/baddumps on .wud + .key; the retail disc set has no public DAT",
         ["Nintendo - e-Reader"] = "GBA e-Reader dot-code card data, not standalone games",
         ["Sony - PlayStation 3 (PSN)"] = "digital (PSN) — discs are the Redump 'Sony - PlayStation 3' DAT",
         ["Sony - PlayStation Portable (PSN)"] = "digital (PSN) — UMDs are the Redump 'Sony - PlayStation Portable' DAT",

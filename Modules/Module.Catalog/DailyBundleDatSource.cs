@@ -80,13 +80,19 @@ public sealed class DailyBundleDatSource(HttpClient http, ILogger<DailyBundleDat
         using var archive = new ZipArchive(new MemoryStream(zipBytes, writable: false), ZipArchiveMode.Read);
 
         ZipArchiveEntry? best = null;
+        int bestQualifiers = int.MaxValue;
         foreach (var e in archive.Entries)
         {
-            if (!IsMatch(Path.GetFileName(e.FullName), datName)) continue;
-            // A standard bundle holds one DAT per system; defensively prefer a non-parent-clone entry
-            // if both somehow appear (parent data stays on our own Dedup, not this source).
-            if (best is null || (IsParentClone(best) && !IsParentClone(e)))
-                best = e;
+            var fileName = Path.GetFileName(e.FullName);
+            if (!IsMatch(fileName, datName)) continue;
+
+            // A system's own DAT is "{DatName} (timestamp).dat" — exactly one trailing group. Sibling
+            // DATs that extend the name add more ("(Parent-Clone)", "(Lotcheck)", "(Dev)"), and those
+            // also satisfy the prefix test, so the least-qualified match is the system's real DAT.
+            // Wii U makes this load-bearing: "Nintendo - Wii U (Digital) (CDN)" shares its prefix with
+            // both "(CDN) (Lotcheck)" and "(CDN) (Dev)" in the same bundle.
+            var qualifiers = CountQualifiers(fileName, datName);
+            if (qualifiers < bestQualifiers) { best = e; bestQualifiers = qualifiers; }
         }
         if (best is null) return Result<string>.Fail($"no DAT for '{datName}' in bundle");
 
@@ -94,8 +100,20 @@ public sealed class DailyBundleDatSource(HttpClient http, ILogger<DailyBundleDat
         return Result<string>.Ok(reader.ReadToEnd());
     }
 
-    private static bool IsParentClone(ZipArchiveEntry e)
-        => Path.GetFileName(e.FullName).Contains("Parent-Clone", StringComparison.OrdinalIgnoreCase);
+    /// <summary>
+    /// How many parenthesised groups follow <paramref name="datName"/> in the entry filename. The
+    /// system's own DAT scores 1 (its timestamp); a variant that extends the name scores more. A bare
+    /// "{DatName}.dat" scores 0.
+    /// </summary>
+    internal static int CountQualifiers(string entryFileName, string datName)
+    {
+        var tail = entryFileName.Length > datName.Length
+            ? entryFileName[datName.Length..]
+            : "";
+        int count = 0;
+        for (int i = tail.IndexOf('('); i >= 0; i = tail.IndexOf('(', i + 1)) count++;
+        return count;
+    }
 
     /// <summary>
     /// Match a zip entry filename to a system. No-Intro/Redump originals are named
