@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useVersion } from '../../api/queries'
 
-const REPO_URL = 'https://github.com/eduvhc/vimm-dl'
+const REPO_URL = 'https://github.com/blac9216/vimm-dl'
 const RELEASES_URL = `${REPO_URL}/releases`
 const UPDATE_GUIDE_URL = `${REPO_URL}/blob/main/UPDATE.md`
 
