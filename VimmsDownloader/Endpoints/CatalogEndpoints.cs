@@ -42,6 +42,13 @@ static class CatalogEndpoints
             ILogger<VimmSyncService> log) =>
             state.Run(log, "Vimm sync", ct => svc.SyncAsync(console, state.Report, ct)));
 
+        // Seed the catalog FROM Vimm for consoles with no public DAT (VimmSourceSystems), where Vimm is
+        // the authoritative source rather than a link bound onto a DAT-sourced game (background,
+        // single-flight). Optional ?console= to seed one; otherwise every Vimm-authoritative console.
+        app.MapPost("/api/catalog/vimm-seed", (string? console, VimmCatalogSeedService svc,
+            CatalogVimmSeedState state, ILogger<VimmCatalogSeedService> log) =>
+            state.Run(log, "Vimm seed", ct => svc.SeedAsync(console, state.Report, ct)));
+
         // Verify owned files' CRC32 against the catalog (background, single-flight).
         app.MapPost("/api/catalog/verify", (CatalogVerifyService svc, CatalogVerifyState state,
             ILogger<CatalogVerifyService> log) =>
@@ -205,12 +212,12 @@ static class CatalogEndpoints
 
             var resolved = await resolver.ResolveForQueueAsync(id, game.Value.Console, game.Value.Name, format, ct);
             if (resolved is null) return Results.NotFound("Not available from configured archive sets or Vimm");
-            var (url, source, fmt) = resolved.Value;
+            var (url, source, fmt, sourceId) = resolved.Value;
 
             if ((await queue.CheckDuplicatesAsync([url])).Count > 0)
                 return Results.Conflict("Already queued or completed");
 
-            await queue.AddToQueueAsync(url, fmt, source);
+            await queue.AddToQueueAsync(url, fmt, source, sourceId);
             if (!downloadQueue.IsRunning) await downloadQueue.StartAsync(null);
             return Results.Ok(new CatalogQueueResponse(url, source));
         });
@@ -311,6 +318,7 @@ sealed class CatalogScanState() : BackgroundJobGate("scan");
 sealed class CatalogCompatState() : BackgroundJobGate("compat");
 sealed class CatalogVerifyState() : BackgroundJobGate("verify");
 sealed class CatalogVimmState() : BackgroundJobGate("vimm");
+sealed class CatalogVimmSeedState() : BackgroundJobGate("vimm-seed");
 sealed class CatalogImportState() : BackgroundJobGate("import");
 sealed class CatalogIgdbDescState() : BackgroundJobGate("igdb-description");
 sealed class CatalogIgdbRankState() : BackgroundJobGate("igdb-rank");

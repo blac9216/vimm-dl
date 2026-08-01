@@ -57,3 +57,21 @@ export function fmtLabel(alt: number): string {
 export function originLabel(origin: string): string {
   return origin === 'daily-bundle' ? 'bundle' : origin
 }
+
+/**
+ * Origin marking a game seeded FROM Vimm rather than from a No-Intro/Redump DAT — used where no
+ * public DAT exists (Wii U discs). Vimm publishes the canonical Redump hashes, so the stored values
+ * mean the same thing as DAT-sourced ones; what differs is that nothing independent ever confirmed
+ * them, since Vimm is both the source and the only witness.
+ */
+export const VIMM_ORIGIN = 'vimm'
+
+/** True when this game's rows came from a Vimm scrape instead of a DAT. */
+export function isVimmSourced(origins: string[]): boolean {
+  return origins.includes(VIMM_ORIGIN)
+}
+
+/** The DAT-source origins only — the Vimm origin gets its own badge, not a "DAT source" one. */
+export function datOrigins(origins: string[]): string[] {
+  return origins.filter(o => o !== VIMM_ORIGIN)
+}

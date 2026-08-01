@@ -36,4 +36,42 @@ public class VimmSystemsTests
         Assert.IsNull(VimmSystems.CodeFor("c64"));   // Vimm doesn't host Commodore 64
         Assert.IsNull(VimmSystems.CodeFor("nope"));
     }
+
+    /// <summary>
+    /// The two Vimm registries mean opposite things and must stay disjoint: a console in
+    /// <see cref="VimmSystems"/> is hash-BOUND onto DAT-sourced games, while one in
+    /// <see cref="VimmSourceSystems"/> is SEEDED from Vimm. Listing a console in both would run the
+    /// bind path against rows Vimm itself created, or scrape a console for zero possible matches.
+    /// </summary>
+    [TestMethod]
+    public void VimmSourceSystems_AndVimmSystems_AreDisjoint()
+    {
+        var bound = VimmSystems.All.Select(s => s.Console).ToHashSet();
+        var overlap = VimmSourceSystems.All.Where(s => bound.Contains(s.Console)).Select(s => s.Console).ToList();
+        Assert.IsEmpty(overlap, $"console(s) in both Vimm registries: {string.Join(", ", overlap)}");
+    }
+
+    /// <summary>A Vimm-seeded system's dat_name names a scrape, so it must not collide with a real DAT.</summary>
+    [TestMethod]
+    public void VimmSourceSystems_DatNames_DoNotCollideWithRealDats()
+    {
+        var dats = CatalogSystems.All.Select(s => s.DatName).ToHashSet();
+        foreach (var s in VimmSourceSystems.All)
+            Assert.DoesNotContain(s.DatName, dats, $"{s.DatName} collides with a real DAT name");
+    }
+
+    [TestMethod]
+    public void VimmSourceSystems_ConsolesAreCatalogConsoles()
+    {
+        var consoles = CatalogSystems.All.Select(s => s.Console).ToHashSet();
+        foreach (var s in VimmSourceSystems.All)
+            Assert.Contains(s.Console, consoles, $"Vimm-seeded console '{s.Console}' is not a catalog console");
+    }
+
+    [TestMethod]
+    public void VimmSourceSystems_For_ResolvesOrReturnsNull()
+    {
+        Assert.AreEqual("WiiU", VimmSourceSystems.For("wiiu")?.VimmCode);
+        Assert.IsNull(VimmSourceSystems.For("snes"));   // DAT-sourced, not Vimm-authoritative
+    }
 }

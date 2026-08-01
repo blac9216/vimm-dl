@@ -15,7 +15,7 @@ namespace Module.Catalog;
 /// like <c>"Game (USA) (Disc 1)"</c>, so the lexer — not paren-counting — defines structure.
 /// Unknown keys/blocks are skipped, so new DAT fields never break parsing.
 /// </remarks>
-public sealed class ClrMameProParser
+public sealed class ClrMameProParser : IDatParser
 {
     /// <summary>Set from the leading <c>clrmamepro</c> block during enumeration (it is the first block).</summary>
     public DatHeader? Header { get; private set; }
@@ -142,8 +142,12 @@ public sealed class ClrMameProParser
     /// Extract languages from the No-Intro name convention, e.g. "Game (USA) (En,Fr,De)" → [En,Fr,De].
     /// A parenthetical group qualifies only if every comma/plus-separated token is a 2-letter "Xx" code,
     /// so region/revision groups like "(USA)" or "(Rev 1)" are ignored. First matching group wins.
+    ///
+    /// <para>Public because the naming convention — not this parser — is the shared contract: every
+    /// path that produces a <see cref="DatGame"/> derives languages the same way, whether it came from
+    /// clrmamepro text, an XML DAT, or a Vimm scrape whose canonical title follows the same convention.</para>
     /// </summary>
-    internal static IReadOnlyList<string> ParseLanguages(string name)
+    public static IReadOnlyList<string> ParseLanguages(string name)
     {
         int i = 0;
         while (i < name.Length)

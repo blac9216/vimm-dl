@@ -25,6 +25,7 @@ export const CONSOLE_COLORS: Record<string, ConsoleColor> = {
   n64dd: { code: '64DD', color: '#d84a62' },
   gc: { code: 'GC', color: '#b62f47' },
   wii: { code: 'WII', color: '#8c2438' },
+  wiiu: { code: 'WIIU', color: '#6b1b2b' },
 
   // --- Nintendo handhelds (magenta/purple hue ramp) ---
   gb: { code: 'GB', color: '#efa8e0' },

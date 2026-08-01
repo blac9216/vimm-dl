@@ -60,8 +60,17 @@ public sealed class CatalogSyncService(ICatalogStore store, ILogger<CatalogSyncS
 
         try
         {
-            var parser = new ClrMameProParser();
+            // Pick the parser from the DAT's own wire format, not from which source supplied it — the
+            // libretro mirror serves clrmamepro text while the daily bundles serve XML (#265).
+            var parser = DatParsers.For(content);
             var games = parser.Parse(new StringReader(content)).ToList();
+
+            // A DAT that fetched fine but yielded nothing is a parse/format failure, not an empty
+            // system. Failing loudly here is what turns a silent no-op sync into a reported error.
+            if (games.Count == 0)
+                return Result<int>.Fail(
+                    $"parsed 0 games from {content.Length:N0} chars of DAT text — unrecognised format?");
+
             var systemId = await store.UpsertSystemAsync(sys.DatName, sys.Console, sys.Group, ct);
             await store.MergeSystemGamesAsync(systemId, source.Origin, games, parser.Header?.Version, ct);
             return Result<int>.Ok(games.Count);
