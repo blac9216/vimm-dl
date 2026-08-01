@@ -272,7 +272,7 @@ export interface SettingsResponse {
   archiveS3Secret: string
   importPath: string
   rejectedPath: string
-  wiiuCommonKey: string
+  wiiUCommonKey: string
   igdbClientId: string
   igdbClientSecret: string
   raApiKey: string
