@@ -19,10 +19,9 @@ namespace VimmsDownloader.Tests;
 /// test fails immediately instead of silently drifting from the frontend type.
 ///
 /// This test is intentionally test-only: it does not change production serialization or
-/// <c>types/api.ts</c>. Where an existing mismatch between the wire and <c>types/api.ts</c> was found
-/// during authoring, the assertion is pinned to the actual wire (C#) names — see the comment on
-/// <see cref="SyncCompareResponse_WireNames_MatchExpected"/> — and is called out in the PR description
-/// for a human to decide whether to fix it.
+/// <c>types/api.ts</c>. If a mismatch between the wire and <c>types/api.ts</c> is found during
+/// authoring, the assertion is pinned to the actual wire (C#) names and the gap is called out in the
+/// PR description for a human to decide whether to fix it (see #296 for an example that was fixed).
 /// </summary>
 [TestClass]
 public class WireContractTests
@@ -268,6 +267,21 @@ public class WireContractTests
             "vaultId", "formats");
     }
 
+    /// <summary>
+    /// #296 (PR #295 review addendum): CatalogVimmFormatDto was previously only asserted nested inside
+    /// <see cref="CatalogVimmDto_WireNames_MatchExpected"/>, so a top-level-only diff of that test could
+    /// miss a rename inside the nested "formats" array. Give it its own assertion, matching the
+    /// CatalogVimmFormat interface in types/api.ts.
+    /// </summary>
+    [TestMethod]
+    public void CatalogVimmFormatDto_WireNames_MatchExpected()
+    {
+        var format = new CatalogVimmFormatDto(0, "Label", 1000, "1 GB");
+
+        AssertWireNames(AppJsonContext.Default.CatalogVimmFormatDto, format,
+            "alt", "label", "sizeBytes", "sizeText");
+    }
+
     [TestMethod]
     public void CatalogGameDescription_WireNames_MatchExpected()
     {
@@ -391,12 +405,9 @@ public class WireContractTests
     // ---- Module.Sync records --------------------------------------------------------------------
 
     /// <summary>
-    /// FINDING (not fixed here, see PR description): the C# response carries two fields —
-    /// <c>syncPath</c> and <c>pathExists</c> — that the <c>SyncCompareResponse</c> interface in
-    /// <c>types/api.ts</c> does not declare at all (it only has new/synced/targetOnly/source/target/
-    /// error). This isn't a casing drift like #280, but the same class of client/server contract gap
-    /// this issue is meant to catch. Per scope, the test is pinned to the actual C# wire (the source of
-    /// truth) rather than "fixed" on either side.
+    /// #296: the C# response carries all 8 fields — including <c>syncPath</c> and <c>pathExists</c> —
+    /// and the <c>SyncCompareResponse</c> interface in <c>types/api.ts</c> now declares all 8 too, so
+    /// this simply pins the full wire shape.
     /// </summary>
     [TestMethod]
     public void SyncCompareResponse_WireNames_MatchExpected()

@@ -50,6 +50,7 @@ using Module.Sync.Bridge;
 [JsonSerializable(typeof(List<CatalogQueueResultDto>))]
 [JsonSerializable(typeof(CatalogCurateResponse))]
 [JsonSerializable(typeof(CatalogVimmDto))]
+[JsonSerializable(typeof(CatalogVimmFormatDto))]
 [JsonSerializable(typeof(CatalogGameDescription))]
 [JsonSerializable(typeof(QueuePatchRequest))]
 [JsonSerializable(typeof(QueueReorderRequest))]
