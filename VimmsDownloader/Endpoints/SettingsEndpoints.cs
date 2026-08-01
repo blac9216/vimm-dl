@@ -38,7 +38,6 @@ static class SettingsEndpoints
                 Ps3PreserveArchive: s.GetValueOrDefault(SettingsKeys.Ps3PreserveArchive, "true") == "true",
                 FeatureSync: s.GetValueOrDefault(SettingsKeys.FeatureSync, "false") == "true",
                 FeatureEvents: s.GetValueOrDefault(SettingsKeys.FeatureEvents, "false") == "true",
-                FeatureLibrary: s.GetValueOrDefault(SettingsKeys.FeatureLibrary, "false") == "true",
                 FeatureImport: s.GetValueOrDefault(SettingsKeys.FeatureImport, "false") == "true",
                 CatalogDatSource: s.GetValueOrDefault(SettingsKeys.CatalogDatSource, "libretro"),
                 ArchiveParallelism: int.TryParse(s.GetValueOrDefault(SettingsKeys.ArchiveParallelism, "4"), out var ap) ? ap : 4,
