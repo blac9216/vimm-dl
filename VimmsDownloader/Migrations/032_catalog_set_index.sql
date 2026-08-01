@@ -21,11 +21,21 @@ CREATE TABLE IF NOT EXISTS catalog_set_file (
     match_kind TEXT
 );
 
+-- Only the two indexes the hot paths actually use: link_id (invalidate/replace a link's rows) and
+-- game_id (the fast-resolve lookup). Matching runs entirely IN MEMORY against catalog_rom's own hash
+-- index, and nothing ever selects from catalog_set_file by hash — so per-hash B-trees would be three
+-- extra writes on every one of the thousands of inserts a single link's index run makes, for no read.
 CREATE INDEX IF NOT EXISTS idx_catalog_set_file_link ON catalog_set_file(link_id);
 CREATE INDEX IF NOT EXISTS idx_catalog_set_file_game ON catalog_set_file(game_id);
-CREATE INDEX IF NOT EXISTS idx_catalog_set_file_sha1 ON catalog_set_file(sha1);
-CREATE INDEX IF NOT EXISTS idx_catalog_set_file_md5 ON catalog_set_file(md5);
-CREATE INDEX IF NOT EXISTS idx_catalog_set_file_crc ON catalog_set_file(crc);
+
+-- This migration briefly created those three hash indexes before shipping in any release. Dropping them
+-- here (rather than in a new migration) keeps the intent in one file: fresh databases never create them,
+-- and a database that ran the earlier 032 converges the moment it re-runs this file — which the migrator
+-- does whenever its schema_migrations row is absent, its own idempotency contract. IF EXISTS makes all
+-- three no-ops on a fresh database.
+DROP INDEX IF EXISTS idx_catalog_set_file_sha1;
+DROP INDEX IF EXISTS idx_catalog_set_file_md5;
+DROP INDEX IF EXISTS idx_catalog_set_file_crc;
 
 ALTER TABLE catalog_set_link ADD COLUMN indexed_at TEXT;
 ALTER TABLE catalog_game ADD COLUMN archive_match TEXT;

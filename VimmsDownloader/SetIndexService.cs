@@ -11,9 +11,15 @@ using Module.Download.Sources;
 /// <c>CatalogScanService</c> uses for on-disk ownership) when the listing carries no hash for a file.
 ///
 /// Non-archive links (lolroms/Minerva — <see cref="CatalogResolveService.ArchiveIdentifier"/> returns
-/// null for them) are skipped, same as the live resolve path (#116 tracks other sources). A listing
-/// failure for one link leaves that link's previously-indexed rows untouched rather than wiping them —
-/// a transient archive.org hiccup shouldn't erase a working index.
+/// null for them) are skipped, same as the live resolve path (#116 tracks other sources).
+///
+/// LISTING FAILURES never downgrade a working index. A link whose listing fails keeps its previously
+/// indexed rows AND their contribution to the console's <c>archive_match</c> recompute (they're read back
+/// out of <c>catalog_set_file</c> and folded in), so a game carried only by that link keeps its marker
+/// instead of dropping to <c>'none'</c> while a row that still resolves it sits in the table. If EVERY
+/// link of a console fails, the recompute is skipped outright — the run learned nothing, so the previous
+/// markers stand. Either way the invariant <c>GetIndexedArchiveFileAsync</c> documents holds: a bound file
+/// row always implies a non-null, non-<c>'none'</c> marker.
 /// </summary>
 class SetIndexService(CatalogRepository catalog, ISourceRegistry sources, IHttpClientFactory httpFactory,
     ILogger<SetIndexService> log)
@@ -21,6 +27,12 @@ class SetIndexService(CatalogRepository catalog, ISourceRegistry sources, IHttpC
     /// <summary>Hash-kind priority — lower wins when a game's files carry more than one kind of match
     /// across a console's set links (mirrors the SHA1 → MD5 → CRC order everywhere else).</summary>
     private static int Rank(string kind) => kind switch { "sha1" => 0, "md5" => 1, "crc" => 2, _ => 3 };
+
+    /// <summary>Record a game's match kind if it beats (ranks below) whatever that game already has.</summary>
+    private static void Offer(Dictionary<long, string> best, long gameId, string kind)
+    {
+        if (!best.TryGetValue(gameId, out var cur) || Rank(kind) < Rank(cur)) best[gameId] = kind;
+    }
 
     /// <summary>
     /// Index one console's configured sets, or every console with at least one set when
@@ -60,6 +72,7 @@ class SetIndexService(CatalogRepository catalog, ISourceRegistry sources, IHttpC
         // The best (lowest-rank) match kind seen for each game across every link of this console —
         // applied once at the end so a game that appears in more than one set keeps its strongest match.
         var best = new Dictionary<long, string>();
+        var failed = 0;
 
         for (var i = 0; i < links.Count; i++)
         {
@@ -73,8 +86,14 @@ class SetIndexService(CatalogRepository catalog, ISourceRegistry sources, IHttpC
             var filesResult = await cat.ListFilesAsync(identifier, null, http, ct);
             if (!filesResult.IsOk)
             {
+                // Listing failed: this link's prior rows stay (see the class docs), and — crucially — so
+                // does their contribution to the recompute below, or a game carried only by this link
+                // would be flagged 'none' while its catalog_set_file row still resolves it.
                 log.LogWarning("Set index: listing '{Id}' failed — {Error}", identifier, filesResult.Error);
-                continue; // leave this link's prior rows (if any) untouched
+                failed++;
+                foreach (var (gameId, kind) in await catalog.GetLinkMatchesAsync(link.Id, ct))
+                    Offer(best, gameId, kind);
+                continue;
             }
 
             var rows = new List<CatalogRepository.SetFileRow>();
@@ -82,11 +101,20 @@ class SetIndexService(CatalogRepository catalog, ISourceRegistry sources, IHttpC
             {
                 var (gameId, kind) = MatchFile(f, hashIndex, nameIndex);
                 rows.Add(new CatalogRepository.SetFileRow(f.Name, f.Size, f.Crc32, f.Md5, f.Sha1, gameId, kind));
-                if (gameId is not null && (!best.TryGetValue(gameId.Value, out var cur) || Rank(kind!) < Rank(cur)))
-                    best[gameId.Value] = kind!;
+                if (gameId is not null) Offer(best, gameId.Value, kind!);
             }
 
             await catalog.ReplaceSetLinkFilesAsync(link.Id, rows, ct);
+        }
+
+        // When EVERY link failed, this run learned nothing about the console — applying an empty/rows-only
+        // recompute would relabel it from whatever it knew to 'none'. Leave the previous markers alone;
+        // they still describe the surviving rows exactly. (A link skipped for being non-archive is not a
+        // failure: it knowably carries nothing, so the console is still recomputed around it.)
+        if (failed > 0 && failed == links.Count)
+        {
+            log.LogWarning("Set index: every link for '{Console}' failed to list — keeping the previous archive markers", console);
+            return;
         }
 
         await catalog.ApplyArchiveMatchesAsync(console, best.Select(kv => (kv.Key, kv.Value)).ToList(), ct);

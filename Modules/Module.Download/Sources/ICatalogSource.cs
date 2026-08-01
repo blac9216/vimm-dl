@@ -12,7 +12,9 @@ public interface ICatalogSource
     /// <summary>Search the source for sets/collections matching a free-text query.</summary>
     Task<Result<IReadOnlyList<CatalogSet>>> SearchSetsAsync(string query, HttpClient http, CancellationToken ct);
 
-    /// <summary>List downloadable files in a set, optionally filtered by name (case-insensitive).</summary>
+    /// <summary>List downloadable files in a set, optionally filtered by name (case-insensitive). The
+    /// result must be the set's COMPLETE file list (subject to the filter) — callers index it whole
+    /// (#289) or search it for one file, so an implementation must not silently truncate.</summary>
     Task<Result<IReadOnlyList<CatalogFile>>> ListFilesAsync(string setId, string? filter, HttpClient http, CancellationToken ct);
 }
 

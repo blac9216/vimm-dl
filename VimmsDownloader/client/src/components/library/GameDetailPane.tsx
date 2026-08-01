@@ -82,7 +82,7 @@ export function GameDetailPane({ game, emuName, queued, queuePending, onQueue, o
             ))}
             {game.vimmMatch && game.vimmMatch !== 'none' && (
               <span className={`${CHIP} bg-info/10 text-info border-info/25`}
-                title={`Matched to a Vimm vault entry by ${game.vimmMatch.toUpperCase()}`}>Vimm</span>
+                title={`Matched to a Vimm vault entry by ${matchKindLabel(game.vimmMatch)}`}>Vimm</span>
             )}
             {game.vimmMatch === 'none' && (
               <span className={`${CHIP} bg-surface-3/40 text-text-4 border-border`}

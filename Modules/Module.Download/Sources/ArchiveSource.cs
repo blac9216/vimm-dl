@@ -75,6 +75,16 @@ public sealed class ArchiveSource : IDownloadSource, ICatalogSource
         }
     }
 
+    /// <summary>
+    /// Every original file in an item, optionally narrowed by <paramref name="filter"/>. The listing is
+    /// COMPLETE — it used to stop after 200 files to bound the browse endpoint's JSON response, but that
+    /// endpoint (<c>GET /api/sources/{source}/files</c>) was removed in #299 and both remaining callers are
+    /// backend-internal and need the whole item: the set index (#289) would otherwise persist only the
+    /// first 200 files of a multi-thousand-file set and mislabel the rest of the console as absent, and
+    /// the live resolve walk needs to find its file wherever it sits. The cap never saved any bandwidth
+    /// either — the metadata JSON is fetched in full regardless — so it only ever truncated the result.
+    /// Real sets run to a few thousand files (the seeded NDS default is ~7.3k), transient and per-link.
+    /// </summary>
     public async Task<Result<IReadOnlyList<CatalogFile>>> ListFilesAsync(string setId, string? filter, HttpClient http, CancellationToken ct)
     {
         try
@@ -103,7 +113,6 @@ public sealed class ArchiveSource : IDownloadSource, ICatalogSource
                     var dl = BuildDownloadUrl(setId, name);
                     files.Add(new CatalogFile(name, size, dl,
                         StringOrNull(f, "crc32"), StringOrNull(f, "md5"), StringOrNull(f, "sha1")));
-                    if (files.Count >= 200) break; // cap payload; user narrows with the filter
                 }
             }
             return Result<IReadOnlyList<CatalogFile>>.Ok(files);

@@ -175,6 +175,137 @@ public class SetIndexTests
     }
 
     [TestMethod]
+    public async Task Migration032_CreatesOnlyTheIndexesTheHotPathsUse()
+    {
+        // Review finding 5: matching is in-memory against catalog_rom and nothing selects from
+        // catalog_set_file by hash, so the per-hash B-trees were pure insert cost on a table that takes
+        // thousands of rows per link. link_id (replace/invalidate) and game_id (fast resolve) stay.
+        var indexes = await IndexNames("catalog_set_file");
+
+        CollectionAssert.Contains(indexes, "idx_catalog_set_file_link");
+        CollectionAssert.Contains(indexes, "idx_catalog_set_file_game");
+        CollectionAssert.DoesNotContain(indexes, "idx_catalog_set_file_sha1");
+        CollectionAssert.DoesNotContain(indexes, "idx_catalog_set_file_md5");
+        CollectionAssert.DoesNotContain(indexes, "idx_catalog_set_file_crc");
+    }
+
+    [TestMethod]
+    public async Task Migration032_RerunsCleanly_AndDropsHashIndexesLeftByItsEarlierForm()
+    {
+        // 032 never shipped in a release, so it is edited in place rather than superseded — but the
+        // migrator runs a file once BY NAME, so dev databases that ran its earlier form still carry the
+        // three hash indexes. The DROP IF EXISTS statements in the same file converge them the moment it
+        // re-runs (the migrator's own idempotency contract: a missing schema_migrations row replays it),
+        // and are harmless no-ops on a fresh database. Both directions are asserted here.
+        await using var db = new SqliteConnection(_connStr);
+        await db.OpenAsync();
+
+        // Recreate the pre-review state: the indexes exist and 032 is marked executed.
+        await using (var old = db.CreateCommand())
+        {
+            old.CommandText = """
+                CREATE INDEX IF NOT EXISTS idx_catalog_set_file_sha1 ON catalog_set_file(sha1);
+                CREATE INDEX IF NOT EXISTS idx_catalog_set_file_md5 ON catalog_set_file(md5);
+                CREATE INDEX IF NOT EXISTS idx_catalog_set_file_crc ON catalog_set_file(crc);
+                DELETE FROM schema_migrations WHERE name LIKE '032%';
+                """;
+            await old.ExecuteNonQueryAsync();
+        }
+
+        await DatabaseMigrator.MigrateAsync(db, NullLogger.Instance); // must not throw on the existing table/columns
+
+        var indexes = await IndexNames("catalog_set_file");
+        CollectionAssert.DoesNotContain(indexes, "idx_catalog_set_file_sha1");
+        CollectionAssert.DoesNotContain(indexes, "idx_catalog_set_file_md5");
+        CollectionAssert.DoesNotContain(indexes, "idx_catalog_set_file_crc");
+        CollectionAssert.Contains(indexes, "idx_catalog_set_file_link"); // the kept ones survive a re-run
+        CollectionAssert.Contains(indexes, "idx_catalog_set_file_game");
+
+        // And the table still works after the replay — columns intact, not dropped/recreated empty.
+        var snes = await Seed("snes");
+        var game = await AddGame(snes, "Game");
+        await _repo.AddSetAsync("Set", "snes", ["https://archive.org/download/item"]);
+        var link = (await _repo.GetLinksForConsoleAsync("snes", default)).Single();
+        await _repo.ReplaceSetLinkFilesAsync(link.Id,
+            [new CatalogRepository.SetFileRow("Game.zip", 1, null, null, "s1", game, "sha1")], default);
+        Assert.HasCount(1, await AllFileRows(link.Id));
+    }
+
+    [TestMethod]
+    public async Task GetIndexedArchiveFile_MultipleSets_PrefersStrongestMatchKind()
+    {
+        // Review finding 6: LIMIT 1 without ORDER BY returned whichever row SQLite happened to yield, so
+        // a game reported as 'sha1' could resolve to the CRC- or name-matched file from another set.
+        var snes = await Seed("snes");
+        var game = await AddGame(snes, "Game");
+        await _repo.AddSetAsync("A Set", "snes", ["https://archive.org/download/weak_item"]);
+        await _repo.AddSetAsync("B Set", "snes", ["https://archive.org/download/strong_item"]);
+        var links = await _repo.GetLinksForConsoleAsync("snes", default);
+        await _repo.ReplaceSetLinkFilesAsync(links[0].Id,
+            [new CatalogRepository.SetFileRow("weak.zip", 1, "c1", null, null, game, "crc")], default);
+        await _repo.ReplaceSetLinkFilesAsync(links[1].Id,
+            [new CatalogRepository.SetFileRow("strong.zip", 1, null, null, "s1", game, "sha1")], default);
+
+        // Deterministic regardless of which link was indexed first — the sha1 row wins on kind, not order.
+        Assert.AreEqual("strong.zip", (await _repo.GetIndexedArchiveFileAsync(game, default))!.Value.Name);
+    }
+
+    [TestMethod]
+    public async Task DeleteSet_AnotherSetStillCarriesTheGame_RederivesMarkerInsteadOfClearingIt()
+    {
+        // Review finding 3: invalidation used to blanket-null archive_match, dropping the badge of a game
+        // a surviving set still carries. The marker must be re-derived from the rows that remain — here
+        // 'sha1' (from the deleted set) → 'crc' (what the surviving set actually offers).
+        var snes = await Seed("snes");
+        var game = await AddGame(snes, "Game");
+        var strongSet = await _repo.AddSetAsync("A Set", "snes", ["https://archive.org/download/strong_item"]);
+        await _repo.AddSetAsync("B Set", "snes", ["https://archive.org/download/weak_item"]);
+        var links = await _repo.GetLinksForConsoleAsync("snes", default);
+        await _repo.ReplaceSetLinkFilesAsync(links[0].Id,
+            [new CatalogRepository.SetFileRow("strong.zip", 1, null, null, "s1", game, "sha1")], default);
+        await _repo.ReplaceSetLinkFilesAsync(links[1].Id,
+            [new CatalogRepository.SetFileRow("weak.zip", 1, "c1", null, null, game, "crc")], default);
+        await _repo.ApplyArchiveMatchesAsync("snes", [(game, "sha1")], default);
+
+        Assert.IsTrue(await _repo.DeleteSetAsync((int)strongSet));
+
+        Assert.AreEqual("crc", await ArchiveMatch(game));                     // not NULL: B Set still has it
+        Assert.AreEqual("weak.zip", (await _repo.GetIndexedArchiveFileAsync(game, default))!.Value.Name);
+    }
+
+    [TestMethod]
+    public async Task DeleteSet_LastSetForConsole_ReturnsOrphanedNoneMarkersToNull()
+    {
+        // Review finding 4: 'none' means "indexed and absent". Once the console's last set is gone there
+        // is nothing it could be absent from, so the truthful state is NULL ("not yet indexed").
+        var snes = await Seed("snes");
+        var missing = await AddGame(snes, "Never In A Set");
+        var setId = await _repo.AddSetAsync("Only Set", "snes", ["https://archive.org/download/item"]);
+        await _repo.ApplyArchiveMatchesAsync("snes", [], default);
+        Assert.AreEqual("none", await ArchiveMatch(missing));
+
+        Assert.IsTrue(await _repo.DeleteSetAsync((int)setId));
+
+        Assert.IsNull(await ArchiveMatch(missing));
+    }
+
+    [TestMethod]
+    public async Task DeleteSet_ConsoleStillHasAnotherSet_KeepsNoneMarkers()
+    {
+        // The flip side of finding 4: with a set still configured, 'none' is still a true statement about
+        // the console, so the orphan sweep must not fire.
+        var snes = await Seed("snes");
+        var missing = await AddGame(snes, "Never In A Set");
+        var setId = await _repo.AddSetAsync("First", "snes", ["https://archive.org/download/item"]);
+        await _repo.AddSetAsync("Second", "snes", ["https://archive.org/download/other"]);
+        await _repo.ApplyArchiveMatchesAsync("snes", [], default);
+
+        Assert.IsTrue(await _repo.DeleteSetAsync((int)setId));
+
+        Assert.AreEqual("none", await ArchiveMatch(missing));
+    }
+
+    [TestMethod]
     public async Task GetIndexableConsoles_ReturnsOnlyConsolesWithASet()
     {
         await _repo.AddSetAsync("A", "snes", ["https://archive.org/download/x"]);
@@ -274,6 +405,86 @@ public class SetIndexTests
 
         Assert.IsFalse(source.WasQueried);
         Assert.AreEqual("none", await ArchiveMatch(game)); // console still gets its "no match" pass
+    }
+
+    [TestMethod]
+    public async Task IndexAsync_ListingWithMoreThan200Files_PersistsEveryOne()
+    {
+        // Review blocker: ArchiveSource.ListFilesAsync used to truncate at 200 files, so a run against a
+        // real set (the seeded NDS default holds ~7.3k files) indexed 200 and left the rest of the console
+        // marked 'none'. This pins the whole listing reaching the table — and the 201st+ file matching.
+        var snes = await Seed("snes");
+        var lateGame = await AddGame(snes, "Late Game");           // deliberately the 500th file
+        await AddRom(lateGame, "Late Game (USA).sfc", crc: "c", md5: "m", sha1: "late-sha1");
+        await _repo.AddSetAsync("Set", "snes", ["https://archive.org/download/bigset"]);
+
+        var files = Enumerable.Range(0, 500)
+            .Select(i => new CatalogFile($"Filler {i:D4}.zip", 1, $"u{i}", Sha1: $"filler-{i}"))
+            .Append(new CatalogFile("Late Game (USA).zip", 1, "ulate", Sha1: "late-sha1"))
+            .ToList();
+        var source = new FakeArchiveSource(new Dictionary<string, List<CatalogFile>> { ["bigset"] = files });
+
+        await NewService(source).IndexAsync("snes", null, default);
+
+        var link = (await _repo.GetLinksForConsoleAsync("snes", default)).Single();
+        Assert.HasCount(501, await AllFileRows(link.Id));         // every file, not the first 200
+        Assert.AreEqual("sha1", await ArchiveMatch(lateGame));    // and a late file still binds its game
+    }
+
+    [TestMethod]
+    public async Task IndexAsync_OneLinkFails_GameCarriedOnlyByItKeepsItsMarker()
+    {
+        // Review finding 2: the failed link's rows survived by design, but the recompute ran off the
+        // successful links alone — so the game those surviving rows still resolve was flagged 'none'.
+        var snes = await Seed("snes");
+        var carriedByFailing = await AddGame(snes, "Only In The Failing Set");
+        var carriedByWorking = await AddGame(snes, "In The Working Set");
+        await AddRom(carriedByWorking, "In The Working Set (USA).sfc", crc: "c", md5: "m", sha1: "works-sha1");
+        await _repo.AddSetAsync("A Working", "snes", ["https://archive.org/download/works"]);
+        await _repo.AddSetAsync("B Broken", "snes", ["https://archive.org/download/broken"]);
+        var links = await _repo.GetLinksForConsoleAsync("snes", default);
+
+        // The broken link was indexed successfully at some earlier point.
+        await _repo.ReplaceSetLinkFilesAsync(links[1].Id,
+            [new CatalogRepository.SetFileRow("Only In The Failing Set.zip", 1, null, null, "s1", carriedByFailing, "sha1")], default);
+        await _repo.ApplyArchiveMatchesAsync("snes", [(carriedByFailing, "sha1")], default);
+
+        // Only "works" is listable now — "broken" fails (unknown identifier → Result.Fail).
+        var source = new FakeArchiveSource(new Dictionary<string, List<CatalogFile>>
+        {
+            ["works"] = [new CatalogFile("In The Working Set (USA).zip", 1, "u", Sha1: "works-sha1")],
+        });
+
+        await NewService(source).IndexAsync("snes", null, default);
+
+        Assert.AreEqual("sha1", await ArchiveMatch(carriedByWorking));  // fresh listing applied
+        Assert.AreEqual("sha1", await ArchiveMatch(carriedByFailing));  // NOT downgraded to 'none'
+        Assert.HasCount(1, await AllFileRows(links[1].Id));             // its rows survive, as before
+        // The documented invariant holds: a bound file row still implies a non-'none' marker.
+        Assert.IsNotNull(await _repo.GetIndexedArchiveFileAsync(carriedByFailing, default));
+    }
+
+    [TestMethod]
+    public async Task IndexAsync_EveryLinkFails_LeavesTheConsolesMarkersAlone()
+    {
+        // Nothing was learned about the console, so rewriting its markers (which would flag everything
+        // 'none') would be a lie. Previous state stands until a run actually lists something.
+        var snes = await Seed("snes");
+        var indexed = await AddGame(snes, "Previously Indexed");
+        var absent = await AddGame(snes, "Previously Absent");
+        await _repo.AddSetAsync("Set", "snes", ["https://archive.org/download/broken"]);
+        var link = (await _repo.GetLinksForConsoleAsync("snes", default)).Single();
+        await _repo.ReplaceSetLinkFilesAsync(link.Id,
+            [new CatalogRepository.SetFileRow("Previously Indexed.zip", 1, null, null, "s1", indexed, "sha1")], default);
+        await _repo.ApplyArchiveMatchesAsync("snes", [(indexed, "sha1")], default);
+        Assert.AreEqual("none", await ArchiveMatch(absent));
+
+        var source = new FakeArchiveSource(new Dictionary<string, List<CatalogFile>>()); // every listing fails
+
+        await NewService(source).IndexAsync("snes", null, default);
+
+        Assert.AreEqual("sha1", await ArchiveMatch(indexed));
+        Assert.AreEqual("none", await ArchiveMatch(absent));   // unchanged, not re-derived from nothing
     }
 
     [TestMethod]
@@ -379,6 +590,18 @@ public class SetIndexTests
         await using var r = await cmd.ExecuteReaderAsync();
         while (await r.ReadAsync())
             list.Add((r.GetString(0), r.GetInt64(1), r.IsDBNull(2) ? null : r.GetInt64(2), r.IsDBNull(3) ? null : r.GetString(3)));
+        return list;
+    }
+
+    private async Task<List<string>> IndexNames(string table)
+    {
+        await using var db = new SqliteConnection(_connStr);
+        await db.OpenAsync();
+        await using var cmd = db.CreateCommand();
+        cmd.CommandText = $"SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = '{table}'";
+        var list = new List<string>();
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync()) list.Add(r.GetString(0));
         return list;
     }
 

@@ -210,6 +210,25 @@ public class ArchiveSourceTests
     }
 
     [TestMethod]
+    public async Task ListFilesAsync_LargeItem_ReturnsEveryFile_NotJustTheFirst200()
+    {
+        // Regression pin for the #289 review blocker: the listing used to stop after 200 files (a cap
+        // for the browse endpoint removed in #299), so the set-index job silently saw only the first
+        // 200 of a multi-thousand-file item — real sets run to thousands (the seeded NDS default has
+        // ~7.3k). The listing must be complete, and in the item's own order.
+        var names = Enumerable.Range(0, 512).Select(i => $"Game {i:D4} (USA).zip").ToList();
+        var json = "{\"files\":[" + string.Join(",",
+            names.Select(n => $"{{\"name\":{JsonSerializer.Serialize(n)},\"size\":\"10\"}}")) + "]}";
+
+        var r = await NewSource().ListFilesAsync("big_item", null, StubClient(json), CancellationToken.None);
+
+        Assert.IsTrue(r.IsOk, r.Error);
+        Assert.HasCount(512, r.Value!);
+        Assert.AreEqual("Game 0000 (USA).zip", r.Value![0].Name);
+        Assert.AreEqual("Game 0511 (USA).zip", r.Value[^1].Name); // the tail survives, not just file 200
+    }
+
+    [TestMethod]
     public void BuildDownloadUrl_MatchesListFilesAsync_ForTheSameFile()
     {
         // The set-index fast-resolve path (#289) rebuilds a download URL from a stored identifier +

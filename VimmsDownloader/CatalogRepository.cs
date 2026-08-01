@@ -1024,6 +1024,16 @@ class CatalogRepository : ICatalogStore
     {
         await using var db = await OpenAsync();
         await using var tx = (SqliteTransaction)await db.BeginTransactionAsync();
+
+        string? console;
+        await using (var sel = db.CreateCommand())
+        {
+            sel.Transaction = tx;
+            sel.CommandText = "SELECT console FROM catalog_set WHERE id = $id";
+            sel.Parameters.AddWithValue("$id", id);
+            console = await sel.ExecuteScalarAsync() as string; // read before the row goes (#289 finding 4)
+        }
+
         await InvalidateSetIndexAsync(db, tx, id);
         await using (var dl = db.CreateCommand())
         {
@@ -1040,17 +1050,28 @@ class CatalogRepository : ICatalogStore
             ds.Parameters.AddWithValue("$id", id);
             rows = await ds.ExecuteNonQueryAsync();
         }
+        if (rows > 0 && console is not null)
+            await ClearArchiveMatchIfNoSetsLeftAsync(db, tx, console);
         await tx.CommitAsync();
         return rows > 0;
     }
 
+    /// <summary>SQL ordering that puts the strongest match kind first — the same SHA1 &gt; MD5 &gt; CRC &gt;
+    /// name priority <c>SetIndexService.Rank</c> applies in memory, so a marker re-derived in SQL agrees
+    /// with one the indexer would have written. Written against the <c>f</c> alias for
+    /// <c>catalog_set_file</c>, which every query using it declares.</summary>
+    private const string MatchKindRankSql =
+        "CASE f.match_kind WHEN 'sha1' THEN 0 WHEN 'md5' THEN 1 WHEN 'crc' THEN 2 ELSE 3 END";
+
     /// <summary>
-    /// Delete this set's indexed file rows (#289) ahead of its links being dropped, first collecting the
-    /// catalog games those files had bound so their <c>archive_match</c> marker can be reset to NULL — a
-    /// stale "matched" badge pointing at a link that no longer exists would be worse than none. Doesn't
-    /// touch <c>catalog_set</c>/<c>catalog_set_link</c> themselves; the caller does that in the same
-    /// transaction (update replaces the links, delete removes the set outright). No re-index is kicked
-    /// off automatically — see the set-index job's own docs for that design choice.
+    /// Delete this set's indexed file rows (#289) ahead of its links being dropped, then RE-DERIVE the
+    /// <c>archive_match</c> marker of every game those files had bound from whatever rows survive in
+    /// other sets — rather than blanket-nulling, which would drop the badge of a game a second, still
+    /// indexed set also carries (review finding 3). A game with no surviving row goes back to NULL
+    /// ("not indexed"), never to 'none' ("indexed, absent"): its set is gone, so nothing was checked.
+    /// Doesn't touch <c>catalog_set</c>/<c>catalog_set_link</c> themselves; the caller does that in the
+    /// same transaction (update replaces the links, delete removes the set outright). No re-index is
+    /// kicked off automatically — see the set-index job's own docs for that design choice.
     /// </summary>
     private static async Task InvalidateSetIndexAsync(SqliteConnection db, SqliteTransaction tx, int setId)
     {
@@ -1078,9 +1099,17 @@ class CatalogRepository : ICatalogStore
 
         if (affectedGames.Count > 0)
         {
+            // The subquery yields NULL when no row survives — exactly the "not indexed" state we want.
             await using var upd = db.CreateCommand();
             upd.Transaction = tx;
-            upd.CommandText = "UPDATE catalog_game SET archive_match = NULL WHERE id = $g";
+            upd.CommandText = $"""
+                UPDATE catalog_game SET archive_match = (
+                    SELECT f.match_kind FROM catalog_set_file f
+                    WHERE f.game_id = catalog_game.id AND f.match_kind IS NOT NULL
+                    ORDER BY {MatchKindRankSql}
+                    LIMIT 1)
+                WHERE id = $g
+                """;
             var pg = upd.Parameters.Add("$g", SqliteType.Integer);
             foreach (var g in affectedGames)
             {
@@ -1088,6 +1117,33 @@ class CatalogRepository : ICatalogStore
                 await upd.ExecuteNonQueryAsync();
             }
         }
+    }
+
+    /// <summary>
+    /// After a console's LAST set is deleted, return its games to NULL ("not yet indexed"). Without this
+    /// the 'none' markers a previous index run wrote survive their own evidence, and the Library shows
+    /// "no Archive" for a console that has no sets configured to be absent from (review finding 4).
+    /// Only called once the set row is gone, so "no sets left" is evaluated against the final state.
+    /// </summary>
+    private static async Task ClearArchiveMatchIfNoSetsLeftAsync(SqliteConnection db, SqliteTransaction tx, string console)
+    {
+        await using (var any = db.CreateCommand())
+        {
+            any.Transaction = tx;
+            any.CommandText = "SELECT EXISTS (SELECT 1 FROM catalog_set WHERE console = $c)";
+            any.Parameters.AddWithValue("$c", console);
+            if (Convert.ToInt64(await any.ExecuteScalarAsync()) != 0) return;
+        }
+
+        await using var upd = db.CreateCommand();
+        upd.Transaction = tx;
+        upd.CommandText = """
+            UPDATE catalog_game SET archive_match = NULL
+            WHERE archive_match IS NOT NULL
+              AND system_id IN (SELECT id FROM catalog_system WHERE console = $c)
+            """;
+        upd.Parameters.AddWithValue("$c", console);
+        await upd.ExecuteNonQueryAsync();
     }
 
     // --- archive set index (RomGoGetter-style content listing; #289) ---
@@ -1129,6 +1185,27 @@ class CatalogRepository : ICatalogStore
     /// <summary>One indexed file, with the catalog game it was matched to (if any) and how.</summary>
     public sealed record SetFileRow(string Name, long Size, string? Crc, string? Md5, string? Sha1,
         long? GameId, string? MatchKind);
+
+    /// <summary>
+    /// The (game, match kind) pairs a link's ALREADY-INDEXED rows carry. Used when a link's listing fails
+    /// mid-run (#289 review finding 2): those rows survive by design, so the indexer folds their matches
+    /// back into the console's recompute instead of letting games carried only by the failed link drop to
+    /// <c>'none'</c>. Returns nothing for a link that was never indexed.
+    /// </summary>
+    public async Task<List<(long GameId, string Kind)>> GetLinkMatchesAsync(long linkId, CancellationToken ct)
+    {
+        await using var db = await OpenAsync();
+        await using var cmd = db.CreateCommand();
+        cmd.CommandText = """
+            SELECT DISTINCT game_id, match_kind FROM catalog_set_file
+            WHERE link_id = $l AND game_id IS NOT NULL AND match_kind IS NOT NULL
+            """;
+        cmd.Parameters.AddWithValue("$l", linkId);
+        var list = new List<(long, string)>();
+        await using var r = await cmd.ExecuteReaderAsync(ct);
+        while (await r.ReadAsync(ct)) list.Add((r.GetInt64(0), r.GetString(1)));
+        return list;
+    }
 
     /// <summary>
     /// Replace one set link's indexed files wholesale (delete-then-insert in one transaction, per the
@@ -1247,15 +1324,22 @@ class CatalogRepository : ICatalogStore
     /// same as the live listing path does), or null when the game isn't indexed/matched. Only rows a
     /// catalog game was actually bound to (<c>game_id</c> set) are returned, so a hit here is always
     /// consistent with a non-null/non-'none' <c>archive_match</c>.
+    ///
+    /// TIE-BREAK, when several sets carry the game: strongest match kind first (SHA1 &gt; MD5 &gt; CRC &gt;
+    /// name), so the file handed to the queue is the one the reported <c>archive_match</c> actually names;
+    /// then the link's own order within its set (<c>position</c>, the user's stated preference), then the
+    /// link id and the file id as stable final tie-breaks. Fully deterministic — no reliance on SQLite's
+    /// physical row order (review finding 6).
     /// </summary>
     public async Task<(string Name, string LinkUrl)?> GetIndexedArchiveFileAsync(long gameId, CancellationToken ct)
     {
         await using var db = await OpenAsync();
         await using var cmd = db.CreateCommand();
-        cmd.CommandText = """
+        cmd.CommandText = $"""
             SELECT f.name, l.url
             FROM catalog_set_file f JOIN catalog_set_link l ON l.id = f.link_id
             WHERE f.game_id = $g
+            ORDER BY {MatchKindRankSql}, l.position, l.id, f.id
             LIMIT 1
             """;
         cmd.Parameters.AddWithValue("$g", gameId);
