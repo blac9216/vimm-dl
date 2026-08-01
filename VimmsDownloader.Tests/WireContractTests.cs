@@ -301,11 +301,13 @@ public class WireContractTests
     [TestMethod]
     public void JobStatusDto_WireNames_MatchExpected()
     {
-        var job = new JobStatusDto("catalog-sync", true, "34 of 95", 34, 95, 0.36, DateTimeOffset.UtcNow, 5000);
+        var job = new JobStatusDto("catalog-sync", true, "34 of 95", 34, 95, 0.36, DateTimeOffset.UtcNow, 5000,
+            DateTimeOffset.UtcNow, 4800, "completed");
 
         // Matches the JobStatus interface in types/api.ts.
         AssertWireNames(AppJsonContext.Default.JobStatusDto, job,
-            "kind", "running", "message", "current", "total", "percent", "startedAt", "elapsedMs");
+            "kind", "running", "message", "current", "total", "percent", "startedAt", "elapsedMs",
+            "lastCompletedAt", "lastDurationMs", "lastOutcome");
     }
 
     [TestMethod]

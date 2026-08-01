@@ -19,20 +19,37 @@ interface JobRowProps {
   /** Working right now: full-strength accents + an animated bar. Queued/finished rows dim down. */
   active: boolean
   status: { variant: BadgeVariant; text: string }
-  /** Milliseconds; only pass while the job runs — a finished job has no meaningful elapsed. */
+  /**
+   * Milliseconds. While the job runs, pass the live elapsed time; for a finished run (#292) pass the
+   * backend's frozen `lastDurationMs` instead — never the still-growing `elapsedMs` from GET /api/jobs.
+   */
   elapsedMs?: number | null
+  /**
+   * The duration is final (a finished run). It is then rendered whatever its magnitude, including
+   * sub-second runs — `fmtDuration` shows those as e.g. "10ms", which reads as "instant" rather than
+   * as a missing value (round 1 review). Live rows leave this off and keep the >1s gate, so a
+   * just-started job doesn't flicker through 0ms.
+   */
+  durationFinal?: boolean
   onStop?: () => void
   stopTitle?: string
   stopDisabled?: boolean
   /** Rendered inside a per-game group: the group supplies the left accent. */
   grouped?: boolean
+  /**
+   * Small text shown in the progress-bar slot instead of a bar (#292) — e.g. "Finished 3m ago" on a
+   * completed background-job row. Mutually exclusive with an active/percent progress bar.
+   */
+  meta?: string | null
 }
 
 export function JobRow({
-  kind, color, name, message, percent, active, status, elapsedMs,
-  onStop, stopTitle = 'Stop', stopDisabled, grouped,
+  kind, color, name, message, percent, active, status, elapsedMs, durationFinal,
+  onStop, stopTitle = 'Stop', stopDisabled, grouped, meta,
 }: JobRowProps) {
   const pct = percent == null ? null : Math.max(0, Math.min(100, Math.round(percent)))
+  // Finished runs always show their duration; live ones only past a second (see `durationFinal`).
+  const showDuration = elapsedMs != null && (durationFinal === true || elapsedMs > 1000)
 
   return (
     <div
@@ -55,22 +72,26 @@ export function JobRow({
       </div>
 
       <div className="hidden sm:block shrink-0 w-[140px]">
-        <div className="h-[5px] rounded-[3px] bg-surface-3/70 overflow-hidden">
-          {pct != null ? (
-            <div className="h-full rounded-[3px] transition-all duration-500"
-              style={{ width: `${pct}%`, backgroundColor: active ? color : 'rgba(36,34,64,.9)' }} />
-          ) : active ? (
-            // No total reported — a sliding sliver stands in for a percentage.
-            <div className="job-indeterminate h-full rounded-[3px]" style={{ backgroundColor: color }} />
-          ) : null}
-        </div>
+        {meta ? (
+          <div className="text-[10px] text-text-4 truncate">{meta}</div>
+        ) : (
+          <div className="h-[5px] rounded-[3px] bg-surface-3/70 overflow-hidden">
+            {pct != null ? (
+              <div className="h-full rounded-[3px] transition-all duration-500"
+                style={{ width: `${pct}%`, backgroundColor: active ? color : 'rgba(36,34,64,.9)' }} />
+            ) : active ? (
+              // No total reported — a sliding sliver stands in for a percentage.
+              <div className="job-indeterminate h-full rounded-[3px]" style={{ backgroundColor: color }} />
+            ) : null}
+          </div>
+        )}
       </div>
 
       <Badge variant={status.variant}>{status.text}</Badge>
 
-      {elapsedMs != null && elapsedMs > 1000 ? (
+      {showDuration ? (
         <span className="hidden sm:inline shrink-0 w-[54px] text-right font-mono text-[10px] text-text-4 tabular-nums">
-          {fmtDuration(elapsedMs)}
+          {fmtDuration(elapsedMs!)}
         </span>
       ) : (
         <span className="hidden sm:inline shrink-0 w-[54px]" />

@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace VimmsDownloader.Tests;
 
@@ -101,6 +102,100 @@ public class JobsApiTests
         Assert.IsFalse(snap.Running);
         Assert.IsNotNull(snap.StartedAt);
         Assert.IsGreaterThanOrEqualTo(0, snap.ElapsedMs!.Value);
+    }
+
+    // --- BackgroundJobGate: Run — last-run fields (#292) ---
+
+    [TestMethod]
+    public async Task Run_Completes_RecordsCompletedOutcomeAndDuration()
+    {
+        var gate = new TestGate();
+
+        gate.Run(NullLogger.Instance, "Test", _ => Task.CompletedTask);
+        await WaitUntilStopped(gate);
+
+        var snap = gate.Snapshot();
+        Assert.AreEqual("completed", snap.LastOutcome);
+        Assert.IsNotNull(snap.LastCompletedAt);
+        Assert.IsGreaterThanOrEqualTo(0, snap.LastDurationMs!.Value);
+    }
+
+    [TestMethod]
+    public async Task Run_Cancelled_RecordsCancelledOutcome()
+    {
+        var gate = new TestGate();
+
+        // A real cancellation: the gate's own token is signalled, then the work observes it.
+        gate.Run(NullLogger.Instance, "Test", token =>
+        {
+            gate.Cancel();
+            token.ThrowIfCancellationRequested();
+            return Task.CompletedTask;
+        });
+        await WaitUntilStopped(gate);
+
+        Assert.AreEqual("cancelled", gate.Snapshot().LastOutcome);
+    }
+
+    [TestMethod]
+    public async Task Run_TaskCanceledWithoutGateCancel_RecordsFailedOutcome()
+    {
+        var gate = new TestGate();
+
+        // An HttpClient timeout surfaces as TaskCanceledException (an OperationCanceledException)
+        // even though nobody cancelled the job — that is a failure, not a user cancellation.
+        gate.Run(NullLogger.Instance, "Test", _ => throw new TaskCanceledException("timeout"));
+        await WaitUntilStopped(gate);
+
+        var snap = gate.Snapshot();
+        Assert.IsFalse(gate.Token.IsCancellationRequested, "the gate's token must not have been signalled");
+        Assert.AreEqual("failed", snap.LastOutcome);
+    }
+
+    [TestMethod]
+    public async Task Run_Throws_RecordsFailedOutcome()
+    {
+        var gate = new TestGate();
+
+        gate.Run(NullLogger.Instance, "Test", _ => throw new InvalidOperationException("boom"));
+        await WaitUntilStopped(gate);
+
+        Assert.AreEqual("failed", gate.Snapshot().LastOutcome);
+    }
+
+    [TestMethod]
+    public async Task Run_SecondRun_OverwritesLastRunFields()
+    {
+        var gate = new TestGate();
+        gate.Run(NullLogger.Instance, "Test", _ => Task.CompletedTask);
+        await WaitUntilStopped(gate);
+        var firstCompletedAt = gate.Snapshot().LastCompletedAt;
+
+        gate.Run(NullLogger.Instance, "Test", _ => throw new InvalidOperationException("boom"));
+        await WaitUntilStopped(gate);
+
+        var snap = gate.Snapshot();
+        Assert.AreEqual("failed", snap.LastOutcome);
+        Assert.IsGreaterThanOrEqualTo(firstCompletedAt!.Value, snap.LastCompletedAt!.Value);
+    }
+
+    [TestMethod]
+    public void Snapshot_BeforeAnyRun_LastRunFieldsNull()
+    {
+        var gate = new TestGate();
+
+        var snap = gate.Snapshot();
+
+        Assert.IsNull(snap.LastCompletedAt);
+        Assert.IsNull(snap.LastDurationMs);
+        Assert.IsNull(snap.LastOutcome);
+    }
+
+    private static async Task WaitUntilStopped(BackgroundJobGate gate)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (gate.IsRunning && DateTime.UtcNow < deadline) await Task.Delay(10);
+        Assert.IsFalse(gate.IsRunning, "gate should have finished running within the timeout");
     }
 
     // --- BackgroundJobGate: Cancel ---

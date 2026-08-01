@@ -194,6 +194,10 @@ export interface CatalogSystemStatus {
  * `BackgroundJobGate`. `percent` is null when the job doesn't know a total up front (indeterminate
  * progress). NOTE: `startedAt`/`elapsedMs` describe the *last* run and keep growing after it ends,
  * so elapsed may only be rendered while `running` is true.
+ *
+ * #292: additive last-run facts (in-memory only, reset on server restart) so the Jobs tab's Completed
+ * sub-view can show a finished run's outcome/duration without the still-growing `elapsedMs` above. All
+ * three are null until the gate has completed (via `Run`) at least once.
  */
 export interface JobStatus {
   kind: string
@@ -204,6 +208,10 @@ export interface JobStatus {
   percent: number | null
   startedAt: string | null
   elapsedMs: number | null
+  lastCompletedAt: string | null
+  lastDurationMs: number | null
+  /** 'completed' | 'failed' | 'cancelled' */
+  lastOutcome: string | null
 }
 
 export interface CatalogStatus {
