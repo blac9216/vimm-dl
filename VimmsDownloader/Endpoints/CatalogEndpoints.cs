@@ -254,6 +254,9 @@ abstract class BackgroundJobGate(string kind)
     private int? _current;
     private int? _total;
     private DateTimeOffset? _startedAt;
+    private DateTimeOffset? _lastCompletedAt;
+    private long? _lastDurationMs;
+    private string? _lastOutcome;
 
     /// <summary>Stable identifier for this job — the Jobs API route/response key.</summary>
     public string Kind { get; } = kind;
@@ -284,30 +287,47 @@ abstract class BackgroundJobGate(string kind)
         lock (_lock) { _message = message; _current = current; _total = total; }
     }
 
-    /// <summary>Current snapshot for <c>GET /api/jobs</c> — running state, latest progress, elapsed time.</summary>
+    /// <summary>Current snapshot for <c>GET /api/jobs</c> — running state, latest progress, elapsed time,
+    /// plus the last completed run's outcome/duration (#292, in-memory only, reset on restart).</summary>
     public JobStatusDto Snapshot()
     {
         string? message; int? current; int? total; DateTimeOffset? startedAt;
-        lock (_lock) { message = _message; current = _current; total = _total; startedAt = _startedAt; }
+        DateTimeOffset? lastCompletedAt; long? lastDurationMs; string? lastOutcome;
+        lock (_lock)
+        {
+            message = _message; current = _current; total = _total; startedAt = _startedAt;
+            lastCompletedAt = _lastCompletedAt; lastDurationMs = _lastDurationMs; lastOutcome = _lastOutcome;
+        }
         double? percent = current is { } c && total is { } t and > 0 ? Math.Round(100.0 * c / t, 2) : null;
         long? elapsedMs = startedAt is { } s ? (long)(DateTimeOffset.UtcNow - s).TotalMilliseconds : null;
-        return new JobStatusDto(Kind, IsRunning, message, current, total, percent, startedAt, elapsedMs);
+        return new JobStatusDto(Kind, IsRunning, message, current, total, percent, startedAt, elapsedMs,
+            lastCompletedAt, lastDurationMs, lastOutcome);
     }
 
     /// <summary>
     /// Run <paramref name="work"/> on a background task if no run is in progress (202 Accepted);
     /// otherwise 409 Conflict. The running flag is always cleared when the work finishes, throws, or is
-    /// cancelled via <see cref="Cancel"/>.
+    /// cancelled via <see cref="Cancel"/>. On every path, records the last-run outcome
+    /// ("completed"/"failed"/"cancelled"), its completion time and its frozen duration (#292) — the
+    /// message left by the last <see cref="Report"/> call already survives past completion.
     /// </summary>
     public IResult Run(ILogger log, string name, Func<CancellationToken, Task> work)
     {
         if (!TryBegin()) return Results.Conflict($"{name} already in progress");
+        var began = DateTimeOffset.UtcNow;
         _ = Task.Run(async () =>
         {
-            try { await work(Token); }
-            catch (OperationCanceledException) { log.LogInformation("{Job} cancelled", name); }
-            catch (Exception ex) { log.LogError(ex, "{Job} crashed", name); }
-            finally { End(); }
+            var outcome = "failed";
+            try { await work(Token); outcome = "completed"; }
+            catch (OperationCanceledException) { log.LogInformation("{Job} cancelled", name); outcome = "cancelled"; }
+            catch (Exception ex) { log.LogError(ex, "{Job} crashed", name); outcome = "failed"; }
+            finally
+            {
+                var completedAt = DateTimeOffset.UtcNow;
+                var durationMs = (long)(completedAt - began).TotalMilliseconds;
+                lock (_lock) { _lastCompletedAt = completedAt; _lastDurationMs = durationMs; _lastOutcome = outcome; }
+                End();
+            }
         });
         return Results.Accepted();
     }

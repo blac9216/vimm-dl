@@ -52,8 +52,14 @@ record CatalogStatusResponse(bool Syncing, bool Scanning, bool CompatSyncing, bo
 // progress/message/elapsed so the Jobs tab can render e.g. "Catalog Sync · 34 of 95 DATs · 01:12".
 // Percent is null until both Current and Total are known; StartedAt/ElapsedMs are null before the job's
 // first run.
+// L2 #292 — additive last-run facts (in-memory only, reset on restart) so the Jobs tab's Completed view
+// can show a finished run's outcome/duration without the still-growing ElapsedMs above. Message already
+// persists past completion (it's only reset on the next TryBegin), so it doubles as the final Report
+// message (e.g. the ImportSummary counts) — no separate field needed. All three are null until the gate
+// has completed (via Run) at least once.
 record JobStatusDto(string Kind, bool Running, string? Message, int? Current, int? Total, double? Percent,
-    DateTimeOffset? StartedAt, long? ElapsedMs);
+    DateTimeOffset? StartedAt, long? ElapsedMs,
+    DateTimeOffset? LastCompletedAt, long? LastDurationMs, string? LastOutcome);
 record CatalogConsole(string Console, int GameCount, int OwnedCount, string DisplayName);
 // One emulator's playability verdict for a game (e.g. "rpcs3" → "Playable"). A game carries one per
 // emulator that targets its console and has a compat entry.

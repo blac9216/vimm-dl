@@ -7,6 +7,7 @@ import {
 import { useDownload } from '../../hooks/useDownloadState'
 import { JobRow } from './JobRow'
 import { convKindMeta, countActiveJobs, isActiveConvPhase, jobKindMeta } from '../../lib/jobs'
+import { fmtRelative } from '../../lib/format'
 import type { JobStatus } from '../../types/api'
 import type { Ps3IsoStatusEvent } from '../../types/signalr'
 
@@ -18,6 +19,15 @@ import type { Ps3IsoStatusEvent } from '../../types/signalr'
 // The catalog job triggers moved here from the Library's "⋯" overflow menu (epic #254 decision 4);
 // each is disabled while its own gate reports running, so the 409 single-flight path stays unreachable
 // from the UI.
+//
+// #292: an Active/Completed segmented sub-view, styled like DownloadsPanel's (#258). Active = running
+// background jobs + non-terminal conversions (the count pill keeps counting only this). Completed =
+// terminal conversion rows + each job kind's last finished run (outcome/duration from the backend's
+// additive last-run fields — the still-growing `elapsedMs` is never rendered there). "Clear finished"
+// lives in the Completed sub-view and dismisses both row types (client-side for both — background-job
+// last-runs have no server-side dismissal, same as terminal conversion rows today).
+
+type SubView = 'active' | 'completed'
 
 /** One catalog trigger in the header's "Run job" group, keyed by its backend job kind. */
 interface Trigger {
@@ -31,6 +41,18 @@ interface Trigger {
 const BTN = 'px-3 py-[5px] text-[11px] font-semibold rounded-lg border shrink-0 whitespace-nowrap transition-colors'
 const BTN_IDLE = 'border-border-light bg-surface/50 text-text-2 hover:bg-surface-3/60 hover:text-text-body'
 const BTN_BUSY = 'border-accent/45 bg-accent/[0.18] text-link-3 cursor-default'
+
+/** Groups conversion events by catalog game (#151/A), same shape for the active and completed lists. */
+function groupConversions(list: Ps3IsoStatusEvent[]): Ps3IsoStatusEvent[][] {
+  const map = new Map<string, Ps3IsoStatusEvent[]>()
+  for (const c of list) {
+    const key = c.gameId != null ? `g${c.gameId}` : `f:${c.itemName}`
+    const arr = map.get(key)
+    if (arr) arr.push(c)
+    else map.set(key, [c])
+  }
+  return [...map.values()]
+}
 
 export function JobsPanel() {
   const { state } = useDownload()
@@ -48,8 +70,10 @@ export function JobsPanel() {
   const igdbRankMutation = useSyncIgdbRank()
   const raMutation = useSyncRa()
 
+  const [sub, setSub] = useState<SubView>('active')
   const [vimmConsole, setVimmConsole] = useState('')
-  const [dismissed, setDismissed] = useState<Set<string>>(new Set())
+  const [dismissedConv, setDismissedConv] = useState<Set<string>>(new Set())
+  const [dismissedJobs, setDismissedJobs] = useState<Set<string>>(new Set())
   const [error, setError] = useState<string | null>(null)
 
   // Tick once a second so elapsed advances between polls without calling Date.now() during render.
@@ -62,36 +86,38 @@ export function JobsPanel() {
   const runningJobs = useMemo(() => (jobs ?? []).filter(j => j.running), [jobs])
   const isRunning = (kind: string) => runningJobs.some(j => j.kind === kind)
 
-  // Conversion rows: everything the pipeline has told us about this session, minus the finished rows
-  // the user dismissed with "Clear finished". Terminal rows stay until dismissed so a finished/failed
-  // conversion doesn't vanish silently; a dismissed item that starts converting again comes back
-  // (the dismissal only ever hides a terminal row).
-  const conversions = useMemo(
-    () => Object.values(state.convStatuses)
-      .filter(s => isActiveConvPhase(s.phase) || !dismissed.has(s.itemName)),
-    [state.convStatuses, dismissed])
-  const finishedCount = conversions.filter(c => !isActiveConvPhase(c.phase)).length
+  // Completed view: each job kind's last finished run, once it has one and hasn't been dismissed.
+  const finishedJobs = useMemo(
+    () => (jobs ?? []).filter(j => !j.running && j.lastCompletedAt != null && !dismissedJobs.has(j.kind)),
+    [jobs, dismissedJobs])
 
-  // Group live conversions by game (#151/A): several formats of one game render together, each row
-  // keeping its own filename for display + abort. Rows without a gameId group by their filename.
-  const convGroups = useMemo(() => {
-    const map = new Map<string, Ps3IsoStatusEvent[]>()
-    for (const c of conversions) {
-      const key = c.gameId != null ? `g${c.gameId}` : `f:${c.itemName}`
-      const arr = map.get(key)
-      if (arr) arr.push(c)
-      else map.set(key, [c])
-    }
-    return [...map.values()]
-  }, [conversions])
+  // Active conversions: everything the pipeline has told us about this session that hasn't reached a
+  // terminal phase. Completed conversions: terminal rows, minus ones dismissed via "Clear finished".
+  const activeConversions = useMemo(
+    () => Object.values(state.convStatuses).filter(s => isActiveConvPhase(s.phase)),
+    [state.convStatuses])
+  const terminalConversions = useMemo(
+    () => Object.values(state.convStatuses).filter(s => !isActiveConvPhase(s.phase) && !dismissedConv.has(s.itemName)),
+    [state.convStatuses, dismissedConv])
 
-  // Same helper the TabBar pill uses, so the header count and the pill can never disagree.
+  const activeGroups = useMemo(() => groupConversions(activeConversions), [activeConversions])
+  const completedGroups = useMemo(() => groupConversions(terminalConversions), [terminalConversions])
+
+  const finishedCount = terminalConversions.length + finishedJobs.length
+
+  // Same helper the TabBar pill uses, so the header count and the pill can never disagree — active
+  // work only, unaffected by the Completed sub-view.
   const jobCount = countActiveJobs(jobs, state.convStatuses)
 
   function clearFinished() {
-    setDismissed(prev => {
+    setDismissedConv(prev => {
       const next = new Set(prev)
-      for (const c of conversions) if (!isActiveConvPhase(c.phase)) next.add(c.itemName)
+      for (const c of terminalConversions) next.add(c.itemName)
+      return next
+    })
+    setDismissedJobs(prev => {
+      const next = new Set(prev)
+      for (const j of finishedJobs) next.add(j.kind)
       return next
     })
   }
@@ -130,27 +156,47 @@ export function JobsPanel() {
     <div className="flex flex-col h-full">
       <div className="shrink-0 border-b border-border-section bg-surface-2/40">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 sm:px-[22px] py-3">
+          {/* Active / Completed segmented switcher (#292, styled like DownloadsPanel's) */}
+          <div className="flex gap-[5px] shrink-0 p-1 rounded-[11px] bg-input border border-border">
+            {(['active', 'completed'] as SubView[]).map(id => (
+              <button
+                key={id}
+                onClick={() => setSub(id)}
+                className={`px-3 sm:px-4 py-[7px] text-xs font-semibold rounded-lg transition-colors ${
+                  sub === id
+                    ? 'bg-gradient-to-br from-accent to-accent-2 text-white'
+                    : 'text-text-3 hover:text-text-2'
+                }`}
+              >
+                {id === 'active' ? 'Active' : 'Completed'}
+              </button>
+            ))}
+          </div>
+
           <span className="text-[10px] uppercase tracking-[0.12em] text-text-3 whitespace-nowrap">
             {jobCount} {jobCount === 1 ? 'job' : 'jobs'}
           </span>
-          <span className="text-[11px] text-text-4">
+          <span className="hidden md:inline text-[11px] text-text-4">
             Extraction, conversion, verification and catalog work &mdash; everything that isn&rsquo;t a download.
           </span>
           <div className="flex-1" />
-          <button
-            onClick={clearFinished}
-            disabled={finishedCount === 0}
-            title="Dismiss finished conversion rows"
-            className={`px-3.5 py-2 text-xs font-semibold rounded-lg border whitespace-nowrap ${
-              finishedCount === 0
-                ? 'border-border-section bg-surface/40 text-text-disabled cursor-default'
-                : 'border-border-light bg-surface/50 text-text-2 hover:bg-surface-3/60 hover:text-text-body'}`}
-          >
-            Clear finished
-          </button>
+          {sub === 'completed' && (
+            <button
+              onClick={clearFinished}
+              disabled={finishedCount === 0}
+              title="Dismiss finished conversion and job rows"
+              className={`px-3.5 py-2 text-xs font-semibold rounded-lg border whitespace-nowrap ${
+                finishedCount === 0
+                  ? 'border-border-section bg-surface/40 text-text-disabled cursor-default'
+                  : 'border-border-light bg-surface/50 text-text-2 hover:bg-surface-3/60 hover:text-text-body'}`}
+            >
+              Clear finished
+            </button>
+          )}
         </div>
 
-        {/* Run-job group — the catalog triggers that used to live in the Library "⋯" menu. */}
+        {/* Run-job group — the catalog triggers that used to live in the Library "⋯" menu. Stays
+            visible in both sub-views (#292). */}
         <div className="flex flex-wrap items-center gap-2 px-3 sm:px-[22px] pb-2.5">
           <span className="text-[10px] uppercase tracking-[0.12em] text-text-4 whitespace-nowrap">Run job</span>
           {triggers.map(t => {
@@ -168,7 +214,7 @@ export function JobsPanel() {
             className="bg-input border border-border-light rounded-lg px-2 py-1 text-[11px] text-text-2
               focus:outline-none focus:border-accent/40">
             <option value="">Vimm: all consoles</option>
-            {consoles?.map(c => <option key={c.console} value={c.console}>Vimm: {c.console}</option>)}
+            {consoles?.map(c => <option key={c.console} value={c.console}>Vimm: {c.displayName}</option>)}
           </select>
         </div>
 
@@ -182,44 +228,77 @@ export function JobsPanel() {
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {convGroups.map(group => group.length === 1 ? (
-          <ConversionRow key={group[0].itemName} status={group[0]} now={now}
-            startedAt={state.convStartTimes[group[0].itemName]}
-            onStop={() => ps3Action.mutate({ filename: group[0].itemName, action: 'abort' })} />
-        ) : (
-          <div key={`grp-${group[0].gameId}`} className="border-l-[2.5px] border-l-[#3f7cf099]">
-            <div className="px-3 sm:px-[22px] pt-1.5 text-[10px] uppercase tracking-[0.06em] text-text-4">
-              Same game &middot; {group.length} formats
-            </div>
-            {group.map(s => (
-              <ConversionRow key={s.itemName} status={s} now={now} grouped
-                startedAt={state.convStartTimes[s.itemName]}
-                onStop={() => ps3Action.mutate({ filename: s.itemName, action: 'abort' })} />
+        {sub === 'active' ? (
+          <>
+            {activeGroups.map(group => group.length === 1 ? (
+              <ConversionRow key={group[0].itemName} status={group[0]} now={now}
+                startedAt={state.convStartTimes[group[0].itemName]}
+                onStop={() => ps3Action.mutate({ filename: group[0].itemName, action: 'abort' })} />
+            ) : (
+              <div key={`grp-${group[0].gameId}`} className="border-l-[2.5px] border-l-[#3f7cf099]">
+                <div className="px-3 sm:px-[22px] pt-1.5 text-[10px] uppercase tracking-[0.06em] text-text-4">
+                  Same game &middot; {group.length} formats
+                </div>
+                {group.map(s => (
+                  <ConversionRow key={s.itemName} status={s} now={now} grouped
+                    startedAt={state.convStartTimes[s.itemName]}
+                    onStop={() => ps3Action.mutate({ filename: s.itemName, action: 'abort' })} />
+                ))}
+              </div>
             ))}
-          </div>
-        ))}
 
-        {runningJobs.map(job => (
-          <BackgroundJobRow key={job.kind} job={job} now={now}
-            onStop={() => {
-              setError(null)
-              cancelJob.mutate(job.kind, {
-                onError: e => setError(e instanceof Error ? e.message : `Failed to stop ${job.kind}`),
-              })
-            }} />
-        ))}
+            {runningJobs.map(job => (
+              <BackgroundJobRow key={job.kind} job={job} now={now}
+                onStop={() => {
+                  setError(null)
+                  cancelJob.mutate(job.kind, {
+                    onError: e => setError(e instanceof Error ? e.message : `Failed to stop ${job.kind}`),
+                  })
+                }} />
+            ))}
 
-        {convGroups.length === 0 && runningJobs.length === 0 && (
-          <div className="flex items-center justify-center h-[200px] px-6 text-center text-text-4 text-[13px]">
-            Nothing running &mdash; conversions and catalog jobs show up here while they work.
-          </div>
+            {activeGroups.length === 0 && runningJobs.length === 0 && (
+              <div className="flex items-center justify-center h-[200px] px-6 text-center text-text-4 text-[13px]">
+                Nothing running &mdash; conversions and catalog jobs show up here while they work.
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            {completedGroups.map(group => group.length === 1 ? (
+              <ConversionRow key={group[0].itemName} status={group[0]} now={now}
+                startedAt={state.convStartTimes[group[0].itemName]}
+                onStop={() => ps3Action.mutate({ filename: group[0].itemName, action: 'abort' })} />
+            ) : (
+              <div key={`grp-${group[0].gameId}`} className="border-l-[2.5px] border-l-[#3f7cf099]">
+                <div className="px-3 sm:px-[22px] pt-1.5 text-[10px] uppercase tracking-[0.06em] text-text-4">
+                  Same game &middot; {group.length} formats
+                </div>
+                {group.map(s => (
+                  <ConversionRow key={s.itemName} status={s} now={now} grouped
+                    startedAt={state.convStartTimes[s.itemName]}
+                    onStop={() => ps3Action.mutate({ filename: s.itemName, action: 'abort' })} />
+                ))}
+              </div>
+            ))}
+
+            {finishedJobs.map(job => <CompletedJobRow key={job.kind} job={job} />)}
+
+            {completedGroups.length === 0 && finishedJobs.length === 0 && (
+              <div className="flex items-center justify-center h-[200px] px-6 text-center text-text-4 text-[13px]">
+                Nothing finished yet &mdash; completed conversions and job runs show up here.
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
   )
 }
 
-/** A live conversion/extraction row (SignalR `ConvertStatus`, PS3 + Wii U pipelines). */
+/** A live conversion/extraction row (SignalR `ConvertStatus`, PS3 + Wii U pipelines). Also used,
+ *  unchanged, for a terminal (done/error/skipped) row in the Completed sub-view — it already renders
+ *  without elapsed/stop once the phase is terminal. */
 function ConversionRow({ status, startedAt, now, onStop, grouped }: {
   status: Ps3IsoStatusEvent
   startedAt: number | undefined
@@ -276,6 +355,29 @@ function BackgroundJobRow({ job, now, onStop }: { job: JobStatus; now: number; o
       percent={job.percent} active
       status={{ variant: 'converting', text: job.percent != null ? `Running ${Math.round(job.percent)}%` : 'Running' }}
       elapsedMs={elapsed} onStop={onStop} stopTitle={`Stop ${meta.label}`}
+    />
+  )
+}
+
+/**
+ * A job kind's last finished run (#292) — Completed sub-view only. Uses the frozen `lastDurationMs`
+ * instead of the still-growing `elapsedMs`, and an outcome badge instead of the live "Running" one.
+ */
+function CompletedJobRow({ job }: { job: JobStatus }) {
+  const meta = jobKindMeta(job.kind)
+  const badge = job.lastOutcome === 'failed'
+    ? { variant: 'error' as const, text: 'Failed' }
+    : job.lastOutcome === 'cancelled'
+      ? { variant: 'skipped' as const, text: 'Cancelled' }
+      : { variant: 'done' as const, text: 'Completed' }
+  const relative = fmtRelative(job.lastCompletedAt)
+
+  return (
+    <JobRow
+      kind={meta.label} color={meta.color} name={meta.name}
+      message={job.message} percent={null} active={false} status={badge}
+      elapsedMs={job.lastDurationMs}
+      meta={relative ? `Finished ${relative}` : undefined}
     />
   )
 }
