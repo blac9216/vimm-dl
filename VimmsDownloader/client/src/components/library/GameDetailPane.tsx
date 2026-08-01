@@ -13,13 +13,17 @@ import { fmtLabel, originLabel, isVimmSourced, datOrigins } from './filters'
 
 const CHIP = 'text-[10px] px-2 py-0.5 rounded-[7px] border font-semibold whitespace-nowrap'
 
-/** The 16:9 title-screen box: the cached screenshot when there is one, else the generated gradient
+/** The title-screen box: the cached screenshot renders at its own natural aspect ratio (un-cropped,
+ *  capped at the pane width / ~250px tall, never upscaled -- `fit="contain-auto"`, issue #293), since
+ *  libretro-thumbnails title screens come in the console's native ratio (4:3 for most retro consoles,
+ *  10:9 for Game Boy, ~1.5:1 for Virtual Boy, ...) and cropping destroys the logos/menus at the
+ *  edges. The no-cached-screenshot fallback has no intrinsic ratio, so it keeps the 16:9 gradient box
  *  with the design's scrim + "no screenshot cached" placeholder. */
 function TitleScreen({ id, title }: { id: number; title: string }) {
   return (
     <div>
       <div className="text-[10px] uppercase tracking-[0.6px] text-text-4 mb-2">Title screen</div>
-      <CatalogThumb id={id} title={title} type="title"
+      <CatalogThumb id={id} title={title} type="title" fit="contain-auto"
         className="w-full aspect-video max-h-[250px] rounded-xl"
         fallback={
           <>
