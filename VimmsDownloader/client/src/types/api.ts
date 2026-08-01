@@ -264,7 +264,6 @@ export interface SettingsResponse {
   ps3PreserveArchive: boolean
   featureSync: boolean
   featureEvents: boolean
-  featureLibrary: boolean
   featureImport: boolean
   catalogDatSource: string
   archiveParallelism: number

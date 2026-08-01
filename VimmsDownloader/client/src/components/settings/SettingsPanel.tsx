@@ -329,12 +329,6 @@ export function SettingsPanel() {
           {section === 'features' && (
             <SettingsCard>
               <ToggleRow
-                label="Library (Beta)"
-                description="Browse the canonical No-Intro/Redump game catalog"
-                checked={settings.featureLibrary}
-                onChange={v => save('feature_library', v.toString())}
-              />
-              <ToggleRow
                 label="Import (Beta)"
                 description="Ingest a local drop folder into the catalog by hash"
                 checked={settings.featureImport}

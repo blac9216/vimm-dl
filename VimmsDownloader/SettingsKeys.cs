@@ -12,7 +12,6 @@ static class SettingsKeys
     public const string Ps3PreserveArchive = "ps3_preserve_archive";
     public const string FeatureSync = "feature_sync";
     public const string FeatureEvents = "feature_events";
-    public const string FeatureLibrary = "feature_library";
     public const string FeatureImport = "feature_import";
     public const string DefaultSetsSeeded = "default_sets_seeded";
 

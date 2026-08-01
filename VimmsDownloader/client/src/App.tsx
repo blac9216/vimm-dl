@@ -83,20 +83,19 @@ function AppContent() {
     const hidden = new Set<Tab>()
     if (!settings?.featureSync) hidden.add('sync')
     if (!settings?.featureEvents) hidden.add('events')
-    if (!settings?.featureLibrary) hidden.add('library')
     if (!settings?.featureImport) hidden.add('import')
     return hidden
-  }, [settings?.featureSync, settings?.featureEvents, settings?.featureLibrary, settings?.featureImport])
+  }, [settings?.featureSync, settings?.featureEvents, settings?.featureImport])
 
-  // Default/fallback tab: Library when the beta flag is on, else Downloads (#256/#258). Used both before the
-  // user has picked a tab (userTab === null, e.g. while settings are still loading) and whenever the
-  // currently-picked tab is hidden (its feature flag turned off). Derived during render — no effect
-  // needed, so there's no cascading-render setState-in-effect.
-  const defaultTab: Tab = settings?.featureLibrary ? 'library' : 'downloads'
+  // Default/fallback tab: Library is the product's core surface (#287) — always visible, always the
+  // default. Used both before the user has picked a tab (userTab === null, e.g. while settings are
+  // still loading) and whenever the currently-picked tab is hidden (its feature flag turned off).
+  // Derived during render — no effect needed, so there's no cascading-render setState-in-effect.
+  const defaultTab: Tab = 'library'
   const effectiveTab = userTab !== null && !hiddenTabs.has(userTab) ? userTab : defaultTab
 
-  // Avoid a Downloads->Library flash on first load: until settings resolve, we don't know the real
-  // default, so hold off mounting a content panel rather than briefly mounting the wrong one.
+  // Hold off mounting a content panel until settings resolve, so a tab that ends up hidden once
+  // settings load (e.g. Sync/Events/Import while their flag is still unknown) isn't briefly mounted.
   const tabPending = userTab === null && settingsLoading
 
   const handleViewEvents = useCallback((itemName: string) => {
