@@ -28,6 +28,13 @@ class VimmCatalogSeedService(CatalogRepository catalog, IHttpClientFactory httpF
     /// <summary>Delay between per-title vault-page fetches (politeness). Settable for tests.</summary>
     internal int PoliteDelayMs { get; set; } = 250;
 
+    /// <summary>
+    /// Fraction of the titles the list view advertised that must actually be read before the merge is
+    /// allowed to speak for the whole console. Below this the run is treated as failed rather than as
+    /// "Vimm delisted everything we couldn't fetch". Settable for tests.
+    /// </summary>
+    internal double MinScrapeCompletion { get; set; } = 0.9;
+
     /// <summary>Scrape date recorded as the system's "version". Settable for tests.</summary>
     internal Func<DateTime> UtcNow { get; set; } = () => DateTime.UtcNow;
 
@@ -60,6 +67,7 @@ class VimmCatalogSeedService(CatalogRepository catalog, IHttpClientFactory httpF
     {
         var http = httpFactory.CreateClient("vimms");
         var scraped = new List<Scraped>();
+        var listed = 0;
 
         for (var i = 0; i < Sections.Length; i++)
         {
@@ -74,6 +82,7 @@ class VimmCatalogSeedService(CatalogRepository catalog, IHttpClientFactory httpF
             foreach (var entry in VimmVaultParser.ParseList(listHtml))
             {
                 ct.ThrowIfCancellationRequested();
+                listed++;
                 if (await ScrapeTitleAsync(http, entry, ct) is { } s) scraped.Add(s);
                 if (PoliteDelayMs > 0) await Task.Delay(PoliteDelayMs, ct);
             }
@@ -84,6 +93,18 @@ class VimmCatalogSeedService(CatalogRepository catalog, IHttpClientFactory httpF
             // Never wipe a populated system on a failed scrape: merging an empty set would drop the
             // 'vimm' origin from every game and delete the ones left with no other origin.
             log.LogWarning("Vimm seed {Console}: scraped 0 titles, leaving the existing catalog untouched", sys.Console);
+            return;
+        }
+
+        // Same failure mode, partially: the merge is authoritative for this origin, so titles missing
+        // from a half-finished scrape would be deleted as though Vimm had dropped them. Listing a title
+        // but failing to read its page is a transport failure, not a delisting — so require most of what
+        // the list view advertised before letting the merge speak for the whole console.
+        if (scraped.Count < listed * MinScrapeCompletion)
+        {
+            log.LogWarning(
+                "Vimm seed {Console}: only {Scraped}/{Listed} listed titles could be read — treating as a " +
+                "failed run and leaving the existing catalog untouched", sys.Console, scraped.Count, listed);
             return;
         }
 

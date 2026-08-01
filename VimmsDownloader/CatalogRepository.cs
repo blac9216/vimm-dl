@@ -1027,6 +1027,20 @@ class CatalogRepository : ICatalogStore
     }
 
     /// <summary>(console, name) for a catalog game, or null if the id is unknown.</summary>
+    /// <summary>
+    /// A game's structured identifier (<c>catalog_game.serial</c>), or null. For Wii U digital titles
+    /// this is the 16-hex NUS title id the CDN DAT supplied via <c>&lt;game_id&gt;</c>.
+    /// </summary>
+    public async Task<string?> GetGameSerialAsync(int gameId)
+    {
+        await using var db = await OpenAsync();
+        await using var cmd = db.CreateCommand();
+        cmd.CommandText = "SELECT serial FROM catalog_game WHERE id = $id";
+        cmd.Parameters.AddWithValue("$id", gameId);
+        var v = await cmd.ExecuteScalarAsync();
+        return v is string s && s.Length > 0 ? s : null;
+    }
+
     public async Task<(string Console, string Name)?> GetGameByIdAsync(int id)
     {
         await using var db = await OpenAsync();

@@ -16,6 +16,14 @@ namespace Module.Catalog;
 /// fetched once and cached for the run; a system's DAT is extracted on demand from the cached
 /// <i>compressed</i> bytes, so memory holds the compressed bundle plus only one decompressed DAT at a
 /// time. A system absent from the bundle fails soft (skipped), exactly like a 404 on the libretro path.</para>
+///
+/// <para><b>Known coverage gap.</b> <see cref="CatalogSystems"/>' DAT names are the <i>libretro
+/// mirror's</i> filenames, and the bundles use upstream No-Intro/Redump names, which sometimes differ
+/// — "Sega - Naomi" is published as "Arcade - Sega - Naomi", "Atari - 2600" as "Atari - Atari 2600",
+/// "NEC - PC-FX" as "NEC - PC-FX &amp; PC-FXGA", and so on. Measured against the live bundles, 12 of
+/// 22 redump and 61 of 74 no-intro systems resolve by name; the rest are skipped with a logged reason
+/// rather than silently. Closing that gap needs a per-system name mapping and is tracked separately —
+/// it is why the libretro mirror remains the default source.</para>
 /// </summary>
 public sealed class DailyBundleDatSource(HttpClient http, ILogger<DailyBundleDatSource> log) : IDatSource
 {
@@ -101,28 +109,46 @@ public sealed class DailyBundleDatSource(HttpClient http, ILogger<DailyBundleDat
     }
 
     /// <summary>
-    /// How many parenthesised groups follow <paramref name="datName"/> in the entry filename. The
-    /// system's own DAT scores 1 (its timestamp); a variant that extends the name scores more. A bare
-    /// "{DatName}.dat" scores 0.
+    /// How many parenthesised groups follow <paramref name="datName"/> in the entry filename, ignoring
+    /// the Redump "- Datfile (count)" marker. The system's own DAT scores 1 (its timestamp); a variant
+    /// that extends the name scores more. A bare "{DatName}.dat" scores 0.
     /// </summary>
     internal static int CountQualifiers(string entryFileName, string datName)
     {
         var tail = entryFileName.Length > datName.Length
             ? entryFileName[datName.Length..]
             : "";
+        // Drop the whole "- Datfile (N)" segment — marker AND its count group — so a Redump entry and a
+        // No-Intro one for the same system score alike (1 = just the timestamp).
+        if (tail.StartsWith(RedumpMarker, StringComparison.OrdinalIgnoreCase))
+        {
+            var close = tail.IndexOf(')', RedumpMarker.Length);
+            tail = close >= 0 ? tail[(close + 1)..] : tail[RedumpMarker.Length..];
+        }
         int count = 0;
         for (int i = tail.IndexOf('('); i >= 0; i = tail.IndexOf('(', i + 1)) count++;
         return count;
     }
 
+    /// <summary>Redump's filename infix between the system name and its groups: "Foo - Datfile (79) (ts).dat".</summary>
+    private const string RedumpMarker = " - Datfile ";
+
     /// <summary>
-    /// Match a zip entry filename to a system. No-Intro/Redump originals are named
-    /// <c>"{DatName} (timestamp).dat"</c> (or a <c>(Parent-Clone)</c> variant); a bare
-    /// <c>"{DatName}.dat"</c> is also accepted. Requiring the <c>" ("</c>/<c>.dat</c> boundary right
-    /// after the exact name stops a prefix like "…Game Boy" matching "…Game Boy Advance".
+    /// Match a zip entry filename to a system. The two bundles name entries differently, and both
+    /// shapes must be accepted:
+    /// <list type="bullet">
+    /// <item><b>no-intro.zip</b> — <c>"{DatName} (timestamp).dat"</c>, optionally with a variant group
+    /// such as <c>(Parent-Clone)</c> first.</item>
+    /// <item><b>redump.zip</b> — <c>"{DatName} - Datfile (count) (timestamp).dat"</c>. Missing this
+    /// shape matched <b>zero</b> of the 22 Redump systems, silently skipping every disc console.</item>
+    /// </list>
+    /// A bare <c>"{DatName}.dat"</c> is also accepted. Requiring the <c>" ("</c> / <c>" - Datfile "</c>
+    /// / <c>.dat</c> boundary right after the exact name stops a prefix like "…Game Boy" matching
+    /// "…Game Boy Advance".
     /// </summary>
     internal static bool IsMatch(string entryFileName, string datName)
         => entryFileName.EndsWith(".dat", StringComparison.OrdinalIgnoreCase)
            && (entryFileName.Equals(datName + ".dat", StringComparison.OrdinalIgnoreCase)
-               || entryFileName.StartsWith(datName + " (", StringComparison.OrdinalIgnoreCase));
+               || entryFileName.StartsWith(datName + " (", StringComparison.OrdinalIgnoreCase)
+               || entryFileName.StartsWith(datName + RedumpMarker, StringComparison.OrdinalIgnoreCase));
 }

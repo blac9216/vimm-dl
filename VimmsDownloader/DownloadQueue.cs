@@ -119,7 +119,7 @@ class DownloadQueue
     /// <c>title.tmd</c> that <see cref="WiiUConversionPipeline"/> reads first. A Wii U disc download is
     /// a single .wux/.7z file and fails this, so it completes without a conversion step.
     /// </summary>
-    private static bool IsNusTitleSet(string path)
+    internal static bool IsNusTitleSet(string path)
         => Directory.Exists(path) && File.Exists(Path.Combine(path, "title.tmd"));
 
     /// <summary>True when <paramref name="path"/>'s immediate parent folder is the given console dir

@@ -118,6 +118,39 @@ public class VimmCatalogSeedServiceTests
         Assert.HasCount(2, await GamesOfSystem("Nintendo - Wii U (Discs)"));
     }
 
+    /// <summary>
+    /// The same delete-on-merge hazard as an empty scrape, but partial: a transport failure that reads
+    /// only some of the listed titles must not let the merge speak for the whole console, or the
+    /// unreadable ones are deleted as though Vimm had delisted them.
+    /// </summary>
+    [TestMethod]
+    public async Task Seed_PartialScrape_LeavesExistingCatalogIntact()
+    {
+        await NewService(Route).SeedAsync("wiiu", default);
+        Assert.HasCount(2, await GamesOfSystem("Nintendo - Wii U (Discs)"));
+
+        // Both titles still listed, but one vault page now fails → below the completion threshold.
+        var svc = NewService(url => url.EndsWith("/vault/222222") ? null : Route(url));
+        await svc.SeedAsync("wiiu", default);
+
+        Assert.HasCount(2, await GamesOfSystem("Nintendo - Wii U (Discs)"));
+    }
+
+    /// <summary>A scrape that reads everything it listed is allowed through, even if that shrank.</summary>
+    [TestMethod]
+    public async Task Seed_CompleteScrape_IsAccepted()
+    {
+        await NewService(Route).SeedAsync("wiiu", default);
+
+        // Only section A lists anything now, and its one title reads fine → 1/1 complete.
+        var svc = NewService(url =>
+            url.Contains("p=list") ? (url.Contains("section=A") ? ListA : "") : Route(url));
+        await svc.SeedAsync("wiiu", default);
+
+        var games = await GamesOfSystem("Nintendo - Wii U (Discs)");
+        Assert.Contains("Adventure Time - Explore the Dungeon (USA)", games);
+    }
+
     [TestMethod]
     public async Task Seed_IsIdempotent()
     {

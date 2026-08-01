@@ -212,12 +212,12 @@ static class CatalogEndpoints
 
             var resolved = await resolver.ResolveForQueueAsync(id, game.Value.Console, game.Value.Name, format, ct);
             if (resolved is null) return Results.NotFound("Not available from configured archive sets or Vimm");
-            var (url, source, fmt) = resolved.Value;
+            var (url, source, fmt, sourceId) = resolved.Value;
 
             if ((await queue.CheckDuplicatesAsync([url])).Count > 0)
                 return Results.Conflict("Already queued or completed");
 
-            await queue.AddToQueueAsync(url, fmt, source);
+            await queue.AddToQueueAsync(url, fmt, source, sourceId);
             if (!downloadQueue.IsRunning) await downloadQueue.StartAsync(null);
             return Results.Ok(new CatalogQueueResponse(url, source));
         });

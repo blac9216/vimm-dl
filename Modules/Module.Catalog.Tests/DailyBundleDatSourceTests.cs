@@ -21,6 +21,50 @@ public class DailyBundleDatSourceTests
 
     // ---- entry-name matching (real No-Intro/Redump filename shapes) ----
 
+    // ---- REAL bundle filename shapes ----
+    // These are copied verbatim from the live release assets. The original fixtures were invented and
+    // happened to match no-intro's shape only, so #265's parser fix shipped while ExtractDat still found
+    // 0 of redump.zip's 22 systems — the format was right and the filename was never checked.
+
+    [TestMethod]
+    [DataRow("Nintendo - Wii - Datfile (3780) (2026-06-15 03-13-28).dat", "Nintendo - Wii")]
+    [DataRow("Sony - PlayStation 3 - Datfile (3327) (2026-06-01 10-00-00).dat", "Sony - PlayStation 3")]
+    [DataRow("Acorn - Archimedes - Datfile (79) (2026-06-11 15-44-51).dat", "Acorn - Archimedes")]
+    public void IsMatch_RealRedumpBundleName_Matches(string entry, string datName)
+        => Assert.IsTrue(DailyBundleDatSource.IsMatch(entry, datName));
+
+    [TestMethod]
+    [DataRow("Nintendo - Game Boy Advance (20260707-143610).dat", "Nintendo - Game Boy Advance")]
+    [DataRow("Nintendo - Wii U (Digital) (CDN) (20260618-192853).dat", "Nintendo - Wii U (Digital) (CDN)")]
+    public void IsMatch_RealNoIntroBundleName_Matches(string entry, string datName)
+        => Assert.IsTrue(DailyBundleDatSource.IsMatch(entry, datName));
+
+    /// <summary>The Redump marker must not turn into a loose prefix match across sibling systems.</summary>
+    [TestMethod]
+    [DataRow("Nintendo - Wii U - Datfile (541) (2026-07-28 00-00-00).dat", "Nintendo - Wii")]
+    [DataRow("Nintendo - Game Boy Advance - Datfile (12) (2026-01-01 00-00-00).dat", "Nintendo - Game Boy")]
+    public void IsMatch_RedumpName_DoesNotMatchShorterSystem(string entry, string datName)
+        => Assert.IsFalse(DailyBundleDatSource.IsMatch(entry, datName));
+
+    /// <summary>Redump's "- Datfile (N)" marker is not a qualifier, so both bundles score alike.</summary>
+    [TestMethod]
+    public void CountQualifiers_IgnoresRedumpDatfileMarker()
+    {
+        Assert.AreEqual(1, DailyBundleDatSource.CountQualifiers(
+            "Nintendo - Wii - Datfile (3780) (2026-06-15 03-13-28).dat", "Nintendo - Wii"));
+        Assert.AreEqual(1, DailyBundleDatSource.CountQualifiers(
+            "Nintendo - Game Boy Advance (20260707-143610).dat", "Nintendo - Game Boy Advance"));
+    }
+
+    [TestMethod]
+    public void ExtractDat_RealRedumpBundleName_IsFound()
+    {
+        var zip = Zip(("Nintendo - Wii - Datfile (3780) (2026-06-15 03-13-28).dat", GbaDat));
+        var r = DailyBundleDatSource.ExtractDat(zip, "Nintendo - Wii");
+        Assert.IsTrue(r.IsOk, r.Error);
+        StringAssert.Contains(r.Value!, "Advance Wars");
+    }
+
     [TestMethod]
     public void IsMatch_TimestampedOriginal_Matches()
         => Assert.IsTrue(DailyBundleDatSource.IsMatch(

@@ -1,5 +1,6 @@
 using Module.Catalog;
 using Module.Download.Sources;
+using Module.WiiUSource;
 
 /// <summary>
 /// Resolves a catalog game to a concrete download URL via the console's configured sets: a set is
@@ -17,19 +18,43 @@ class CatalogResolveService(
     /// came from, and the format to queue (for Vimm, the requested format if offered, else the first
     /// available). Null when neither archive nor Vimm provides it.
     /// </summary>
-    public async Task<(string Url, string Source, int Format)?> ResolveForQueueAsync(
+    public async Task<(string Url, string Source, int Format, string SourceId)?> ResolveForQueueAsync(
         int gameId, string console, string name, int? requestedFormat, CancellationToken ct)
     {
         var archive = await ResolveAsync(console, name, ct);
-        if (archive is not null) return (archive, "archive", 0);
+        if (archive is not null) return (archive, "archive", 0, archive);
 
         var binding = await catalog.GetVaultBindingAsync(gameId);
-        if (binding is null) return null;
+        if (binding is not null)
+        {
+            var alts = binding.Value.Formats.Select(f => f.Alt).ToList();
+            var format = requestedFormat is int rf && alts.Contains(rf) ? rf
+                : alts.Count > 0 ? alts[0] : 0;
+            var vaultUrl = $"https://vimm.net/vault/{binding.Value.VaultId}";
+            return (vaultUrl, "vimm", format, vaultUrl);
+        }
 
-        var alts = binding.Value.Formats.Select(f => f.Alt).ToList();
-        var format = requestedFormat is int rf && alts.Contains(rf) ? rf
-            : alts.Count > 0 ? alts[0] : 0;
-        return ($"https://vimm.net/vault/{binding.Value.VaultId}", "vimm", format);
+        // Wii U digital (#266): titles from the CDN DAT carry the 16-hex title id as their serial and
+        // have no archive set or vault binding — they download straight from NUS, keyed by that id.
+        // Checked last so a disc release bound to Vimm still wins.
+        return await ResolveNusAsync(gameId, console);
+    }
+
+    /// <summary>
+    /// Resolve a Wii U digital title to its NUS download, or null when the game isn't one. The serial
+    /// must pass the very rule <see cref="WiiUNusSource"/> will apply to it, so a game that resolves
+    /// here is one that source can actually fetch.
+    /// </summary>
+    private async Task<(string Url, string Source, int Format, string SourceId)?> ResolveNusAsync(int gameId, string console)
+    {
+        if (!string.Equals(console, "wiiu", StringComparison.OrdinalIgnoreCase)) return null;
+
+        var titleId = WiiUNusSource.NormalizeTitleId(await catalog.GetGameSerialAsync(gameId));
+        if (titleId is null) return null;
+
+        // A real, unique per-title URL so the queue's duplicate check and history stay meaningful;
+        // WiiUNusSource itself resolves the concrete file list from the source id.
+        return ($"{WiiUNusSource.DefaultBaseUrl}/{titleId.ToLowerInvariant()}", "wiiu", 0, titleId);
     }
 
     public async Task<string?> ResolveAsync(string console, string name, CancellationToken ct)

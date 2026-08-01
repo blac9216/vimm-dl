@@ -27,11 +27,11 @@ static class CatalogQueueOps
 
             var resolved = await resolver.ResolveForQueueAsync(id, game.Value.Console, game.Value.Name, format, ct);
             if (resolved is null) { failed++; results.Add(new(id, "unavailable", null)); continue; }
-            var (url, source, fmt) = resolved.Value;
+            var (url, source, fmt, sourceId) = resolved.Value;
 
             if ((await queue.CheckDuplicatesAsync([url])).Count > 0) { skipped++; results.Add(new(id, "duplicate", source)); continue; }
 
-            await queue.AddToQueueAsync(url, fmt, source);
+            await queue.AddToQueueAsync(url, fmt, source, sourceId);
             queued++; results.Add(new(id, "queued", source));
         }
         return new CatalogQueueBatchResponse(queued, skipped, failed, results);

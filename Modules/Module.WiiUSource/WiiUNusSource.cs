@@ -109,8 +109,12 @@ public sealed class WiiUNusSource : IMultiFileSource
     private ResolvedDownload Meta(string url, string filename) =>
         new(url, filename, Platforms.WiiU, filename, null, 0, null);
 
-    /// <summary>Accept a 16-hex-digit title ID, tolerating spaces/dashes; returns uppercase, or null.</summary>
-    internal static string? NormalizeTitleId(string? raw)
+    /// <summary>
+    /// Accept a 16-hex-digit title ID, tolerating spaces/dashes; returns uppercase, or null.
+    /// Public so the host's catalog resolve path can test whether a game's stored serial is a Wii U
+    /// title id (and therefore NUS-downloadable) using the same rule this source will apply to it.
+    /// </summary>
+    public static string? NormalizeTitleId(string? raw)
     {
         if (string.IsNullOrWhiteSpace(raw)) return null;
         Span<char> buf = stackalloc char[16];

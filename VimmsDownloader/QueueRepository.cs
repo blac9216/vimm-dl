@@ -254,7 +254,12 @@ class QueueRepository
         _ => 2,
     };
 
-    public async Task AddToQueueAsync(string url, int format, string source = "vimm")
+    /// <summary>
+    /// Queue a download. <paramref name="sourceId"/> is the key the source resolves against and
+    /// defaults to the URL (true for Vimm and archive, where the URL *is* the identifier); sources with
+    /// a distinct identity space pass their own — e.g. Wii U NUS, keyed by 16-hex title id.
+    /// </summary>
+    public async Task AddToQueueAsync(string url, int format, string source = "vimm", string? sourceId = null)
     {
         await using var db = await OpenAsync();
         await using var cmd = db.CreateCommand();
@@ -262,7 +267,7 @@ class QueueRepository
         cmd.Parameters.AddWithValue("$url", url);
         cmd.Parameters.AddWithValue("$format", format);
         cmd.Parameters.AddWithValue("$source", source);
-        cmd.Parameters.AddWithValue("$sourceId", url); // source_id == url for Vimm; distinct sources set their own later
+        cmd.Parameters.AddWithValue("$sourceId", sourceId ?? url);
         await cmd.ExecuteNonQueryAsync();
     }
 
