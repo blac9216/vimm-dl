@@ -67,7 +67,9 @@ record CompatStatus(string Emulator, string Status);
 // An emulator whose compatibility is ingested — for the Library emulator/status filter. MatchKind is
 // how it joins to a game (serial | title_id | name).
 record EmulatorDto(string Id, string Name, string Console, string MatchKind);
-record CatalogGameDto(int Id, string Name, string Console, string? Region, string? Serial, string? Languages, long Size, bool Owned, List<CompatStatus> Compat, bool? Verified, string? VimmMatch,
+// ArchiveMatch mirrors VimmMatch's shape (#289): 'sha1'/'md5'/'crc'/'name' (matched by the set index),
+// 'none' (indexed, no match), or null (not yet indexed) — the Library's "Archive" chip.
+record CatalogGameDto(int Id, string Name, string Console, string? Region, string? Serial, string? Languages, long Size, bool Owned, List<CompatStatus> Compat, bool? Verified, string? VimmMatch, string? ArchiveMatch,
     List<int> AvailableFormats, List<int> OwnedFormats, List<string> OwnedSources, List<string> Origins, double? RankScore);
 record CatalogGamesResponse(int Total, int Page, int PageSize, List<CatalogGameDto> Games);
 record CatalogSetDto(int Id, string Name, string Console, List<string> Links);

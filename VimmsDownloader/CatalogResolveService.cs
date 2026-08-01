@@ -21,6 +21,20 @@ class CatalogResolveService(
     public async Task<(string Url, string Source, int Format, string SourceId)?> ResolveForQueueAsync(
         int gameId, string console, string name, int? requestedFormat, CancellationToken ct)
     {
+        // Fast path (#289): the set index already knows which file (and which set link) carries this
+        // game, so the download URL is built directly — no live ListFilesAsync walk. Falls through to
+        // the live listing below when the game isn't indexed/matched, or its link no longer parses as
+        // an archive.org item (index gone stale between an index run and a set edit).
+        if (await catalog.GetIndexedArchiveFileAsync(gameId, ct) is { } indexed)
+        {
+            var indexedId = ArchiveIdentifier(indexed.LinkUrl);
+            if (indexedId is not null)
+            {
+                var indexedUrl = ArchiveSource.BuildDownloadUrl(indexedId, indexed.Name);
+                return (indexedUrl, "archive", 0, indexedUrl);
+            }
+        }
+
         var archive = await ResolveAsync(console, name, ct);
         if (archive is not null) return (archive, "archive", 0, archive);
 

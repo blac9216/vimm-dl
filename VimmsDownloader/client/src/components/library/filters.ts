@@ -58,6 +58,11 @@ export function originLabel(origin: string): string {
   return origin === 'daily-bundle' ? 'bundle' : origin
 }
 
+/** Human label for a Vimm/archive match kind (#289 shares this with vimmMatch's sha1/md5/crc). */
+export function matchKindLabel(kind: string): string {
+  return kind === 'name' ? 'file name' : kind.toUpperCase()
+}
+
 /**
  * Origin marking a game seeded FROM Vimm rather than from a No-Intro/Redump DAT — used where no
  * public DAT exists (Wii U discs). Vimm publishes the canonical Redump hashes, so the stored values

@@ -4,7 +4,7 @@ import { compatClass } from '../../lib/compat'
 import { fmtBytes } from '../../lib/format'
 import { getConsoleColor } from '../../lib/consoleColors'
 import { CatalogThumb } from '../shared/CatalogThumb'
-import { fmtLabel, originLabel, isVimmSourced, datOrigins } from './filters'
+import { fmtLabel, originLabel, isVimmSourced, datOrigins, matchKindLabel } from './filters'
 
 // Column C of the Library (issue #257, design handoff "1. Library (home)" -> Column C): the detail
 // pane for the selected game. Supersedes the old inline GameDetail expansion — cover + identity +
@@ -82,11 +82,19 @@ export function GameDetailPane({ game, emuName, queued, queuePending, onQueue, o
             ))}
             {game.vimmMatch && game.vimmMatch !== 'none' && (
               <span className={`${CHIP} bg-info/10 text-info border-info/25`}
-                title={`Matched to a Vimm vault entry by ${game.vimmMatch.toUpperCase()}`}>Vimm</span>
+                title={`Matched to a Vimm vault entry by ${matchKindLabel(game.vimmMatch)}`}>Vimm</span>
             )}
             {game.vimmMatch === 'none' && (
               <span className={`${CHIP} bg-surface-3/40 text-text-4 border-border`}
                 title="No Vimm match found — rectify manually">no Vimm</span>
+            )}
+            {game.archiveMatch && game.archiveMatch !== 'none' && (
+              <span className={`${CHIP} bg-info/10 text-info border-info/25`}
+                title={`Matched to an indexed archive.org set file by ${matchKindLabel(game.archiveMatch)}`}>Archive</span>
+            )}
+            {game.archiveMatch === 'none' && (
+              <span className={`${CHIP} bg-surface-3/40 text-text-4 border-border`}
+                title="Indexed archive sets don't carry this game — run the queue action to fall back to a live listing">no Archive</span>
             )}
             {game.rankScore != null && (
               <span className={`${CHIP} bg-warning/[0.13] text-warning border-warning/30 font-mono`}

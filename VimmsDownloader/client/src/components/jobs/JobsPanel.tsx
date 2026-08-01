@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   useJobs, useCancelJob, usePs3Action, useCatalogConsoles,
   useSyncCatalog, useScanCatalog, useVerifyCatalog, useSyncCompat, useSyncVimm,
-  useSyncIgdb, useSyncIgdbRank, useSyncRa,
+  useSyncIgdb, useSyncIgdbRank, useSyncRa, useSyncSetIndex,
 } from '../../api/queries'
 import { useDownload } from '../../hooks/useDownloadState'
 import { JobRow } from './JobRow'
@@ -81,6 +81,7 @@ export function JobsPanel() {
   const igdbMutation = useSyncIgdb()
   const igdbRankMutation = useSyncIgdbRank()
   const raMutation = useSyncRa()
+  const setIndexMutation = useSyncSetIndex()
 
   const [sub, setSub] = useState<SubView>('active')
   const [vimmConsole, setVimmConsole] = useState('')
@@ -158,6 +159,9 @@ export function JobsPanel() {
         ? `Match ${vimmConsole} against Vimm's Lair by hash, binding a vault URL + formats`
         : "Match the catalog against Vimm's Lair by hash (pick a console to scope the run)",
       run: o => vimmMutation.mutate(vimmConsole || undefined, o) },
+    { kind: 'set-index', label: 'Index sets',
+      title: 'List every configured archive.org download set and hash/name-match its files onto the catalog (powers the Library Archive chip)',
+      run: o => setIndexMutation.mutate(undefined, o) },
     { kind: 'igdb-description', label: 'IGDB descriptions',
       title: 'Sync game descriptions from IGDB (needs Twitch credentials in Settings → IGDB)',
       run: o => igdbMutation.mutate(undefined, o) },

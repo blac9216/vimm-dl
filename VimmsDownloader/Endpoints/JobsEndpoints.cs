@@ -10,20 +10,20 @@ static class JobsEndpoints
     {
         app.MapGet("/api/jobs", (CatalogSyncState sync, CatalogScanState scan, CatalogCompatState compat,
             CatalogVerifyState verify, CatalogVimmState vimm, CatalogVimmSeedState vimmSeed, CatalogImportState import,
-            CatalogIgdbDescState igdbDesc, CatalogIgdbRankState igdbRank, CatalogRaState ra) =>
-            Results.Ok(JobsOps.Snapshot(AllGates(sync, scan, compat, verify, vimm, vimmSeed, import, igdbDesc, igdbRank, ra))));
+            CatalogIgdbDescState igdbDesc, CatalogIgdbRankState igdbRank, CatalogRaState ra, CatalogSetIndexState setIndex) =>
+            Results.Ok(JobsOps.Snapshot(AllGates(sync, scan, compat, verify, vimm, vimmSeed, import, igdbDesc, igdbRank, ra, setIndex))));
 
         // 204 when cancellation is signalled, 404 for an unknown kind, 409 when the job isn't running.
         app.MapPost("/api/jobs/{kind}/cancel", (string kind, CatalogSyncState sync, CatalogScanState scan,
             CatalogCompatState compat, CatalogVerifyState verify, CatalogVimmState vimm, CatalogVimmSeedState vimmSeed, CatalogImportState import,
-            CatalogIgdbDescState igdbDesc, CatalogIgdbRankState igdbRank, CatalogRaState ra) =>
-            JobsOps.Cancel(kind, AllGates(sync, scan, compat, verify, vimm, vimmSeed, import, igdbDesc, igdbRank, ra)));
+            CatalogIgdbDescState igdbDesc, CatalogIgdbRankState igdbRank, CatalogRaState ra, CatalogSetIndexState setIndex) =>
+            JobsOps.Cancel(kind, AllGates(sync, scan, compat, verify, vimm, vimmSeed, import, igdbDesc, igdbRank, ra, setIndex)));
     }
 
     private static BackgroundJobGate[] AllGates(CatalogSyncState sync, CatalogScanState scan,
         CatalogCompatState compat, CatalogVerifyState verify, CatalogVimmState vimm, CatalogVimmSeedState vimmSeed, CatalogImportState import,
-        CatalogIgdbDescState igdbDesc, CatalogIgdbRankState igdbRank, CatalogRaState ra) =>
-        [sync, scan, compat, verify, vimm, vimmSeed, import, igdbDesc, igdbRank, ra];
+        CatalogIgdbDescState igdbDesc, CatalogIgdbRankState igdbRank, CatalogRaState ra, CatalogSetIndexState setIndex) =>
+        [sync, scan, compat, verify, vimm, vimmSeed, import, igdbDesc, igdbRank, ra, setIndex];
 }
 
 /// <summary>

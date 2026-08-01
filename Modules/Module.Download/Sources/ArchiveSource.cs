@@ -75,6 +75,16 @@ public sealed class ArchiveSource : IDownloadSource, ICatalogSource
         }
     }
 
+    /// <summary>
+    /// Every original file in an item, optionally narrowed by <paramref name="filter"/>. The listing is
+    /// COMPLETE — it used to stop after 200 files to bound the browse endpoint's JSON response, but that
+    /// endpoint (<c>GET /api/sources/{source}/files</c>) was removed in #299 and both remaining callers are
+    /// backend-internal and need the whole item: the set index (#289) would otherwise persist only the
+    /// first 200 files of a multi-thousand-file set and mislabel the rest of the console as absent, and
+    /// the live resolve walk needs to find its file wherever it sits. The cap never saved any bandwidth
+    /// either — the metadata JSON is fetched in full regardless — so it only ever truncated the result.
+    /// Real sets run to a few thousand files (the seeded NDS default is ~7.3k), transient and per-link.
+    /// </summary>
     public async Task<Result<IReadOnlyList<CatalogFile>>> ListFilesAsync(string setId, string? filter, HttpClient http, CancellationToken ct)
     {
         try
@@ -98,9 +108,11 @@ public sealed class ArchiveSource : IDownloadSource, ICatalogSource
                         else if (sEl.ValueKind == JsonValueKind.Number) sEl.TryGetInt64(out size);
                     }
 
-                    var dl = $"https://archive.org/download/{Uri.EscapeDataString(setId)}/{EncodePath(name)}";
-                    files.Add(new CatalogFile(name, size, dl));
-                    if (files.Count >= 200) break; // cap payload; user narrows with the filter
+                    // archive.org publishes crc32/md5/sha1 for original (non-derivative) files — carried
+                    // through so callers can hash-match instead of only by name (#289's set index).
+                    var dl = BuildDownloadUrl(setId, name);
+                    files.Add(new CatalogFile(name, size, dl,
+                        StringOrNull(f, "crc32"), StringOrNull(f, "md5"), StringOrNull(f, "sha1")));
                 }
             }
             return Result<IReadOnlyList<CatalogFile>>.Ok(files);
@@ -120,8 +132,22 @@ public sealed class ArchiveSource : IDownloadSource, ICatalogSource
             || l.Contains("__ia_thumb") || l.EndsWith("_meta.txt") || l.EndsWith("_reviews.xml");
     }
 
+    /// <summary>The archive.org download URL for a file in an item — single-sourced so the live listing
+    /// (<see cref="ListFilesAsync"/>) and the set-index fast-resolve path (#289) build byte-identical
+    /// URLs from an identifier + a stored file name.</summary>
+    public static string BuildDownloadUrl(string identifier, string name)
+        => $"https://archive.org/download/{Uri.EscapeDataString(identifier)}/{EncodePath(name)}";
+
     private static string EncodePath(string name)
         => string.Join("/", name.Split('/').Select(Uri.EscapeDataString));
+
+    /// <summary>A file's hash field as a trimmed lowercase string, or null when absent/blank/non-string.</summary>
+    private static string? StringOrNull(JsonElement file, string prop)
+    {
+        if (!file.TryGetProperty(prop, out var el) || el.ValueKind != JsonValueKind.String) return null;
+        var s = el.GetString();
+        return string.IsNullOrWhiteSpace(s) ? null : s.Trim().ToLowerInvariant();
+    }
 
     /// <summary>Parse an archive.org /download/&lt;identifier&gt;/&lt;file&gt; URL.</summary>
     internal static bool TryParse(string url, out string identifier, out string filename)

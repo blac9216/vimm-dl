@@ -54,6 +54,10 @@ builder.Services.AddSingleton<CatalogVerifyService>();
 builder.Services.AddSingleton<CatalogVerifyState>();
 builder.Services.AddSingleton<VimmSyncService>();
 builder.Services.AddSingleton<CatalogVimmState>();
+// Archive.org set-content index (#289): lists every configured set link once, hash/name-matches its
+// files onto catalog games, and powers the Library's Archive availability chip + the resolve fast path.
+builder.Services.AddSingleton<SetIndexService>();
+builder.Services.AddSingleton<CatalogSetIndexState>();
 // Vimm as the authoritative catalog source for consoles with no public DAT (Wii U discs) — seeds rows
 // from a scrape rather than binding onto DAT-sourced games. See VimmSourceSystems.
 builder.Services.AddSingleton<VimmCatalogSeedService>();
