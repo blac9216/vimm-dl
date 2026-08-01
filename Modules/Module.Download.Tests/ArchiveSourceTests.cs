@@ -32,6 +32,15 @@ public class ArchiveSourceTests
         ]}
         """;
 
+    // #289: original (non-derivative) archive.org files carry crc32/md5/sha1 in the metadata API —
+    // the set-index job hash-matches against these instead of only by name.
+    private const string FilesWithHashesJson = """
+        {"files":[
+          {"name":"Game A (USA).zip","size":100,"crc32":"ABCD1234","md5":"MD5HASH","sha1":"SHA1HASH"},
+          {"name":"Game B (USA).zip","size":200}
+        ]}
+        """;
+
     [TestMethod]
     public async Task ResolveAsync_ValidUrl_DerivesConsoleFromMetadata()
     {
@@ -172,6 +181,43 @@ public class ArchiveSourceTests
     {
         var r = await NewSource().ListFilesAsync("id", null, StubClient("nope", HttpStatusCode.NotFound), CancellationToken.None);
         Assert.IsFalse(r.IsOk);
+    }
+
+    // --- #289: hashes carried through for the set-index job ---
+
+    [TestMethod]
+    public async Task ListFilesAsync_CarriesHashes_LowercasedWhenPresent()
+    {
+        var r = await NewSource().ListFilesAsync("id", null, StubClient(FilesWithHashesJson), CancellationToken.None);
+
+        Assert.IsTrue(r.IsOk, r.Error);
+        var a = r.Value!.Single(f => f.Name == "Game A (USA).zip");
+        Assert.AreEqual("abcd1234", a.Crc32);
+        Assert.AreEqual("md5hash", a.Md5);
+        Assert.AreEqual("sha1hash", a.Sha1);
+    }
+
+    [TestMethod]
+    public async Task ListFilesAsync_NoHashesInMetadata_NullNotEmpty()
+    {
+        var r = await NewSource().ListFilesAsync("id", null, StubClient(FilesWithHashesJson), CancellationToken.None);
+
+        Assert.IsTrue(r.IsOk, r.Error);
+        var b = r.Value!.Single(f => f.Name == "Game B (USA).zip");
+        Assert.IsNull(b.Crc32);
+        Assert.IsNull(b.Md5);
+        Assert.IsNull(b.Sha1);
+    }
+
+    [TestMethod]
+    public void BuildDownloadUrl_MatchesListFilesAsync_ForTheSameFile()
+    {
+        // The set-index fast-resolve path (#289) rebuilds a download URL from a stored identifier +
+        // file name — it must come out byte-identical to what ListFilesAsync already builds live.
+        var url = ArchiveSource.BuildDownloadUrl("ef_gba_no-intro_2024-02-21", "007 - NightFire (USA, Europe).zip");
+        Assert.AreEqual(
+            "https://archive.org/download/ef_gba_no-intro_2024-02-21/007%20-%20NightFire%20%28USA%2C%20Europe%29.zip",
+            url);
     }
 
     [TestMethod]

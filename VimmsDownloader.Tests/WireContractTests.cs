@@ -198,13 +198,13 @@ public class WireContractTests
     public void CatalogGameDto_WireNames_MatchExpected()
     {
         var game = new CatalogGameDto(1, "Name", "PS3", "USA", "BLES-00043", "En", 1000, true,
-            [new CompatStatus("rpcs3", "Playable")], true, "sha1",
+            [new CompatStatus("rpcs3", "Playable")], true, "sha1", "name",
             [0, 1], [0], ["vimm"], ["libretro"], 0.9);
 
         // Matches the CatalogGame interface in types/api.ts.
         AssertWireNames(AppJsonContext.Default.CatalogGameDto, game,
             "id", "name", "console", "region", "serial", "languages", "size", "owned",
-            "compat", "verified", "vimmMatch", "availableFormats", "ownedFormats", "ownedSources",
+            "compat", "verified", "vimmMatch", "archiveMatch", "availableFormats", "ownedFormats", "ownedSources",
             "origins", "rankScore");
     }
 
@@ -212,7 +212,7 @@ public class WireContractTests
     public void CatalogGamesResponse_WireNames_MatchExpected()
     {
         var game = new CatalogGameDto(1, "Name", "PS3", "USA", "BLES-00043", "En", 1000, true,
-            [new CompatStatus("rpcs3", "Playable")], true, "sha1",
+            [new CompatStatus("rpcs3", "Playable")], true, "sha1", "name",
             [0, 1], [0], ["vimm"], ["libretro"], 0.9);
         var response = new CatalogGamesResponse(1, 1, 100, [game]);
 

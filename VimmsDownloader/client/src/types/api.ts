@@ -117,6 +117,9 @@ export interface CatalogGame {
   compat: CompatStatus[]     // per-emulator playability (may be empty)
   verified: boolean | null
   vimmMatch: string | null   // 'sha1' | 'md5' | 'crc' (matched) | 'none' (no match) | null (unscraped)
+  // #289: archive.org set-index availability, same shape as vimmMatch (hash kinds, plus 'name' for a
+  // filename-stem fallback match) | 'none' (indexed, no match) | null (not yet indexed).
+  archiveMatch: string | null
   // Phase C (C5): the game's formats/sources consolidated into one row.
   availableFormats: number[] // Vimm download format alts offered for this game
   ownedFormats: number[]     // download formats already on disk for this game

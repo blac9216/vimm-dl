@@ -82,6 +82,15 @@ static class CatalogEndpoints
             ILogger<RetroAchievementsSyncService> log) =>
             state.Run(log, "RetroAchievements sync", ct => svc.SyncAsync(force ?? false, state.Report, ct)));
 
+        // Index every configured download set's archive.org listing (RomGoGetter-style, #289) and
+        // hash/name-match its files onto catalog games (background, single-flight). Optional ?console=
+        // to index just that console's sets; otherwise every console with at least one configured set.
+        // Powers the Library's "Archive" availability chip and the fast-resolve path (no live listing
+        // per queue request for an already-indexed game).
+        app.MapPost("/api/catalog/sets/index", (string? console, SetIndexService svc, CatalogSetIndexState state,
+            ILogger<SetIndexService> log) =>
+            state.Run(log, "Set index", ct => svc.IndexAsync(console, state.Report, ct)));
+
         // Emulators with ingested compatibility — drives the Library emulator/status filter.
         app.MapGet("/api/catalog/emulators", () =>
             Emulators.All.Select(e => new EmulatorDto(e.Id, e.Name, e.Console, Emulators.Token(e.MatchKind))).ToList());
@@ -348,3 +357,4 @@ sealed class CatalogImportState() : BackgroundJobGate("import");
 sealed class CatalogIgdbDescState() : BackgroundJobGate("igdb-description");
 sealed class CatalogIgdbRankState() : BackgroundJobGate("igdb-rank");
 sealed class CatalogRaState() : BackgroundJobGate("ra");
+sealed class CatalogSetIndexState() : BackgroundJobGate("set-index");

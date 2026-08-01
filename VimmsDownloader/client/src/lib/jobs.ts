@@ -27,6 +27,7 @@ export interface JobKindMeta {
 export const JOB_KIND_META: Record<string, JobKindMeta> = {
   sync: { label: 'Catalog Sync', name: 'No-Intro / Redump DATs', color: '#9575ff' },
   vimm: { label: 'Vimm Match', name: "Vimm's Lair hash binding", color: '#b79bff' },
+  'set-index': { label: 'Set Index', name: 'Archive.org set contents', color: '#d4c2ff' },
   scan: { label: 'Owned Scan', name: 'completed/', color: '#aab4e6' },
   import: { label: 'Import Scan', name: 'Import drop folder', color: '#8f9cd8' },
   verify: { label: 'Hash Verify', name: 'Owned files (CRC32)', color: '#3ee0a0' },

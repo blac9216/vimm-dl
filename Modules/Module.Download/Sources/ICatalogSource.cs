@@ -19,5 +19,12 @@ public interface ICatalogSource
 /// <summary>A browsable collection/set (e.g. an archive.org item holding many ROMs).</summary>
 public record CatalogSet(string Id, string Title, string? Platform);
 
-/// <summary>A single downloadable file within a set; <see cref="DownloadUrl"/> is queueable as-is.</summary>
-public record CatalogFile(string Name, long Size, string DownloadUrl);
+/// <summary>
+/// A single downloadable file within a set; <see cref="DownloadUrl"/> is queueable as-is.
+/// <see cref="Crc32"/>/<see cref="Md5"/>/<see cref="Sha1"/> come from the source's own metadata when it
+/// publishes them (archive.org's <c>/metadata/&lt;id&gt;</c> does, for original — non-derivative — files)
+/// so a caller can hash-match a file to a catalog game instead of only by name (#289); null when the
+/// source doesn't carry a given hash for that file.
+/// </summary>
+public record CatalogFile(string Name, long Size, string DownloadUrl,
+    string? Crc32 = null, string? Md5 = null, string? Sha1 = null);

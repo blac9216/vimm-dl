@@ -262,6 +262,18 @@ export function useSyncRa() {
   })
 }
 
+// Index every configured download set's archive.org listing (RomGoGetter-style, #289): hash/name-match
+// its files onto catalog games, powering the Library's "Archive" chip + a live-listing-free queue
+// resolve. Optional console scope; omitted = every console with a configured set.
+export function useSyncSetIndex() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (console?: string) =>
+      postJson('/api/catalog/sets/index' + (console ? `?console=${encodeURIComponent(console)}` : '')),
+    onSuccess: () => invalidateJobs(qc),
+  })
+}
+
 export function useCatalogSets() {
   return useQuery({
     queryKey: ['catalog-sets'],
