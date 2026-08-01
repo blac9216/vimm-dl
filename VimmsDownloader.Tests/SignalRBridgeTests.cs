@@ -11,6 +11,11 @@ namespace VimmsDownloader.Tests;
 /// identity (game_id / format) — resolved the same way the events table is — so the Active panel can
 /// group conversions by game. Exercises the REAL <see cref="SignalRPs3PipelineBridge"/> against a temp DB
 /// + a capturing <see cref="IHubContext{T}"/>; the filename stays the display / abort key.
+///
+/// Also covers #274: both console bridges (<see cref="SignalRPs3PipelineBridge"/> and
+/// <see cref="SignalRWiiUPipelineBridge"/>) stamp their own <c>platform</c>, since it's the only
+/// reliable way to tell a PS3 conversion apart from a Wii U one — the phase strings alone are
+/// ambiguous ("queued"/"extracting" are shared by both pipelines).
 /// </summary>
 [TestClass]
 public class SignalRBridgeTests
@@ -62,6 +67,39 @@ public class SignalRBridgeTests
         Assert.IsTrue(IsNullOrAbsent(payload, "gameId"), "unmatched item carries no game identity");
         Assert.IsTrue(IsNullOrAbsent(payload, "format"));
         Assert.AreEqual("Unknown.7z", payload.GetProperty("itemName").GetString());
+    }
+
+    [TestMethod]
+    public async Task ConvertStatus_Ps3Bridge_StampsPs3Platform()
+    {
+        var repo = new QueueRepository();
+        await repo.InitAsync(_connStr, NullLogger.Instance);
+        var hub = new CapturingHubContext();
+        var bridge = new SignalRPs3PipelineBridge(hub, repo);
+
+        await bridge.SendAsync(new PipelineStatusEvent("Game.7z", "extracting", "Extracting 10%"));
+
+        var payload = hub.ConvertStatusPayload();
+        Assert.AreEqual(Module.Core.Platforms.PS3, payload.GetProperty("platform").GetString());
+    }
+
+    /// <summary>
+    /// #274: the Jobs tab's stop button routes a conversion's abort to the right backend pipeline by
+    /// reading this stamped <c>platform</c> field — otherwise "extracting"/"queued" are the same string
+    /// for both consoles and the frontend has no way to tell them apart.
+    /// </summary>
+    [TestMethod]
+    public async Task ConvertStatus_WiiUBridge_StampsWiiUPlatform()
+    {
+        var repo = new QueueRepository();
+        await repo.InitAsync(_connStr, NullLogger.Instance);
+        var hub = new CapturingHubContext();
+        var bridge = new SignalRWiiUPipelineBridge(hub, repo);
+
+        await bridge.SendAsync(new PipelineStatusEvent("0005000010144000", "extracting", "Extracting files…"));
+
+        var payload = hub.ConvertStatusPayload();
+        Assert.AreEqual(Module.Core.Platforms.WiiU, payload.GetProperty("platform").GetString());
     }
 
     private static bool IsNullOrAbsent(JsonElement obj, string prop)

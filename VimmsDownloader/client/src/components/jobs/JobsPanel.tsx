@@ -14,7 +14,10 @@ import type { Ps3IsoStatusEvent } from '../../types/signalr'
 // The Jobs tab (issue #259, design handoff "3. Jobs (new)"): everything that is *not* a download.
 // Two feeds are merged client-side, rendered through the same JobRow:
 //   1. live conversions — SignalR ConvertStatus events kept in DownloadContext (`convStatuses`),
-//      stopped with POST /api/ps3/action {action:'abort'};
+//      stopped with POST /api/ps3/action {action:'abort', platform}. `platform` (#274) is the event's
+//      stamped pipeline origin ("PlayStation 3" / "Wii U") — the backend resolves the matching pipeline
+//      via DownloadQueue.GetPipeline, so a Wii U row's stop button no longer silently hits the PS3
+//      pipeline;
 //   2. background jobs — GET /api/jobs (L1 #255), stopped with POST /api/jobs/{kind}/cancel.
 // The catalog job triggers moved here from the Library's "⋯" overflow menu (epic #254 decision 4);
 // each is disabled while its own gate reports running, so the 409 single-flight path stays unreachable
@@ -84,13 +87,7 @@ export function JobsPanel() {
   const [dismissedConv, setDismissedConv] = useState<Set<string>>(new Set())
   const [dismissedJobs, setDismissedJobs] = useState<Set<string>>(new Set())
   const [error, setError] = useState<string | null>(null)
-
-  // Tick once a second so elapsed advances between polls without calling Date.now() during render.
   const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(id)
-  }, [])
 
   const runningJobs = useMemo(() => (jobs ?? []).filter(j => j.running), [jobs])
   const isRunning = (kind: string) => runningJobs.some(j => j.kind === kind)
@@ -118,6 +115,16 @@ export function JobsPanel() {
   // Same helper the TabBar pill uses, so the header count and the pill can never disagree — active
   // work only, unaffected by the Completed sub-view.
   const jobCount = countActiveJobs(jobs, state.convStatuses)
+  const hasActiveWork = jobCount > 0
+
+  // Tick once a second so elapsed advances between polls without calling Date.now() during render —
+  // but only while something is actually running (#274): with zero active jobs there's no elapsed
+  // value on screen to advance, so the interval would just re-render the idle tab for nothing.
+  useEffect(() => {
+    if (!hasActiveWork) return
+    const id = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(id)
+  }, [hasActiveWork])
 
   function clearFinished() {
     setDismissedConv(prev => {
@@ -243,7 +250,7 @@ export function JobsPanel() {
             {activeGroups.map(group => group.length === 1 ? (
               <ConversionRow key={group[0].itemName} status={group[0]} now={now}
                 startedAt={state.convStartTimes[group[0].itemName]}
-                onStop={() => ps3Action.mutate({ filename: group[0].itemName, action: 'abort' })} />
+                onStop={() => ps3Action.mutate({ filename: group[0].itemName, action: 'abort', platform: group[0].platform })} />
             ) : (
               <div key={`grp-${group[0].gameId}`} className="border-l-[2.5px] border-l-[#3f7cf099]">
                 <div className="px-3 sm:px-[22px] pt-1.5 text-[10px] uppercase tracking-[0.06em] text-text-4">
@@ -252,7 +259,7 @@ export function JobsPanel() {
                 {group.map(s => (
                   <ConversionRow key={s.itemName} status={s} now={now} grouped
                     startedAt={state.convStartTimes[s.itemName]}
-                    onStop={() => ps3Action.mutate({ filename: s.itemName, action: 'abort' })} />
+                    onStop={() => ps3Action.mutate({ filename: s.itemName, action: 'abort', platform: s.platform })} />
                 ))}
               </div>
             ))}
@@ -278,7 +285,7 @@ export function JobsPanel() {
             {completedGroups.map(group => group.length === 1 ? (
               <ConversionRow key={group[0].itemName} status={group[0]} now={now}
                 startedAt={state.convStartTimes[group[0].itemName]}
-                onStop={() => ps3Action.mutate({ filename: group[0].itemName, action: 'abort' })} />
+                onStop={() => ps3Action.mutate({ filename: group[0].itemName, action: 'abort', platform: group[0].platform })} />
             ) : (
               <div key={`grp-${group[0].gameId}`} className="border-l-[2.5px] border-l-[#3f7cf099]">
                 <div className="px-3 sm:px-[22px] pt-1.5 text-[10px] uppercase tracking-[0.06em] text-text-4">
@@ -287,7 +294,7 @@ export function JobsPanel() {
                 {group.map(s => (
                   <ConversionRow key={s.itemName} status={s} now={now} grouped
                     startedAt={state.convStartTimes[s.itemName]}
-                    onStop={() => ps3Action.mutate({ filename: s.itemName, action: 'abort' })} />
+                    onStop={() => ps3Action.mutate({ filename: s.itemName, action: 'abort', platform: s.platform })} />
                 ))}
               </div>
             ))}

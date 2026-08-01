@@ -8,6 +8,11 @@ export interface Ps3IsoStatusEvent {
    *  null/absent for legacy/unmatched items (which group by itemName). itemName stays the abort key. */
   gameId?: number | null
   format?: number | null
+  /** Which pipeline emitted this event ("PlayStation 3" / "Wii U"), stamped by the host's
+   *  console-specific bridge (#274) — the phase strings alone can't tell PS3 and Wii U conversions
+   *  apart (both share "queued"/"extracting"). The Jobs tab uses it to route the stop button to the
+   *  right backend pipeline. Null for legacy/pre-#274 payloads. */
+  platform?: string | null
 }
 
 export interface SyncProgressEvent {

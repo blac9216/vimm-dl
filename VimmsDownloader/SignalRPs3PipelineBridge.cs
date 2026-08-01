@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.SignalR;
 using Module.Core.Pipeline;
+using Module.Core;
 using Module.Ps3Pipeline.Bridge;
 
 class SignalRPs3PipelineBridge(IHubContext<DownloadHub> hub, QueueRepository repo) : IPs3PipelineBridge
@@ -38,7 +39,7 @@ class SignalRPs3PipelineBridge(IHubContext<DownloadHub> hub, QueueRepository rep
         // 3. SignalR broadcast — carry the identity on the live payload (ItemName stays the display/abort key).
         try
         {
-            var live = evt with { GameId = gameId, Format = format };
+            var live = evt with { GameId = gameId, Format = format, Platform = Platforms.PS3 };
             var json = JsonSerializer.SerializeToElement(live, AppJsonContext.Default.PipelineStatusEvent);
             await hub.Clients.All.SendAsync("ConvertStatus", json);
             await hub.Clients.All.SendAsync("Status", $"[PS3] {evt.ItemName}: {evt.Message}");

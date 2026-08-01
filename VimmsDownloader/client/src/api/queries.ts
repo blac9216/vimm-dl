@@ -430,7 +430,9 @@ export function useConvertPs3() {
 export function usePs3Action() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (data: { filename: string; action: 'mark-done' | 'abort' }) =>
+    // platform routes the action to the right pipeline server-side (PS3 default when omitted, #274) —
+    // pass it for a Wii U conversion/item so the stop/mark-done button doesn't silently no-op.
+    mutationFn: (data: { filename: string; action: 'mark-done' | 'abort'; platform?: string | null }) =>
       postJson('/api/ps3/action', data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['data'] }),
   })

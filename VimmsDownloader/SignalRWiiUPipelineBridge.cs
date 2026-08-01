@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.SignalR;
+using Module.Core;
 using Module.Core.Pipeline;
 using Module.WiiUPipeline.Bridge;
 
@@ -39,7 +40,7 @@ class SignalRWiiUPipelineBridge(IHubContext<DownloadHub> hub, QueueRepository re
         // 3. Broadcast — same "ConvertStatus"/"Status" channels the PS3 trace already consumes.
         try
         {
-            var live = evt with { GameId = gameId, Format = format };
+            var live = evt with { GameId = gameId, Format = format, Platform = Platforms.WiiU };
             var json = JsonSerializer.SerializeToElement(live, AppJsonContext.Default.PipelineStatusEvent);
             await hub.Clients.All.SendAsync("ConvertStatus", json);
             await hub.Clients.All.SendAsync("Status", $"[Wii U] {evt.ItemName}: {evt.Message}");
