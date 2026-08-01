@@ -65,7 +65,7 @@ All modules follow the convention in `Modules/MODULE_GUIDE.md`. Each module is a
 
 - **SRP file structure** — `Program.cs` (startup/DI), `Models.cs` (records + PathHelpers), `AppJsonContext.cs` (JSON source gen), `QueueRepository.cs`, `SettingsKeys.cs`, `DatabaseMigrator.cs` (embedded SQL migrations), `DownloadHub.cs`, `DownloadQueue.cs`, `QueueItemProvider.cs`, `MetadataFetcher.cs`.
 - **Catalog/source host services** — `CatalogRepository.cs` (implements `ICatalogStore`, all catalog SQL incl. the Vimm binding), `CatalogSyncService` (wired in `Program.cs` over the `libretro` client), `CatalogScanService` (owned scan of `completed/`), `CatalogVerifyService` (CRC32 verify), `CompatSyncService` (per-emulator compat via `CompatSources`), `CatalogResolveService` (archive→Vimm download resolution), `VimmSyncService` (per-console Vimm hash scrape/binding), `DefaultSets.cs` (seeded RomGoGetter archive sets), `ArchiveAuth.cs` (Internet Archive S3 "LOW" auth via a `DelegatingHandler`). The concrete `SourceRegistry` lives in Module.Download/Sources, built from DI.
-- **Endpoints/** — `FileEndpoints` (merged `/api/data` with pipeline trace), `DownloadEndpoints`, `MetadataEndpoints`, `SourceEndpoints`, `CatalogEndpoints` (+ the `BackgroundJobGate` single-flight base & `Catalog*State` markers), `JobsEndpoints` (`GET /api/jobs` + `POST /api/jobs/{kind}/cancel` — L1 #255, reads the same `BackgroundJobGate` instances via `JobsOps`), `Ps3Endpoints`, `SyncEndpoints`, `SettingsEndpoints`, `EventEndpoints`, `MetricsEndpoints`. **50 endpoints total** (enumerated in the API Endpoints table below — that table is the source of truth for the count).
+- **Endpoints/** — `FileEndpoints` (merged `/api/data` with pipeline trace), `DownloadEndpoints`, `MetadataEndpoints`, `CatalogEndpoints` (+ the `BackgroundJobGate` single-flight base & `Catalog*State` markers), `JobsEndpoints` (`GET /api/jobs` + `POST /api/jobs/{kind}/cancel` — L1 #255, reads the same `BackgroundJobGate` instances via `JobsOps`), `Ps3Endpoints`, `SyncEndpoints`, `SettingsEndpoints`, `EventEndpoints`, `MetricsEndpoints`. **46 endpoints total** (enumerated in the API Endpoints table below — that table is the source of truth for the count).
 - **SignalR bridges** — `SignalRPs3PipelineBridge.cs`, `SignalRSyncNotifier.cs`, `SignalRDownloadBridge.cs` route module events to SignalR + append to the events table. Pipeline bridge also updates the `completed_urls` projection for terminal states.
 - **AOT-ready** — `PublishAot=true`, raw ADO.NET (Microsoft.Data.Sqlite), JSON source generator (`AppJsonContext`), all modules `IsAotCompatible`. JSON in the catalog parsers uses `JsonDocument` (DOM, no reflection).
 - **QueueRepository / CatalogRepository** — singletons, all async SQLite operations. Database initialized via `DatabaseMigrator` with embedded SQL files; both repositories share `queue.db`.
@@ -195,13 +195,12 @@ Two scoped pipelines sharing `PipelineState` from Module.Core:
 
 ## Duplicate Detection
 
-- `POST /api/queue` checks for duplicates before adding URLs
+- `POST /api/catalog/games/{id}/queue` and `POST /api/catalog/games/queue` check for duplicates before queueing
 - `QueueRepository.CheckDuplicatesAsync()` — DB query across `queued_urls` and `completed_urls` (case-insensitive URL match, includes platform from metadata)
 - Pipeline-owned: `IPipeline.CheckDuplicate()` — each console defines its own filesystem/phase rules
 - PS3 rules: active conversions always block, terminal states check disk (archive + ISO existence)
 - No files on disk → not a duplicate (user can re-download freely)
-- `AddRequest.Force` flag to override duplicate check
-- No frontend force-add dialog since #258 removed the URL paste bar — the Library's batch queue reports per-game statuses (`queued` / `duplicate` / `unavailable`) instead
+- No direct-URL add surface (backend cleanup #272 removed `POST /api/queue`, its force-add override, and the `/api/sources*` browse endpoints, after #258 removed the URL paste bar) — the Library's batch queue reports per-game statuses (`queued` / `duplicate` / `unavailable`) instead
 
 ## Frontend (React + Vite + Tailwind)
 
@@ -231,7 +230,7 @@ Two scoped pipelines sharing `PipelineState` from Module.Core:
 - Two tiers: Beta (Library, Import, Sync) and Developer (Events)
 - Metrics tab is always visible — not behind a flag
 
-## API Endpoints (50 total)
+## API Endpoints (46 total)
 
 | Method | Path | Purpose |
 |--------|------|---------|
@@ -243,7 +242,6 @@ Two scoped pipelines sharing `PipelineState` from Module.Core:
 | GET | `/api/meta` | Source metadata cache (`?source=&sourceId=`) |
 | GET | `/api/metrics` | Disk usage, queue/completed/orphaned/downloading sizes |
 | GET | `/api/events` | Paginated event log with type/item filters |
-| POST | `/api/queue` | Add URLs (duplicate check, force flag, default format, source) |
 | PATCH | `/api/queue/{id}` | Move or set format |
 | DELETE | `/api/queue/{id}` | Remove from queue |
 | DELETE | `/api/queue` | Clear queue |
@@ -251,9 +249,6 @@ Two scoped pipelines sharing `PipelineState` from Module.Core:
 | GET | `/api/queue/export` | Export queue JSON |
 | POST | `/api/queue/import` | Import queue JSON (triggers background metadata fetch) |
 | DELETE | `/api/completed/{id}` | Remove history entry (`?deleteFiles=true` deletes archive + ISO) |
-| GET | `/api/sources` | Registered download sources (for the picker) |
-| GET | `/api/sources/{source}/sets` | Browse a source's sets/collections |
-| GET | `/api/sources/{source}/files` | List files in a source set |
 | GET | `/api/catalog/status` | Per-console counts/versions + running background jobs (legacy shape, frozen) |
 | GET | `/api/jobs` | Unified background-job surface: one row per kind with progress/message/elapsed |
 | POST | `/api/jobs/{kind}/cancel` | Cancel a running background job (204 signalled / 404 unknown / 409 not running) |
