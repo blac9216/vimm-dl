@@ -2,6 +2,8 @@
 // the game list and the detail pane, persisted so it survives tab navigation (the panel unmounts on
 // tab change) and page reloads.
 
+import type { SearchMode, SortMode } from '../../types/api'
+
 export interface LibraryFilters {
   console: string            // '' = all consoles
   search: string
@@ -9,10 +11,10 @@ export interface LibraryFilters {
   dedupe: boolean            // 1G1R — one game per title
   english: boolean           // English/Western releases only
   excludeCategories: boolean // hide demos/betas/protos/kiosk/samples
-  searchMode: string         // substring | glob | regex
+  searchMode: SearchMode
   emulator: string           // '' = any emulator
   compatStatus: string       // '' = any status (only meaningful with an emulator)
-  sort: string               // name | rank
+  sort: SortMode
   page: number
   selectedId: number | null  // the game shown in the detail pane
 }

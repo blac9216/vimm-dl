@@ -5,6 +5,7 @@ import { getConsoleColor } from '../../lib/consoleColors'
 import { fmtBytes } from '../../lib/format'
 import { COMPAT_STATUSES } from '../../lib/compat'
 import { hasAdvancedFilters, type LibraryFilters } from './filters'
+import type { SearchMode } from '../../types/api'
 
 // Column B of the Library (issue #257, design handoff "1. Library (home)" -> Column B): the game
 // list. Search field, availability + sort segments and the result count on top; the design's compact
@@ -157,7 +158,7 @@ export function GameList({
               </label>
               <div className="border-t border-border-inner pt-2 flex flex-col gap-1.5">
                 <span className="text-[10px] uppercase tracking-[0.12em] text-text-4">Search mode</span>
-                <select value={filters.searchMode} onChange={e => patch({ searchMode: e.target.value })}
+                <select value={filters.searchMode} onChange={e => patch({ searchMode: e.target.value as SearchMode })}
                   title="Search mode: substring, glob (*,?) or regex" className={SELECT_CLASS}>
                   <option value="substring">Name (substring)</option>
                   <option value="glob">Glob (*, ?)</option>

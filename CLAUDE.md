@@ -314,16 +314,19 @@ Single bind mount: `-v ~/vimm:/vimms`
 
 ## Testing
 
-416 tests across 7 projects:
-- 128 Download (state management, file recovery, vault parser, source seam, platform extraction, EmuDeck console-folder mapping, format resolution, duplicate detection, edge cases)
+916 tests across 10 projects:
+- 320 Host `VimmsDownloader.Tests` (real `DatabaseMigrator`/repositories, catalog query, sets, resolve + archive→Vimm fallback, `ArchiveAuth`, Vimm binding/scrape, source identity, wire-contract tests)
+- 242 Catalog (ClrMamePro parser, sync service, matcher, dedup, compat sources + registry, Crc32, `CatalogSystems`, `VimmSystems`, `VimmVaultParser`)
+- 153 Download (state management, file recovery, vault parser, source seam, platform extraction, EmuDeck console-folder mapping, format resolution, duplicate detection, edge cases)
 - 87 Sync (real file I/O, disk simulation, edge cases)
-- 87 Host `VimmsDownloader.Tests` (real `DatabaseMigrator`/repositories, catalog query, sets, resolve + archive→Vimm fallback, `ArchiveAuth`, Vimm binding/scrape, source identity)
-- 62 Catalog (ClrMamePro parser, sync service, matcher, dedup, compat sources + registry, Crc32, `CatalogSystems`, `VimmSystems`, `VimmVaultParser`)
+- 45 WiiUTools (TMD/ticket/cert parsing, FST/U8 archive, title key provider, WiiU crypto)
 - 25 Extractor (7z via Testcontainers — container tests skip when Docker is unavailable)
 - 17 Ps3Pipeline (pipeline state, rename, extract, abort, IPipeline contract)
 - 10 Ps3IsoTools (ParamSfo, FindJbFolder, IsoFilenameFormatter)
+- 9 WiiUPipeline (conversion pipeline)
+- 8 WiiUSource (NUS download source)
 
-Most integration tests use real file I/O via `TempDirectory` or a temp SQLite file. Container tests use `ghcr.io/blac9216/vimm-dl-tools`.
+Most integration tests use real file I/O via `TempDirectory` or a temp SQLite file. Container tests use `ghcr.io/blac9216/vimm-dl-tools` and skip gracefully when Docker is unavailable — 19 of the 25 Extractor tests skip in a Docker-less environment.
 
 ## Docker
 

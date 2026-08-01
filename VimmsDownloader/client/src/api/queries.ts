@@ -5,7 +5,7 @@ import type {
   EventsResponse, MetricsResponse,
   CatalogConsole, CatalogGamesResponse, CatalogStatus, CatalogSet, CatalogVimm,
   CatalogQueueBatchResponse, Emulator, CatalogGameDescription, CatalogCurateResponse,
-  JobStatus,
+  JobStatus, SearchMode, SortMode,
 } from '../types/api'
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -119,7 +119,7 @@ export function useEmulators() {
   })
 }
 
-export function useCatalogGames(console: string | null, q: string, local: string, dedupe: boolean, english: boolean, excludeCategories: boolean, searchMode: string, page: number, pageSize = 100, emulator = '', compat = '', sort = 'name') {
+export function useCatalogGames(console: string | null, q: string, local: string, dedupe: boolean, english: boolean, excludeCategories: boolean, searchMode: SearchMode, page: number, pageSize = 100, emulator = '', compat = '', sort: SortMode = 'name') {
   const params = new URLSearchParams()
   if (console) params.set('console', console)
   if (q) params.set('q', q)
@@ -320,7 +320,7 @@ export async function fetchGameVimm(id: number): Promise<CatalogVimm | null> {
 // the current Library filters. Returns the ids to pre-select + their cumulative size.
 export async function fetchCurate(opts: {
   console: string | null; q: string; dedupe: boolean; english: boolean; excludeCategories: boolean
-  searchMode: string; emulator: string; compat: string; budgetBytes: number; maxCount?: number
+  searchMode: SearchMode; emulator: string; compat: string; budgetBytes: number; maxCount?: number
 }): Promise<CatalogCurateResponse> {
   const params = new URLSearchParams()
   if (opts.console) params.set('console', opts.console)

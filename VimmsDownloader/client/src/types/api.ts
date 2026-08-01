@@ -247,7 +247,8 @@ export interface VersionResponse {
 
 // NOTE (#258): the URL paste bar and its force-add duplicate dialog were removed — all downloads are
 // queued from the Library, whose batch-queue response reports duplicates per game (CatalogQueueResult
-// above). `POST /api/queue` and its duplicate payload still exist server-side for queue JSON import.
+// above). Queue JSON import goes through `POST /api/queue/import` (`POST /api/queue` itself was
+// removed in #299).
 
 export interface QueueExportItem {
   url: string
@@ -306,6 +307,8 @@ export interface Ps3ConvertResponse {
 }
 
 export interface SyncCompareResponse {
+  syncPath: string
+  pathExists: boolean
   new: SyncFileInfo[]
   synced: SyncFileInfo[]
   targetOnly: SyncFileInfo[]
