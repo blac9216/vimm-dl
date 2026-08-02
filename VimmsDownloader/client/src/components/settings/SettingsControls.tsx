@@ -98,6 +98,46 @@ export function ToggleRow({ label, description, checked, onChange }: {
   )
 }
 
+/**
+ * Console visibility row (#311, Settings → Library): the same 38×20 toggle as ToggleRow, but preceded
+ * by the console's color-code chip (matches ConsoleRail) instead of a plain label — checked = visible
+ * in the Library.
+ */
+export function ConsoleToggleRow({ code, color, label, count, checked, onChange }: {
+  code: string
+  color: string
+  label: string
+  count: number
+  checked: boolean
+  onChange: (checked: boolean) => void
+}) {
+  return (
+    <label className="flex items-center justify-between gap-2.5 px-[18px] py-[11px] cursor-pointer
+      hover:bg-accent/[0.06]">
+      <span className="flex items-center gap-[9px] min-w-0">
+        <span className="w-[42px] shrink-0 text-center text-[8.5px] font-bold font-mono tracking-[0.02em]
+          py-[3px] rounded-[5px] text-bg" style={{ background: color }}>{code}</span>
+        <span className="min-w-0">
+          <span className="block text-[13px] text-text-body truncate">{label}</span>
+          <span className="block text-[11px] text-text-3">{count.toLocaleString()} games</span>
+        </span>
+      </span>
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={e => onChange(e.target.checked)}
+        className="sr-only peer"
+      />
+      <span className={`relative shrink-0 w-[38px] h-5 rounded-[11px] transition-colors
+        peer-focus-visible:ring-2 peer-focus-visible:ring-accent/50 ${
+          checked ? 'bg-gradient-to-br from-accent to-accent-2' : 'bg-border-light'}`}>
+        <span className={`absolute top-0.5 w-4 h-4 rounded-full transition-all ${
+          checked ? 'left-5 bg-white' : 'left-0.5 bg-text-3'}`} />
+      </span>
+    </label>
+  )
+}
+
 /** Stepper — 26×26 −/+ around a mono value; clamps at min/max and disables at the bounds. */
 export function StepperRow({ label, description, value, min, max, step = 1, onChange }: {
   label: string

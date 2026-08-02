@@ -19,6 +19,12 @@ static class SettingsKeys
     // (fresher hugo auto-datfile-generator release zips). See DailyBundleDatSource.
     public const string CatalogDatSource = "catalog_dat_source";
 
+    // Library browse preference (#311): CSV of console slugs to hide from the Library's console rail
+    // and "All consoles" browse. Default empty (nothing hidden). Purely a browse filter — owned
+    // detection, curation, jobs, and an explicit ?console= query are unaffected; see
+    // CatalogRepository.GetGamesAsync/BuildGameFilter.
+    public const string LibraryHiddenConsoles = "library_hidden_consoles";
+
     // Local import (epic #118): the drop folder ingested by POST /api/catalog/import, and where
     // non-matching files are set aside. Empty → defaults to downloads/import and downloads/rejected.
     public const string ImportPath = "import_path";
