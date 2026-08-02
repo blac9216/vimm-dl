@@ -35,6 +35,62 @@ public class VimmVaultParserTests
         Assert.IsEmpty(VimmVaultParser.ParseList("<html><body>no games here</body></html>"));
     }
 
+    /// <summary>
+    /// The body Vimm actually serves for a section with no games — an HTTP 404 page whose main content
+    /// is "No matches found.", with no table wrapper anywhere (verified live: Wii U section Q).
+    /// </summary>
+    private const string EmptySectionFixture = """
+        <main class="mainContent" style="order:1">
+        <div style="font-size:28pt; text-align:center">Q</div><p style="text-align:center">No matches found.</p>
+        </main>
+        """;
+
+    /// <summary>
+    /// #297: a 200 that IS a real, result-bearing list page must be distinguishable from a 200 OK
+    /// rate-limit/WAF body. The marker is the table+caption wrapper Vimm emits around the game rows.
+    /// An empty section is <i>not</i> a row-less 200 — it is a 404, covered by
+    /// <see cref="IsEmptySectionPage_TrueOnlyForVimmsNoMatchesPage"/>.
+    /// </summary>
+    [TestMethod]
+    public void IsListPage_TrueForTableCaptionWrapper()
+    {
+        Assert.IsTrue(VimmVaultParser.IsListPage(ListFixture));                          // real rows
+        Assert.IsFalse(VimmVaultParser.IsListPage(""));
+        Assert.IsFalse(VimmVaultParser.IsListPage("Too many requests, please slow down."));
+        Assert.IsFalse(VimmVaultParser.IsListPage("<html><body>no games here</body></html>"));
+        Assert.IsFalse(VimmVaultParser.IsListPage(EmptySectionFixture));   // the real empty-section body
+    }
+
+    /// <summary>
+    /// #297: Vimm serves a section with no games as an HTTP <b>404</b> carrying a "No matches found."
+    /// page — no table wrapper at all. Recognising that body is what lets the seed count such a section
+    /// as legitimately empty instead of as a failed fetch; a 404 with any other body stays a failure.
+    /// </summary>
+    [TestMethod]
+    public void IsEmptySectionPage_TrueOnlyForVimmsNoMatchesPage()
+    {
+        Assert.IsTrue(VimmVaultParser.IsEmptySectionPage(EmptySectionFixture));
+        Assert.IsFalse(VimmVaultParser.IsEmptySectionPage(""));                    // bare 404 body
+        Assert.IsFalse(VimmVaultParser.IsEmptySectionPage(ListFixture));           // a populated section
+        Assert.IsFalse(VimmVaultParser.IsEmptySectionPage("Too many requests, please slow down."));
+        Assert.IsFalse(VimmVaultParser.IsEmptySectionPage("<html><body>404 Not Found</body></html>"));
+    }
+
+    /// <summary>
+    /// #297's sibling check for vault/title pages: the inline "media = [...]" declaration is present
+    /// whether the array holds hash-bearing entries, holds nothing, or is entirely empty — so it can
+    /// distinguish "legitimately publishes no hashes" from "not a vault page at all".
+    /// </summary>
+    [TestMethod]
+    public void IsVaultPage_TrueForMediaDeclaration_RegardlessOfHashes()
+    {
+        Assert.IsTrue(VimmVaultParser.IsVaultPage("""<script>let media=[{"ID":1}];</script>"""));
+        Assert.IsTrue(VimmVaultParser.IsVaultPage("<script>let media=[];</script>"));   // legitimately no hashes
+        Assert.IsFalse(VimmVaultParser.IsVaultPage(""));
+        Assert.IsFalse(VimmVaultParser.IsVaultPage("Too many requests, please slow down."));
+        Assert.IsFalse(VimmVaultParser.IsVaultPage("<html><body>no media here</body></html>"));
+    }
+
     [TestMethod]
     public void SectionFor_MapsAlpha_Digits_Symbols()
     {

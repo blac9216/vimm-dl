@@ -59,6 +59,46 @@ public static partial class VimmVaultParser
         return entries;
     }
 
+    // Real, result-bearing list pages wrap their rows in  <table><caption>...</caption>  — the table is
+    // emitted only when the section HAS results, so this marker means "a genuine list page that listed
+    // something", not "a list page of any kind". That is precisely what makes it a usable structural
+    // sanity check on a 200: a rate-limit/WAF interstitial served with HTTP 200 has no reason to carry
+    // this wrapper. An empty section is NOT a 200 with an empty table — see IsEmptySectionPage.
+    [GeneratedRegex("""<table\b[^>]*>\s*<caption\b""", RegexOptions.IgnoreCase)]
+    private static partial Regex ListPageMarkerRegex();
+
+    /// <summary>
+    /// Whether <paramref name="html"/> structurally looks like a real vault list page that rendered
+    /// results — the <c>&lt;table&gt;&lt;caption&gt;</c> wrapper Vimm emits around the game rows —
+    /// rather than an unrelated 200 OK body (a rate-limit interstitial, a WAF challenge page, …).
+    ///
+    /// <para><b>Vimm's actual behaviour</b> (verified live against <c>?p=list&amp;system=WiiU</c>):
+    /// a section that has games answers <b>HTTP 200</b> with this wrapper and its rows; a section that
+    /// has none answers <b>HTTP 404</b> with a "No matches found." page and <i>no table at all</i>
+    /// (see <see cref="IsEmptySectionPage"/>). So a 200 must carry this marker to be trusted, and
+    /// "legitimately empty" is a status+body judgement, never "a 200 whose table happened to be
+    /// row-less". See <see cref="ParseList"/> for the rows themselves.</para>
+    /// </summary>
+    public static bool IsListPage(string html) => ListPageMarkerRegex().IsMatch(html);
+
+    // Vimm serves a list section with no games as an HTTP 404 whose body is the ordinary site chrome
+    // with "No matches found." as the main content — no <table>/<caption> wrapper anywhere (verified
+    // live: WiiU section Q → 404 + this text; sections X and "number" → 200 + the wrapper). Anchoring
+    // on the text node keeps a bare 404 (an error page, a proxy's own 404) from passing as "empty".
+    [GeneratedRegex(""">\s*No matches found\.?\s*<""", RegexOptions.IgnoreCase)]
+    private static partial Regex EmptySectionMarkerRegex();
+
+    /// <summary>
+    /// Whether <paramref name="html"/> is Vimm's <b>"No matches found."</b> page — the body it serves,
+    /// with an HTTP <b>404</b> status, for a list section that legitimately contains no games.
+    ///
+    /// <para>Callers pair this with the status: a 404 <i>carrying this marker</i> is an empty section
+    /// (contributes zero titles, and is <b>not</b> a failed fetch); a 404 without it is an ordinary
+    /// failure. Without that distinction a console with any empty letter — Wii U's section Q — can
+    /// never be enumerated completely and so can never be merged (#297).</para>
+    /// </summary>
+    public static bool IsEmptySectionPage(string html) => EmptySectionMarkerRegex().IsMatch(html);
+
     /// <summary>
     /// The vault list section a game name falls under: an uppercase letter A–Z, or <c>number</c> for
     /// names that don't start with a letter (digits/symbols) — matching Vimm's own section scheme.
@@ -73,6 +113,15 @@ public static partial class VimmVaultParser
 
     [GeneratedRegex(@"media\s*=\s*\[", RegexOptions.IgnoreCase)]
     private static partial Regex MediaArrayStartRegex();
+
+    /// <summary>
+    /// Whether <paramref name="html"/> structurally looks like a real vault title page — the inline
+    /// <c>media = [...]</c> declaration Vimm's page template always emits, whether the array holds
+    /// entries or not — rather than an unrelated 200 OK body (a rate-limit interstitial, a WAF
+    /// challenge page, …). Callers must not treat "<see cref="ParseMedia"/> found nothing" as
+    /// "this title legitimately publishes no hashes" unless this is also true.
+    /// </summary>
+    public static bool IsVaultPage(string html) => MediaArrayStartRegex().IsMatch(html);
 
     /// <summary>
     /// Parse the inline <c>media</c> JSON array. Single-file titles carry the hash triple inline
