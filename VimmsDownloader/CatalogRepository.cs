@@ -604,15 +604,21 @@ class CatalogRepository : ICatalogStore
     /// Optionally filtered to games with a compat entry for <paramref name="emulator"/> (and, when
     /// given, that emulator's <paramref name="compatStatus"/>).
     /// </summary>
+    /// <param name="hiddenConsoles">
+    /// Library browse preference (#311): consoles to exclude when <paramref name="console"/> is null
+    /// (the "All consoles" browse). Ignored when <paramref name="console"/> is set — an explicit
+    /// console filter is honored even if it's hidden. Callers that must see the full catalog
+    /// regardless of the setting (curation, batch queue) simply omit this parameter.
+    /// </param>
     public async Task<(int Total, List<CatalogGameDto> Games)> GetGamesAsync(
         string? console, string? query, string local, bool dedupe, bool english, bool excludeCategories,
         string searchMode, int page, int pageSize, string? emulator = null, string? compatStatus = null,
-        string sort = "name")
+        string sort = "name", IReadOnlyCollection<string>? hiddenConsoles = null)
     {
         pageSize = Math.Clamp(pageSize, 1, 200);
         page = Math.Max(0, page);
         var f = BuildGameFilter(console, query, local, dedupe, english, excludeCategories, searchMode,
-            emulator, compatStatus, sort);
+            emulator, compatStatus, sort, hiddenConsoles);
 
         await using var db = await OpenAsync();
 
@@ -655,7 +661,8 @@ class CatalogRepository : ICatalogStore
         bool IsRegex, string? RegexPattern, Action<SqliteCommand> Bind);
 
     private static GameFilter BuildGameFilter(string? console, string? query, string local, bool dedupe,
-        bool english, bool excludeCategories, string searchMode, string? emulator, string? compatStatus, string sort)
+        bool english, bool excludeCategories, string searchMode, string? emulator, string? compatStatus, string sort,
+        IReadOnlyCollection<string>? hiddenConsoles = null)
     {
         local = local is "owned" or "remote" ? local : "all";
         searchMode = searchMode is "glob" or "regex" ? searchMode : "substring";
@@ -707,15 +714,27 @@ class CatalogRepository : ICatalogStore
             : $" AND EXISTS(SELECT 1 FROM catalog_compat c WHERE ({CompatMatch}) AND c.emulator = $emu"
               + (compatFilterStatus is null ? "" : " AND c.status = $cstatus") + ")";
 
+        // Library hidden-console filter (#311): only ever applies to the "All consoles" browse — the
+        // "$console IS NOT NULL OR" guard means an explicit console filter is honored even if that
+        // console is hidden (the API stays honest; nothing in the UI produces such a request).
+        var hidden = (hiddenConsoles ?? [])
+            .Where(c => !string.IsNullOrWhiteSpace(c))
+            .Select(c => c.Trim().ToLowerInvariant())
+            .Distinct(StringComparer.Ordinal).ToList();
+        var hiddenClause = hidden.Count > 0
+            ? " AND ($console IS NOT NULL OR lower(s.console) NOT IN ("
+              + string.Join(", ", Enumerable.Range(0, hidden.Count).Select(i => $"$hidden{i}")) + "))"
+            : "";
+
         var filterWhere = $"""
             WHERE ($console IS NULL OR s.console = $console)
               AND ($local = 'all'
                    OR ($local = 'owned'  AND     EXISTS(SELECT 1 FROM catalog_owned o WHERE o.game_id = g.id))
                    OR ($local = 'remote' AND NOT EXISTS(SELECT 1 FROM catalog_owned o WHERE o.game_id = g.id)))
-              AND ($dedupe = 0 OR g.is_parent = 1){englishClause}{categoryClause}{compatClause}
+              AND ($dedupe = 0 OR g.is_parent = 1){englishClause}{categoryClause}{compatClause}{hiddenClause}
             """;
 
-        // Bind every WHERE parameter; the optional english/category/name/compat params only when present.
+        // Bind every WHERE parameter; the optional english/category/name/compat/hidden params only when present.
         void Bind(SqliteCommand cmd)
         {
             cmd.Parameters.AddWithValue("$console", (object?)console ?? DBNull.Value);
@@ -731,6 +750,7 @@ class CatalogRepository : ICatalogStore
             if (emu is not null) cmd.Parameters.AddWithValue("$emu", emu);
             // $cstatus is only referenced inside the emu clause, so bind it only when that clause is present.
             if (emu is not null && compatFilterStatus is not null) cmd.Parameters.AddWithValue("$cstatus", compatFilterStatus);
+            for (int i = 0; i < hidden.Count; i++) cmd.Parameters.AddWithValue($"$hidden{i}", hidden[i]);
         }
 
         return new GameFilter(filterWhere, nameClause, orderBy,

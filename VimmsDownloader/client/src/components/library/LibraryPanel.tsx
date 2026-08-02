@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useCatalogConsoles, useCatalogGames, useCatalogStatus, useEmulators, useSyncCatalog, useQueueCatalogGame, useQueueCatalogGamesBatch, fetchGameVimm, fetchCurate } from '../../api/queries'
+import { useCatalogConsoles, useCatalogGames, useCatalogStatus, useEmulators, useSettings, useSyncCatalog, useQueueCatalogGame, useQueueCatalogGamesBatch, fetchGameVimm, fetchCurate } from '../../api/queries'
 import type { CatalogGame, CatalogVimmFormat } from '../../types/api'
 import { ConsoleRail } from './ConsoleRail'
 import { GameList } from './GameList'
@@ -8,6 +8,7 @@ import { GameDetailPane } from './GameDetailPane'
 import { SetsDialog } from './SetsDialog'
 import { FormatPickerDialog } from './FormatPickerDialog'
 import { fmtBytes } from '../../lib/format'
+import { parseHiddenConsoles } from '../../lib/libraryHidden'
 import { loadFilters, saveFilters, type LibraryFilters } from './filters'
 
 // The Library (issue #257, design handoff "1. Library (home)"): a three-column master/detail browse
@@ -44,6 +45,7 @@ export function LibraryPanel() {
   const { data: consoles } = useCatalogConsoles()
   const { data: emulators } = useEmulators()
   const { data: status } = useCatalogStatus()
+  const { data: settings } = useSettings()
   // The only catalog job still triggered from the Library: the empty-catalog "Sync catalog" CTA
   // below. Every other trigger moved to the Jobs tab (#259).
   const syncMutation = useSyncCatalog()
@@ -62,7 +64,27 @@ export function LibraryPanel() {
   // its views when one finishes and holds off curation while one runs.
   const busy = !!status && (status.syncing || status.scanning || status.compatSyncing || status.verifying
     || status.vimmSyncing || status.importing || status.igdbSyncing || status.raSyncing)
-  const totalInCatalog = status?.totalGames ?? 0
+  // The catalog-empty gate below uses the raw (unfiltered) total — hiding every console via Settings
+  // must not make an already-synced catalog look empty.
+  const catalogIsEmpty = (status?.totalGames ?? 0) === 0
+
+  // Library visibility preference (#311): consoles hidden in Settings → Library disappear from the
+  // rail and its "All consoles" count. ConsoleRail already gets exactly what the backend reports per
+  // console, so the "All consoles" figure is the sum of the non-hidden ones — consistent with what
+  // GET /api/catalog/games (no console filter) now excludes server-side.
+  const hiddenConsoles = useMemo(() => parseHiddenConsoles(settings?.libraryHiddenConsoles), [settings])
+  const visibleConsoles = useMemo(
+    () => (consoles ?? []).filter(c => !hiddenConsoles.has(c.console.toLowerCase())),
+    [consoles, hiddenConsoles])
+  const totalInCatalog = visibleConsoles.reduce((sum, c) => sum + c.gameCount, 0)
+
+  // If the persisted console selection points at a console hidden since the last visit, fall back to
+  // "All consoles" rather than showing a rail with nothing highlighted / a dead filter.
+  useEffect(() => {
+    if (filters.console && hiddenConsoles.has(filters.console.toLowerCase())) {
+      setFilters(f => ({ ...f, console: '', page: 0 }))
+    }
+  }, [filters.console, hiddenConsoles])
 
   // When a sync or scan finishes, refresh the catalog views so new games/counts/owned appear.
   const wasBusy = useRef(busy)
@@ -182,7 +204,7 @@ export function LibraryPanel() {
   }
 
   // Empty catalog → sync call-to-action.
-  if (totalInCatalog === 0) {
+  if (catalogIsEmpty) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-4 text-center px-6">
         <div className="text-text-3 text-sm max-w-md leading-relaxed">
@@ -222,9 +244,9 @@ export function LibraryPanel() {
       )}
 
       <div className="flex-1 min-h-0 flex flex-col sm:flex-row">
-        <ConsoleRail variant="strip" consoles={consoles} totalInCatalog={totalInCatalog}
+        <ConsoleRail variant="strip" consoles={visibleConsoles} totalInCatalog={totalInCatalog}
           selected={filters.console} onSelect={c => patch({ console: c })} />
-        <ConsoleRail consoles={consoles} totalInCatalog={totalInCatalog}
+        <ConsoleRail consoles={visibleConsoles} totalInCatalog={totalInCatalog}
           selected={filters.console} onSelect={c => patch({ console: c })} />
 
         <GameList

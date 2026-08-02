@@ -279,6 +279,7 @@ export interface SettingsResponse {
   featureEvents: boolean
   featureImport: boolean
   catalogDatSource: string
+  libraryHiddenConsoles: string
   archiveParallelism: number
   archiveRetries: number
   archiveIdle: number

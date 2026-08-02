@@ -1,9 +1,11 @@
 import { useState } from 'react'
-import { useSettings, useSaveSetting } from '../../api/queries'
+import { useSettings, useSaveSetting, useCatalogConsoles } from '../../api/queries'
 import { SetsDialog } from '../library/SetsDialog'
+import { getConsoleColor } from '../../lib/consoleColors'
+import { parseHiddenConsoles, toggleHiddenConsole } from '../../lib/libraryHidden'
 import {
   SettingsCard, SettingsRow, SettingsStackRow, SettingsSubHeader, StepperRow, ToggleRow,
-  selectCls, inputCls, cardButtonCls,
+  ConsoleToggleRow, selectCls, inputCls, cardButtonCls,
 } from './SettingsControls'
 
 // The Settings tab (issue #264, design handoff "8. Settings"): a 208px section sidebar over a
@@ -13,12 +15,13 @@ import {
 // common key rides along in Conversion and both archive.org S3 fields stay, though the design omits
 // them.
 
-type Section = 'conversion' | 'sources' | 'catalog' | 'integrations' | 'features'
+type Section = 'conversion' | 'sources' | 'catalog' | 'library' | 'integrations' | 'features'
 
 const SECTIONS: { key: Section; label: string; short: string; icon: string }[] = [
   { key: 'conversion', label: 'PS3 Conversion', short: 'Conversion', icon: '◆' },
   { key: 'sources', label: 'Sources', short: 'Sources', icon: '⛁' },
   { key: 'catalog', label: 'Catalog', short: 'Catalog', icon: '▤' },
+  { key: 'library', label: 'Library', short: 'Library', icon: '▦' },
   { key: 'integrations', label: 'Integrations', short: 'Integrations', icon: '⚯' },
   { key: 'features', label: 'Feature Flags', short: 'Flags', icon: '⚑' },
 ]
@@ -36,6 +39,10 @@ const TITLES: Record<Section, { title: string; subtitle: string }> = {
     title: 'Catalog',
     subtitle: 'The No-Intro / Redump source the catalog syncs from.',
   },
+  library: {
+    title: 'Library',
+    subtitle: 'Hide consoles you don’t care about from the Library rail and "All consoles" browse.',
+  },
   integrations: {
     title: 'Integrations',
     subtitle: 'API credentials for descriptions and popularity ranking.',
@@ -48,6 +55,7 @@ const TITLES: Record<Section, { title: string; subtitle: string }> = {
 
 export function SettingsPanel() {
   const { data: settings } = useSettings()
+  const { data: consoles } = useCatalogConsoles()
   const saveMutation = useSaveSetting()
   const [section, setSection] = useState<Section>('conversion')
   const [showSets, setShowSets] = useState(false)
@@ -277,6 +285,58 @@ export function SettingsPanel() {
               </div>
             </SettingsCard>
           )}
+
+          {section === 'library' && (() => {
+            const hiddenSet = parseHiddenConsoles(settings.libraryHiddenConsoles)
+            const sortedConsoles = [...(consoles ?? [])].sort((a, b) => a.displayName.localeCompare(b.displayName))
+            const hiddenCount = sortedConsoles.filter(c => hiddenSet.has(c.console.toLowerCase())).length
+
+            if (sortedConsoles.length === 0) {
+              return (
+                <SettingsCard>
+                  <div className="px-[18px] py-4 text-[11px] leading-relaxed text-text-3">
+                    The catalog is empty — sync it from the Library tab (or the Jobs tab's "Sync" job)
+                    before choosing which consoles to hide.
+                  </div>
+                </SettingsCard>
+              )
+            }
+
+            return (
+              <>
+                <div className="flex items-center justify-between mb-2.5 px-0.5">
+                  <span className="text-[11px] text-text-3">
+                    {hiddenCount === 0
+                      ? `All ${sortedConsoles.length} consoles visible`
+                      : `Hidden ${hiddenCount} of ${sortedConsoles.length} consoles`}
+                  </span>
+                  {hiddenCount > 0 && (
+                    <button onClick={() => save('library_hidden_consoles', '')} className="text-[11px] text-link hover:text-link-2">
+                      Show all
+                    </button>
+                  )}
+                </div>
+                <SettingsCard>
+                  {sortedConsoles.map(c => {
+                    const { code, color } = getConsoleColor(c.console)
+                    const visible = !hiddenSet.has(c.console.toLowerCase())
+                    return (
+                      <ConsoleToggleRow
+                        key={c.console}
+                        code={code}
+                        color={color}
+                        label={c.displayName}
+                        count={c.gameCount}
+                        checked={visible}
+                        onChange={v => save('library_hidden_consoles',
+                          toggleHiddenConsole(settings.libraryHiddenConsoles, c.console, !v))}
+                      />
+                    )
+                  })}
+                </SettingsCard>
+              </>
+            )
+          })()}
 
           {section === 'integrations' && (
             <SettingsCard>

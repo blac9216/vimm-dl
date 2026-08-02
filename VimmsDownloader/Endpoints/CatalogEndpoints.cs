@@ -107,15 +107,26 @@ static class CatalogEndpoints
         // curation. ?mode= selects the name match: substring (default) | glob | regex. ?emulator= (and
         // optional ?compat= status) narrows to games with that emulator's compatibility entry. ?sort=
         // chooses the order: name (default) | rank ("best games" by rank_score, unranked last).
+        // Library hidden-console filter (#311): when no explicit ?console= is given, consoles the user
+        // hid in Settings → Library are excluded from the browse (the "All consoles" view). An explicit
+        // ?console= is honored even if it's hidden — the API stays honest even though nothing in the UI
+        // produces such a request.
         app.MapGet("/api/catalog/games", async (string? console, string? q, string? local, bool? dedupe,
             bool? english, bool? excludeCategories, string? mode, string? emulator, string? compat,
-            string? sort, int? page, int? pageSize, CatalogRepository repo) =>
+            string? sort, int? page, int? pageSize, CatalogRepository repo, QueueRepository queueRepo) =>
         {
             var ps = Math.Clamp(pageSize ?? 100, 1, 200);
             var p = Math.Max(0, page ?? 0);
+            List<string>? hidden = null;
+            if (string.IsNullOrEmpty(console))
+            {
+                var raw = await queueRepo.GetSettingAsync(SettingsKeys.LibraryHiddenConsoles);
+                if (!string.IsNullOrWhiteSpace(raw))
+                    hidden = raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+            }
             var (total, games) = await repo.GetGamesAsync(console, q, local ?? "all", dedupe ?? false,
                 english ?? false, excludeCategories ?? false, mode ?? "substring", p, ps, emulator, compat,
-                sort ?? "name");
+                sort ?? "name", hidden);
             return new CatalogGamesResponse(total, p, ps, games);
         });
 

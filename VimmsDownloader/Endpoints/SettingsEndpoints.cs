@@ -40,6 +40,7 @@ static class SettingsEndpoints
                 FeatureEvents: s.GetValueOrDefault(SettingsKeys.FeatureEvents, "false") == "true",
                 FeatureImport: s.GetValueOrDefault(SettingsKeys.FeatureImport, "false") == "true",
                 CatalogDatSource: s.GetValueOrDefault(SettingsKeys.CatalogDatSource, "libretro"),
+                LibraryHiddenConsoles: s.GetValueOrDefault(SettingsKeys.LibraryHiddenConsoles, ""),
                 ArchiveParallelism: int.TryParse(s.GetValueOrDefault(SettingsKeys.ArchiveParallelism, "4"), out var ap) ? ap : 4,
                 ArchiveRetries: int.TryParse(s.GetValueOrDefault(SettingsKeys.ArchiveRetries, "3"), out var ar) ? ar : 3,
                 ArchiveIdle: int.TryParse(s.GetValueOrDefault(SettingsKeys.ArchiveIdle, "60"), out var ai) ? ai : 60,
