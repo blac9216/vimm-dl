@@ -315,9 +315,9 @@ Single bind mount: `-v ~/vimm:/vimms`
 
 ## Testing
 
-916 tests across 10 projects:
-- 320 Host `VimmsDownloader.Tests` (real `DatabaseMigrator`/repositories, catalog query, sets, resolve + archive→Vimm fallback, `ArchiveAuth`, Vimm binding/scrape, source identity, wire-contract tests)
-- 242 Catalog (ClrMamePro parser, sync service, matcher, dedup, compat sources + registry, Crc32, `CatalogSystems`, `VimmSystems`, `VimmVaultParser`)
+943 tests across 10 projects:
+- 344 Host `VimmsDownloader.Tests` (real `DatabaseMigrator`/repositories, catalog query, sets + set-index, resolve + archive→Vimm fallback, `ArchiveAuth`, Vimm binding/scrape + seed-guard, hidden-console settings, hash-owned verify (unverifiable/nested-archive formats), source identity, wire-contract tests)
+- 245 Catalog (ClrMamePro parser, sync service, matcher, dedup, compat sources + registry, Crc32, `CatalogSystems`, `VimmSystems`, `VimmVaultParser`)
 - 153 Download (state management, file recovery, vault parser, source seam, platform extraction, EmuDeck console-folder mapping, format resolution, duplicate detection, edge cases)
 - 87 Sync (real file I/O, disk simulation, edge cases)
 - 45 WiiUTools (TMD/ticket/cert parsing, FST/U8 archive, title key provider, WiiU crypto)
