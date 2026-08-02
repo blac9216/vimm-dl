@@ -158,15 +158,41 @@ public class VimmCatalogSeedServiceTests
     }
 
     /// <summary>
+    /// #297's exact repro: a section listing doesn't fail transport-wise — it comes back HTTP 200 —
+    /// but the body is a rate-limit interstitial, not a list page. Structurally indistinguishable from
+    /// "legitimately empty" unless the response is sanity-checked against the list-page shape, so
+    /// without that check this used to sail through every guard and delete the whole letter.
+    /// </summary>
+    [TestMethod]
+    public async Task Seed_SectionListingReturns200ButNotAListPage_LeavesExistingCatalogIntact()
+    {
+        await NewService(Route).SeedAsync("wiiu", default);
+        Assert.HasCount(2, await GamesOfSystem("Nintendo - Wii U (Discs)"));
+
+        // Section T's listing 200s with a WAF/rate-limit body instead of a real list page.
+        var svc = NewService(url =>
+            url.Contains("p=list") && url.Contains("section=T")
+                ? "Too many requests, please slow down."
+                : Route(url));
+        await svc.SeedAsync("wiiu", default);
+
+        var games = await GamesOfSystem("Nintendo - Wii U (Discs)");
+        Assert.HasCount(2, games);
+        Assert.Contains("Two Disc Game (USA)", games);   // the misread section's game survives
+    }
+
+    /// <summary>
     /// A title that reads cleanly but publishes no hashes is a legitimate skip, not a transport
     /// failure, so it must not count toward the incomplete-run threshold and block the merge.
     /// </summary>
     [TestMethod]
     public async Task Seed_TitleWithoutHashes_DoesNotBlockTheMerge()
     {
-        // Section A's title has no media JSON at all; section T's reads fine. 1 of 2 has no hashes,
-        // which is well past the 10% threshold — yet the run must still be accepted.
-        const string noMedia = "<html><body>no media here</body></html>";
+        // Section A's title structurally IS a vault page (carries the "media = [...]" declaration) but
+        // the array is genuinely empty — a legitimate title-with-no-hashes, distinct from a page that
+        // isn't a vault page at all. Section T's reads fine. 1 of 2 has no hashes, which is well past
+        // the 10% threshold — yet the run must still be accepted.
+        const string noMedia = "<script>let media=[];</script>";
         var svc = NewService(url => url.EndsWith("/vault/128227") ? noMedia : Route(url));
 
         await svc.SeedAsync("wiiu", default);
@@ -176,7 +202,80 @@ public class VimmCatalogSeedServiceTests
         Assert.Contains("Two Disc Game (USA)", games);
     }
 
-    /// <summary>A scrape that reads everything it listed is allowed through, even if that shrank.</summary>
+    /// <summary>
+    /// The sibling of the section-listing case: a title page 200s with a rate-limit body instead of a
+    /// real vault page. Without a structural check this looks exactly like "publishes no hashes" (a
+    /// legitimate skip that doesn't count against the run) and the title is silently dropped and then
+    /// deleted by the merge; with the check it counts as unreadable, same as a fetch failure.
+    /// </summary>
+    [TestMethod]
+    public async Task Seed_TitlePageReturns200ButNotAVaultPage_LeavesExistingCatalogIntact()
+    {
+        await NewService(Route).SeedAsync("wiiu", default);
+        Assert.HasCount(2, await GamesOfSystem("Nintendo - Wii U (Discs)"));
+
+        // Two Disc Game's vault page 200s with a WAF/rate-limit body instead of real markup.
+        var svc = NewService(url =>
+            url.EndsWith("/vault/222222") ? "Too many requests, please slow down." : Route(url));
+        await svc.SeedAsync("wiiu", default);
+
+        // 1 of 2 listed titles unreadable — well past the 10% completion threshold — so the whole
+        // run is refused rather than merging with Two Disc Game silently dropped.
+        var games = await GamesOfSystem("Nintendo - Wii U (Discs)");
+        Assert.HasCount(2, games);
+        Assert.Contains("Two Disc Game (USA)", games);
+    }
+
+    /// <summary>
+    /// The delete-cap guard (#297): even a run that reads everything it listed cleanly can still be an
+    /// implausibly short list — a legitimate section delisting most of the console. Every earlier guard
+    /// is satisfied (nothing failed to fetch, nothing came back unreadable), yet the merge must still be
+    /// refused because it would drop far more of this origin's existing rows than the cap allows, and
+    /// the refusal must be visible through <c>report</c> (the Jobs API surface), not just the log.
+    /// </summary>
+    [TestMethod]
+    public async Task Seed_ScrapeWouldDeleteTooManyRows_RefusesAndReportsWhy()
+    {
+        await NewService(Route).SeedAsync("wiiu", default);
+        Assert.HasCount(2, await GamesOfSystem("Nintendo - Wii U (Discs)"));
+
+        // Section T now legitimately lists nothing (a real, marker-bearing, empty list — not a fetch
+        // failure), so only Adventure Time is scraped: a clean, complete read that would still drop 1
+        // of the 2 rows this origin sources — 50%, over the 20% default cap.
+        var svc = NewService(url =>
+            url.Contains("p=list") && url.Contains("section=T") ? EmptyList : Route(url));
+        var seen = new List<string?>();
+        await svc.SeedAsync("wiiu", (m, _, _) => seen.Add(m), default);
+
+        var games = await GamesOfSystem("Nintendo - Wii U (Discs)");
+        Assert.HasCount(2, games);
+        Assert.Contains("Two Disc Game (USA)", games);
+        Assert.IsTrue(seen.Any(m => m is not null && m.Contains("refusing to merge")),
+            "the refusal reason must reach Report, not just the log");
+    }
+
+    /// <summary>The same shrink as above, but with a cap wide enough that it falls comfortably under
+    /// it: the merge proceeds, confirming the cap is a threshold and not a blanket ban on shrinking.</summary>
+    [TestMethod]
+    public async Task Seed_ScrapeDeletesJustUnderTheCap_Proceeds()
+    {
+        await NewService(Route).SeedAsync("wiiu", default);
+        Assert.HasCount(2, await GamesOfSystem("Nintendo - Wii U (Discs)"));
+
+        var svc = NewService(url =>
+            url.Contains("p=list") && url.Contains("section=T") ? EmptyList : Route(url));
+        svc.MaxOriginDeleteFraction = 0.6;   // 50% deleted is comfortably under a 60% cap
+        await svc.SeedAsync("wiiu", default);
+
+        var games = await GamesOfSystem("Nintendo - Wii U (Discs)");
+        Assert.HasCount(1, games);
+        Assert.Contains("Adventure Time - Explore the Dungeon (USA)", games);
+    }
+
+    /// <summary>
+    /// A scrape that reads everything it listed is allowed through, even if that shrank — this test
+    /// isolates the completion-ratio guard, so the (separately-covered) delete-cap is relaxed here.
+    /// </summary>
     [TestMethod]
     public async Task Seed_CompleteScrape_IsAccepted()
     {
@@ -184,7 +283,8 @@ public class VimmCatalogSeedServiceTests
 
         // Only section A lists anything now, and its one title reads fine → 1/1 complete.
         var svc = NewService(url =>
-            url.Contains("p=list") ? (url.Contains("section=A") ? ListA : "") : Route(url));
+            url.Contains("p=list") ? (url.Contains("section=A") ? ListA : EmptyList) : Route(url));
+        svc.MaxOriginDeleteFraction = 1.0;
         await svc.SeedAsync("wiiu", default);
 
         var games = await GamesOfSystem("Nintendo - Wii U (Discs)");
@@ -228,7 +328,7 @@ public class VimmCatalogSeedServiceTests
         {
             if (url.Contains("system=WiiU") && url.Contains("section=A")) return ListA;
             if (url.Contains("system=WiiU") && url.Contains("section=T")) return ListT;
-            return "";
+            return EmptyList;
         }
         if (url.EndsWith("/vault/128227")) return AdventureTimeMedia;
         if (url.EndsWith("/vault/222222")) return TwoDiscMedia;
@@ -236,10 +336,14 @@ public class VimmCatalogSeedServiceTests
         return null;
     }
 
+    // Real list pages wrap rows in <table><caption>...</caption> — see VimmVaultParserTests' fixture.
+    // A section with no games renders the same wrapper with no rows: EmptyList mirrors that shape and
+    // is what makes it distinguishable, per #297, from a 200 OK body that isn't a list page at all.
+    private const string EmptyList = "<table><caption></caption></table>";
     private const string ListA =
-        """<tr><td><a href= "/vault/128227">Adventure Time</a></td></tr>""";
+        """<table><caption></caption><tr><td><a href= "/vault/128227">Adventure Time</a></td></tr></table>""";
     private const string ListT =
-        """<tr><td><a href= "/vault/222222">Two Disc Game</a></td></tr>""";
+        """<table><caption></caption><tr><td><a href= "/vault/222222">Two Disc Game</a></td></tr></table>""";
 
     // GoodTitle base64 = "Adventure Time - Explore the Dungeon (USA).wux"
     private const string AdventureTimeMedia =

@@ -205,6 +205,27 @@ class CatalogRepository : ICatalogStore
     }
 
     /// <summary>
+    /// How many of a system's games this origin currently sources — a read-only pre-check callers can
+    /// use to size a merge's blast radius <em>before</em> handing it rows to merge (see
+    /// <see cref="VimmCatalogSeedService"/>'s delete-cap guard). Deliberately separate from
+    /// <see cref="MergeSystemGamesAsync"/> itself: the DAT sync path merges unconditionally and must
+    /// keep doing so, so the cap lives with the one caller that opted into it, not in the shared method.
+    /// </summary>
+    public async Task<int> CountGamesForOriginAsync(long systemId, string origin, CancellationToken ct)
+    {
+        await using var db = await OpenAsync();
+        await using var cmd = db.CreateCommand();
+        cmd.CommandText = """
+            SELECT COUNT(*) FROM catalog_game g
+            JOIN catalog_game_source s ON s.game_id = g.id
+            WHERE g.system_id = $sid AND s.origin = $origin
+            """;
+        cmd.Parameters.AddWithValue("$sid", systemId);
+        cmd.Parameters.AddWithValue("$origin", origin);
+        return Convert.ToInt32(await cmd.ExecuteScalarAsync(ct));
+    }
+
+    /// <summary>
     /// Recompute 1G1R parent selection for every game now in the system: group by title key and mark one
     /// variant per group <c>is_parent</c>. Runs after a merge so newly-added (or removed) variants from a
     /// second origin are reflected. Title keys are stable per name, so only <c>is_parent</c> moves.

@@ -59,6 +59,22 @@ public static partial class VimmVaultParser
         return entries;
     }
 
+    // Real list pages wrap their rows in  <table><caption>...</caption>  — rendered even for a section
+    // with zero games, so it is present/absent independently of how many (if any) <a href="/vault/…">
+    // rows follow. That independence is exactly what makes it useful as a structural sanity check: a
+    // rate-limit/WAF interstitial served with HTTP 200 has no reason to carry this wrapper.
+    [GeneratedRegex("""<table\b[^>]*>\s*<caption\b""", RegexOptions.IgnoreCase)]
+    private static partial Regex ListPageMarkerRegex();
+
+    /// <summary>
+    /// Whether <paramref name="html"/> structurally looks like a real vault list page — the
+    /// <c>&lt;table&gt;&lt;caption&gt;</c> wrapper Vimm's list template always renders, whether or not
+    /// any game rows follow — rather than an unrelated 200 OK body (a rate-limit interstitial, a WAF
+    /// challenge page, …). Callers must not treat "zero rows" as "legitimately empty section" unless
+    /// this is also true; see <see cref="ParseList"/> for the rows themselves.
+    /// </summary>
+    public static bool IsListPage(string html) => ListPageMarkerRegex().IsMatch(html);
+
     /// <summary>
     /// The vault list section a game name falls under: an uppercase letter A–Z, or <c>number</c> for
     /// names that don't start with a letter (digits/symbols) — matching Vimm's own section scheme.
@@ -73,6 +89,15 @@ public static partial class VimmVaultParser
 
     [GeneratedRegex(@"media\s*=\s*\[", RegexOptions.IgnoreCase)]
     private static partial Regex MediaArrayStartRegex();
+
+    /// <summary>
+    /// Whether <paramref name="html"/> structurally looks like a real vault title page — the inline
+    /// <c>media = [...]</c> declaration Vimm's page template always emits, whether the array holds
+    /// entries or not — rather than an unrelated 200 OK body (a rate-limit interstitial, a WAF
+    /// challenge page, …). Callers must not treat "<see cref="ParseMedia"/> found nothing" as
+    /// "this title legitimately publishes no hashes" unless this is also true.
+    /// </summary>
+    public static bool IsVaultPage(string html) => MediaArrayStartRegex().IsMatch(html);
 
     /// <summary>
     /// Parse the inline <c>media</c> JSON array. Single-file titles carry the hash triple inline

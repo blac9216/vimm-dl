@@ -35,6 +35,36 @@ public class VimmVaultParserTests
         Assert.IsEmpty(VimmVaultParser.ParseList("<html><body>no games here</body></html>"));
     }
 
+    /// <summary>
+    /// #297: "zero rows" and "not a list page at all" must be independently detectable, so a caller
+    /// (the Vimm seed) can tell an empty section apart from a 200 OK rate-limit/WAF body. The marker
+    /// is the table+caption wrapper, present whether or not any rows follow.
+    /// </summary>
+    [TestMethod]
+    public void IsListPage_TrueForTableCaptionWrapper_RegardlessOfRows()
+    {
+        Assert.IsTrue(VimmVaultParser.IsListPage(ListFixture));                          // real rows
+        Assert.IsTrue(VimmVaultParser.IsListPage("<table><caption></caption></table>"));  // legitimately empty
+        Assert.IsFalse(VimmVaultParser.IsListPage(""));
+        Assert.IsFalse(VimmVaultParser.IsListPage("Too many requests, please slow down."));
+        Assert.IsFalse(VimmVaultParser.IsListPage("<html><body>no games here</body></html>"));
+    }
+
+    /// <summary>
+    /// #297's sibling check for vault/title pages: the inline "media = [...]" declaration is present
+    /// whether the array holds hash-bearing entries, holds nothing, or is entirely empty — so it can
+    /// distinguish "legitimately publishes no hashes" from "not a vault page at all".
+    /// </summary>
+    [TestMethod]
+    public void IsVaultPage_TrueForMediaDeclaration_RegardlessOfHashes()
+    {
+        Assert.IsTrue(VimmVaultParser.IsVaultPage("""<script>let media=[{"ID":1}];</script>"""));
+        Assert.IsTrue(VimmVaultParser.IsVaultPage("<script>let media=[];</script>"));   // legitimately no hashes
+        Assert.IsFalse(VimmVaultParser.IsVaultPage(""));
+        Assert.IsFalse(VimmVaultParser.IsVaultPage("Too many requests, please slow down."));
+        Assert.IsFalse(VimmVaultParser.IsVaultPage("<html><body>no media here</body></html>"));
+    }
+
     [TestMethod]
     public void SectionFor_MapsAlpha_Digits_Symbols()
     {
