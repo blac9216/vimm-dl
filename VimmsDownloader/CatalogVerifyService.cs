@@ -6,11 +6,12 @@ using Module.Core;
 /// Hash-based owned detection (Phase C / C3): walks <c>completed/{console}/</c>, hashes each file, and
 /// marks a catalog game owned when the file's SHA1/MD5/CRC32 matches one of its <c>catalog_rom</c> rows
 /// — regardless of the file's name or format. Priority SHA1 → MD5 → CRC32 (mirrors the Vimm binding).
-/// Raw roms/ISOs are streamed once for all three hashes; <c>.zip</c> contributes its entry CRC (no
-/// decompress); <c>.7z</c> and compressed disc-image formats (<see cref="FileExtensions.IsCompressedImage"/>
-/// — <c>.wux</c>/<c>.rvz</c>/<c>.wbfs</c>/<c>.chd</c>) can't be hashed without extracting/decoding, so
-/// they're counted as <b>unverifiable</b> rather than silently falling through to a raw-byte hash that
-/// could never match (#284) — the count is surfaced via <paramref name="report"/> below, distinct from
+/// Raw roms/ISOs are streamed once for all three hashes; <c>.zip</c> contributes a hash-comparable
+/// payload entry's CRC (no decompress) — <c>.7z</c>, compressed disc-image formats
+/// (<see cref="FileExtensions.IsCompressedImage"/> — <c>.wux</c>/<c>.rvz</c>/<c>.wbfs</c>/<c>.chd</c>),
+/// bare or wrapped inside a <c>.zip</c> (#316), can't be hashed without extracting/decoding, so they're
+/// counted as <b>unverifiable</b> rather than silently falling through to a raw-byte hash that could
+/// never match (#284) — the count is surfaced via <paramref name="report"/> below, distinct from
 /// "checked, no match". Runs in the background verify job — multi-GB ISOs are streamed, never buffered.
 /// Unreadable files are left unmatched (and not counted as unverifiable).
 /// </summary>
@@ -55,7 +56,7 @@ class CatalogVerifyService(CatalogRepository catalog, QueueRepository queue, ILo
         await catalog.MarkOwnedByHashAsync(matched, ct);
         log.LogInformation("Verify: {Matched} catalog games confirmed owned by hash, {Unverifiable} unverifiable",
             matched.Count, unverifiable);
-        report?.Invoke($"Done: {matched.Count} matched, {unverifiable} unverifiable (compressed image formats)", null, null);
+        report?.Invoke($"Done: {matched.Count} matched, {unverifiable} unverifiable (compressed/archived formats)", null, null);
         return matched.Count;
     }
 
@@ -72,8 +73,9 @@ class CatalogVerifyService(CatalogRepository catalog, QueueRepository queue, ILo
 
     /// <summary>
     /// Computes hashes for a hashable file. <paramref name="unverifiable"/> is true for a format that
-    /// is known to be un-hashable as-is (<c>.7z</c> or a compressed disc image, #284) — distinct from a
-    /// plain read failure, so callers can count it separately instead of silently leaving it unmatched.
+    /// is known to be un-hashable as-is — <c>.7z</c>, a bare compressed disc image (#284), or a
+    /// <c>.zip</c> whose payload entries are all compressed disc images (#316) — distinct from a plain
+    /// read failure, so callers can count it separately instead of silently leaving it unmatched.
     /// </summary>
     private static FileHashes.Hashes? TryComputeHashes(string path, out bool unverifiable)
     {
@@ -92,9 +94,18 @@ class CatalogVerifyService(CatalogRepository catalog, QueueRepository queue, ILo
             if (path.EndsWith(FileExtensions.Zip, StringComparison.OrdinalIgnoreCase))
             {
                 // The rom lives inside the zip; its CRC is in the central directory (no decompress).
+                // A payload entry whose *name* is itself a compressed disc image (.rvz/.wux/.wbfs/.chd)
+                // has the same false-negative problem as a bare one (#316): the entry's CRC is the CRC
+                // of the compressed container bytes, never the canonical uncompressed image's hash.
+                // Rule: try every payload entry for a hash-comparable (non-compressed-image) name first
+                // — a mixed zip (e.g. one .iso + one .rvz) still verifies via its hashable entry — and
+                // only classify the whole file unverifiable when NONE of its payload entries qualify.
                 using var zip = ZipFile.OpenRead(path);
-                var entry = zip.Entries.FirstOrDefault(e => e.Length > 0);
-                return entry is null ? null : new FileHashes.Hashes(Crc32.ToHex(entry.Crc32), null, null);
+                var payloadEntries = zip.Entries.Where(e => e.Length > 0).ToList();
+                var hashable = payloadEntries.FirstOrDefault(e => !FileExtensions.IsCompressedImage(e.Name));
+                if (hashable is not null) return new FileHashes.Hashes(Crc32.ToHex(hashable.Crc32), null, null);
+                if (payloadEntries.Count > 0) { unverifiable = true; return null; }
+                return null;
             }
             using var fs = File.OpenRead(path);
             return FileHashes.ComputeAll(fs);

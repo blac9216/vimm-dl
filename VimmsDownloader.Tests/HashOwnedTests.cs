@@ -155,6 +155,45 @@ public class HashOwnedTests
     }
 
     [TestMethod]
+    [DataRow(".wux")]
+    [DataRow(".rvz")]
+    [DataRow(".wbfs")]
+    [DataRow(".chd")]
+    public async Task Verify_ZipWithOnlyCompressedImageEntry_UnverifiableNotUnmatched(string ext)
+    {
+        // #316: a compressed disc image *inside* a .zip is the same false-negative as a bare one — the
+        // entry's CRC is the CRC of the compressed container bytes, which can never equal the canonical
+        // uncompressed image's CRC in catalog_rom. Must be counted as unverifiable, not "checked, no match".
+        var game = await SeedRom("ps3", "Game.iso", sha1: null, md5: null, crc: "3610A686");
+        WriteZip("archived.zip", $"inner{ext}", "hello"); // container bytes hash to 3610A686 too, but must be ignored
+
+        var messages = new List<string?>();
+        var matched = await _verify.VerifyAsync((m, _, _) => messages.Add(m), default);
+
+        Assert.AreEqual(0, matched);
+        Assert.IsFalse(await IsOwned(game));
+        StringAssert.Contains(messages.Last(), "1 unverifiable");
+    }
+
+    [TestMethod]
+    public async Task Verify_MixedZip_HashableEntryStillMatches_DespiteCompressedImageSibling()
+    {
+        // Mixed zip: one hash-comparable entry (.iso) alongside a compressed-image entry (.rvz) whose
+        // CRC could never match. The honest behavior is to still try the hashable entry, not bail out
+        // to "unverifiable" just because a sibling entry is a compressed image.
+        var game = await SeedRom("ps3", "Real Catalog Name (USA).iso", sha1: null, md5: null, crc: "3610A686");
+        WriteZip("archived.zip", ("inner.rvz", "world"), ("inner.iso", "hello"));
+
+        var messages = new List<string?>();
+        var matched = await _verify.VerifyAsync((m, _, _) => messages.Add(m), default);
+
+        Assert.AreEqual(1, matched);
+        Assert.AreEqual((1, "crc"), await OwnedState(game));
+        StringAssert.Contains(messages.Last(), "1 matched"); // hashable entry matched; no unverifiable count
+        StringAssert.Contains(messages.Last(), "0 unverifiable");
+    }
+
+    [TestMethod]
     public async Task Verify_RawIso_StillHashMatches_AlongsideUnverifiableFiles()
     {
         // Raw formats keep matching as before even when unverifiable files are also present in the run.
@@ -212,10 +251,16 @@ public class HashOwnedTests
         => await File.WriteAllTextAsync(Path.Combine(_completed, name), content);
 
     private void WriteZip(string name, string entryName, string content)
+        => WriteZip(name, (entryName, content));
+
+    private void WriteZip(string name, params (string EntryName, string Content)[] entries)
     {
         using var zip = ZipFile.Open(Path.Combine(_completed, name), ZipArchiveMode.Create);
-        using var writer = new StreamWriter(zip.CreateEntry(entryName).Open());
-        writer.Write(content); // UTF-8 (no BOM); ASCII content hashes to the same CRC32
+        foreach (var (entryName, content) in entries)
+        {
+            using var writer = new StreamWriter(zip.CreateEntry(entryName).Open());
+            writer.Write(content); // UTF-8 (no BOM); ASCII content hashes to the same CRC32
+        }
     }
 
     private async Task<(int Verified, string? Hash)> OwnedState(long gameId)
