@@ -118,6 +118,60 @@ public class HashOwnedTests
         Assert.IsFalse(await IsOwned(game));
     }
 
+    [TestMethod]
+    public async Task Verify_Skips7zArchive_ReportsUnverifiableCount()
+    {
+        // #284: the .7z skip is counted and surfaced via the terminal Report call, not silent.
+        await SeedRom("ps3", "Game.iso", sha1: null, md5: null, crc: "3610A686");
+        await WriteFile("archived.7z", "hello");
+
+        var messages = new List<string?>();
+        await _verify.VerifyAsync((m, _, _) => messages.Add(m), default);
+
+        var terminal = messages.Last();
+        StringAssert.Contains(terminal, "0 matched");
+        StringAssert.Contains(terminal, "1 unverifiable");
+    }
+
+    [TestMethod]
+    [DataRow(".wux")]
+    [DataRow(".rvz")]
+    [DataRow(".wbfs")]
+    [DataRow(".chd")]
+    public async Task Verify_CompressedImageFormats_UnverifiableNotUnmatched(string ext)
+    {
+        // #284: a compressed disc-image file whose canonical (uncompressed) hash exists in the catalog
+        // must not be hashed as raw container bytes — it's counted as unverifiable, not "checked, no
+        // match", and the game is left un-owned rather than falsely matched or falsely ruled out.
+        var game = await SeedRom("ps3", "Game.iso", sha1: null, md5: null, crc: "3610A686");
+        await WriteFile($"game{ext}", "hello"); // container bytes hash to 3610A686 too, but must be ignored
+
+        var messages = new List<string?>();
+        var matched = await _verify.VerifyAsync((m, _, _) => messages.Add(m), default);
+
+        Assert.AreEqual(0, matched);
+        Assert.IsFalse(await IsOwned(game));
+        StringAssert.Contains(messages.Last(), "1 unverifiable");
+    }
+
+    [TestMethod]
+    public async Task Verify_RawIso_StillHashMatches_AlongsideUnverifiableFiles()
+    {
+        // Raw formats keep matching as before even when unverifiable files are also present in the run.
+        var raw = await SeedRom("ps3", "Real Catalog Name (USA).iso",
+            sha1: "AAF4C61DDCC5E8A2DABEDE0F3B482CD9AEA9434D", md5: null, crc: null);
+        await WriteFile("totally-different-name.iso", "hello");
+        await WriteFile("other.chd", "hello"); // unverifiable, must not affect the raw match
+
+        var messages = new List<string?>();
+        var matched = await _verify.VerifyAsync((m, _, _) => messages.Add(m), default);
+
+        Assert.AreEqual(1, matched);
+        Assert.IsTrue(await IsOwned(raw));
+        StringAssert.Contains(messages.Last(), "1 matched");
+        StringAssert.Contains(messages.Last(), "1 unverifiable");
+    }
+
     // --- helpers ---
 
     private async Task<long> SeedRom(string console, string romName, string? sha1, string? md5, string? crc)
