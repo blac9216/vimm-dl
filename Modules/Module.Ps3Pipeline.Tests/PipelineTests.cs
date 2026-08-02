@@ -48,6 +48,11 @@ public class PipelineTests : Ps3PipelineTestBase
     public void Abort_QueuedItem_ReturnsTrue()
     {
         var pipeline = CreatePipeline();
+        // Configure(0) starts zero background workers (EnsureStarted's loop runs 0 times), so the
+        // queued item has no live opponent that can race ahead and flip its phase past Queued
+        // before Abort() runs. Without this, a real Task.Run worker can — rarely — win the race
+        // against the test thread and fail the archive header check first (#308).
+        pipeline.Configure(0);
         var dir = Tmp.CreateSubDir("completed");
         var tempDir = Tmp.CreateSubDir("temp");
         TempDirectory.CreateFile(dir, "game.7z", 1024);
