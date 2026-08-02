@@ -36,18 +36,44 @@ public class VimmVaultParserTests
     }
 
     /// <summary>
-    /// #297: "zero rows" and "not a list page at all" must be independently detectable, so a caller
-    /// (the Vimm seed) can tell an empty section apart from a 200 OK rate-limit/WAF body. The marker
-    /// is the table+caption wrapper, present whether or not any rows follow.
+    /// The body Vimm actually serves for a section with no games — an HTTP 404 page whose main content
+    /// is "No matches found.", with no table wrapper anywhere (verified live: Wii U section Q).
+    /// </summary>
+    private const string EmptySectionFixture = """
+        <main class="mainContent" style="order:1">
+        <div style="font-size:28pt; text-align:center">Q</div><p style="text-align:center">No matches found.</p>
+        </main>
+        """;
+
+    /// <summary>
+    /// #297: a 200 that IS a real, result-bearing list page must be distinguishable from a 200 OK
+    /// rate-limit/WAF body. The marker is the table+caption wrapper Vimm emits around the game rows.
+    /// An empty section is <i>not</i> a row-less 200 — it is a 404, covered by
+    /// <see cref="IsEmptySectionPage_TrueOnlyForVimmsNoMatchesPage"/>.
     /// </summary>
     [TestMethod]
-    public void IsListPage_TrueForTableCaptionWrapper_RegardlessOfRows()
+    public void IsListPage_TrueForTableCaptionWrapper()
     {
         Assert.IsTrue(VimmVaultParser.IsListPage(ListFixture));                          // real rows
-        Assert.IsTrue(VimmVaultParser.IsListPage("<table><caption></caption></table>"));  // legitimately empty
         Assert.IsFalse(VimmVaultParser.IsListPage(""));
         Assert.IsFalse(VimmVaultParser.IsListPage("Too many requests, please slow down."));
         Assert.IsFalse(VimmVaultParser.IsListPage("<html><body>no games here</body></html>"));
+        Assert.IsFalse(VimmVaultParser.IsListPage(EmptySectionFixture));   // the real empty-section body
+    }
+
+    /// <summary>
+    /// #297: Vimm serves a section with no games as an HTTP <b>404</b> carrying a "No matches found."
+    /// page — no table wrapper at all. Recognising that body is what lets the seed count such a section
+    /// as legitimately empty instead of as a failed fetch; a 404 with any other body stays a failure.
+    /// </summary>
+    [TestMethod]
+    public void IsEmptySectionPage_TrueOnlyForVimmsNoMatchesPage()
+    {
+        Assert.IsTrue(VimmVaultParser.IsEmptySectionPage(EmptySectionFixture));
+        Assert.IsFalse(VimmVaultParser.IsEmptySectionPage(""));                    // bare 404 body
+        Assert.IsFalse(VimmVaultParser.IsEmptySectionPage(ListFixture));           // a populated section
+        Assert.IsFalse(VimmVaultParser.IsEmptySectionPage("Too many requests, please slow down."));
+        Assert.IsFalse(VimmVaultParser.IsEmptySectionPage("<html><body>404 Not Found</body></html>"));
     }
 
     /// <summary>

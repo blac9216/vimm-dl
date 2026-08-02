@@ -1,3 +1,4 @@
+using System.Net;
 using Module.Catalog;
 using Module.Core;
 
@@ -41,7 +42,9 @@ class VimmCatalogSeedService(CatalogRepository catalog, IHttpClientFactory httpF
     /// every per-fetch guard can still gut a console if the *listing itself* was implausibly short for
     /// a reason no per-page check can see (a markup change, a bug upstream, a partial CDN response that
     /// still parses as a valid — but truncated — list page). Refuse to merge if doing so would drop more
-    /// than this fraction of the rows this origin currently sources for the console.
+    /// than this fraction of the rows this origin currently sources for the console — an exact set
+    /// difference over the merge's own canonical-key survival rule, see
+    /// <see cref="CatalogRepository.CountOriginMergeImpactAsync"/>.
     ///
     /// <para>20% is deliberately generous: an ordinary Vimm run of takedowns/consolidations is a handful
     /// of titles out of hundreds, nowhere near this, while a run that would gut most of a console in one
@@ -91,14 +94,24 @@ class VimmCatalogSeedService(CatalogRepository catalog, IHttpClientFactory httpF
             ct.ThrowIfCancellationRequested();
             report?.Invoke($"{sys.Console}: {section}", i + 1, Sections.Length);
 
-            var listHtml = await GetStringOrNull(http,
+            var listing = await FetchAsync(http,
                 $"https://vimm.net/vault/?p=list&system={sys.VimmCode}&section={section}", ct);
-            // A 200 whose body isn't structurally a list page (a rate-limit interstitial, a WAF
-            // challenge, …) is exactly as unusable as a fetch failure — it must not be read as "section
-            // legitimately has zero games", or the merge below deletes that whole letter (#297).
-            if (listHtml is null || !VimmVaultParser.IsListPage(listHtml)) { failedSections++; continue; }
 
-            foreach (var entry in VimmVaultParser.ParseList(listHtml))
+            // Vimm has exactly two legitimate section shapes (verified live, #297):
+            //   • the section HAS games  → HTTP 200 carrying the <table><caption> list wrapper + rows
+            //   • the section has NONE   → HTTP 404 whose body is the "No matches found." page
+            // Anything else — a transport failure, a bare 404, or a 200 whose body isn't a list page at
+            // all (a rate-limit interstitial, a WAF challenge) — is unusable, and must not be read as
+            // "this section legitimately has zero games", or the merge below deletes that whole letter.
+            IReadOnlyList<VimmListEntry> rows;
+            if (listing.Status == HttpStatusCode.OK && listing.Body is { } ok && VimmVaultParser.IsListPage(ok))
+                rows = VimmVaultParser.ParseList(ok);
+            else if (listing.Status == HttpStatusCode.NotFound && listing.Body is { } nf
+                     && VimmVaultParser.IsEmptySectionPage(nf))
+                rows = [];                                  // legitimately empty section, not a failure
+            else { failedSections++; continue; }
+
+            foreach (var entry in rows)
             {
                 ct.ThrowIfCancellationRequested();
                 listed++;
@@ -151,16 +164,20 @@ class VimmCatalogSeedService(CatalogRepository catalog, IHttpClientFactory httpF
         // Delete-cap defence in depth (#297): even a run that reads everything it listed can still be
         // an implausibly short list (see MaxOriginDeleteFraction). Exempt when nothing exists yet for
         // this origin, or a console could never be seeded the first time.
-        var existingCount = await catalog.CountGamesForOriginAsync(systemId, VimmSourceSystems.Origin, ct);
+        // Measured as a set difference on the merge's own survival rule (canonical content key), not as
+        // a count difference: a scrape returning the same NUMBER of different titles drops every old row
+        // and must trip this, and dedup collapsing scraped rows must not flatter the estimate.
+        var incomingKeys = scraped.Select(s => CanonicalKey.Compute(s.Game.Roms)).OfType<string>().ToList();
+        var (existingCount, staleCount) =
+            await catalog.CountOriginMergeImpactAsync(systemId, VimmSourceSystems.Origin, incomingKeys, ct);
         if (existingCount > 0)
         {
-            var deletedEstimate = Math.Max(0, existingCount - scraped.Count);
-            var deletedFraction = (double)deletedEstimate / existingCount;
+            var deletedFraction = (double)staleCount / existingCount;
             if (deletedFraction > MaxOriginDeleteFraction)
             {
                 var msg = $"Vimm seed {sys.Console}: scrape produced {scraped.Count} titles vs {existingCount} " +
-                    $"already sourced from vimm — that would delete {deletedFraction:P0} of the origin's rows " +
-                    $"(cap {MaxOriginDeleteFraction:P0}), refusing to merge";
+                    $"already sourced from vimm — that would delete {staleCount} of them ({deletedFraction:P0} " +
+                    $"of the origin's rows, cap {MaxOriginDeleteFraction:P0}), refusing to merge";
                 log.LogWarning("{Message}", msg);
                 report?.Invoke(msg, null, null);
                 return Result.Fail(msg);
@@ -292,11 +309,25 @@ class VimmCatalogSeedService(CatalogRepository catalog, IHttpClientFactory httpF
         return string.IsNullOrWhiteSpace(withoutExt) ? goodTitle : withoutExt;
     }
 
-    private async Task<string?> GetStringOrNull(HttpClient http, string url, CancellationToken ct)
+    /// <summary>
+    /// One fetch's outcome: the HTTP status (null when the request never produced a response at all —
+    /// DNS, connect, timeout) and the body, which is read <b>whatever the status</b>. The body of a
+    /// non-success response is not noise here: Vimm answers an empty list section with a 404 whose body
+    /// is the only thing distinguishing it from a real failure (#297), so the section classifier needs
+    /// status and body together.
+    /// </summary>
+    private readonly record struct FetchResult(HttpStatusCode? Status, string? Body)
+    {
+        /// <summary>A 2xx — the same bar <c>GetStringAsync</c> used to apply before it threw.</summary>
+        public bool IsSuccess => Status is { } s && (int)s is >= 200 and <= 299;
+    }
+
+    private async Task<FetchResult> FetchAsync(HttpClient http, string url, CancellationToken ct)
     {
         try
         {
-            return await http.GetStringAsync(url, ct);
+            using var res = await http.GetAsync(url, ct);
+            return new FetchResult(res.StatusCode, await res.Content.ReadAsStringAsync(ct));
         }
         catch (OperationCanceledException)
         {
@@ -305,7 +336,18 @@ class VimmCatalogSeedService(CatalogRepository catalog, IHttpClientFactory httpF
         catch (Exception ex)
         {
             log.LogWarning("Vimm fetch failed {Url}: {Error}", url, ex.Message);
-            return null;
+            return default;
         }
+    }
+
+    /// <summary>
+    /// The body of a successful fetch, or null for anything else — what every caller that only cares
+    /// about a page it can parse wants (title pages, hashes2 fragments). The section listing is the one
+    /// caller that needs the status too, and uses <see cref="FetchAsync"/> directly.
+    /// </summary>
+    private async Task<string?> GetStringOrNull(HttpClient http, string url, CancellationToken ct)
+    {
+        var fetch = await FetchAsync(http, url, ct);
+        return fetch.IsSuccess ? fetch.Body : null;
     }
 }

@@ -105,7 +105,8 @@ public class VimmCatalogSeedServiceTests
 
     /// <summary>
     /// A failed scrape must not look like "Vimm no longer lists anything": merging an empty set would
-    /// strip the 'vimm' origin from every row and delete the ones left with no other origin.
+    /// strip the 'vimm' origin from every row and delete the ones left with no other origin. Here every
+    /// section 200s with a body that isn't a list page, so this exercises the failed-section path.
     /// </summary>
     [TestMethod]
     public async Task Seed_EmptyScrape_LeavesExistingCatalogIntact()
@@ -116,6 +117,53 @@ public class VimmCatalogSeedServiceTests
         await NewService(_ => "").SeedAsync("wiiu", default);   // every fetch returns an empty list
 
         Assert.HasCount(2, await GamesOfSystem("Nintendo - Wii U (Discs)"));
+    }
+
+    /// <summary>
+    /// The "read everything, scraped nothing" path (#285's second guard), reached only when the scrape
+    /// is <b>structurally clean</b>: every section answers as a legitimately empty one (404 + "No
+    /// matches found"), so nothing failed and nothing was unreadable — the run simply saw a console
+    /// with no titles at all. Merging that would delete every row.
+    ///
+    /// <para>The assertion is on the reported <i>reason</i>, not just the surviving row count: with the
+    /// zero-scrape guard removed the delete cap catches the same case and the catalog survives anyway,
+    /// so only naming the guard pins it.</para>
+    /// </summary>
+    [TestMethod]
+    public async Task Seed_EverySectionLegitimatelyEmpty_RefusesAndReportsScrapedNothing()
+    {
+        await NewService(Route).SeedAsync("wiiu", default);
+        Assert.HasCount(2, await GamesOfSystem("Nintendo - Wii U (Discs)"));
+
+        var svc = NewService(url => url.Contains("p=list") ? EmptySection : Route(url));
+        svc.MaxOriginDeleteFraction = 1.0;   // isolate guard 2: only it may save the catalog here
+        var seen = new List<string?>();
+        await svc.SeedAsync("wiiu", (m, _, _) => seen.Add(m), default);
+
+        Assert.HasCount(2, await GamesOfSystem("Nintendo - Wii U (Discs)"));
+        Assert.IsTrue(seen.Any(m => m is not null && m.Contains("scraped 0 titles")),
+            "the zero-scrape guard must be the one that refused, and must say so through Report");
+    }
+
+    /// <summary>
+    /// The flip side, and the reason recognising the 404 matters at all (#297): a console where one
+    /// section is legitimately empty and the others list normally is the <b>ordinary</b> case — Wii U
+    /// has empty letters — so it must merge, not be treated as an incompletely enumerated console. If
+    /// an empty-section 404 counted as a failed section, no such console could ever be seeded.
+    /// </summary>
+    [TestMethod]
+    public async Task Seed_SectionLegitimatelyEmpty_DoesNotBlockTheMerge()
+    {
+        // Sections A and T list a title each; every other letter answers 404 + "No matches found".
+        var seen = new List<string?>();
+        await NewService(Route).SeedAsync("wiiu", (m, _, _) => seen.Add(m), default);
+
+        var games = await GamesOfSystem("Nintendo - Wii U (Discs)");
+        Assert.HasCount(2, games);   // the merge ran: both listed titles are in the catalog
+        Assert.Contains("Adventure Time - Explore the Dungeon (USA)", games);
+        Assert.Contains("Two Disc Game (USA)", games);
+        Assert.IsFalse(seen.Any(m => m is not null && m.Contains("section listings failed")),
+            "an empty section is not a failed section");
     }
 
     /// <summary>
@@ -159,9 +207,15 @@ public class VimmCatalogSeedServiceTests
 
     /// <summary>
     /// #297's exact repro: a section listing doesn't fail transport-wise — it comes back HTTP 200 —
-    /// but the body is a rate-limit interstitial, not a list page. Structurally indistinguishable from
-    /// "legitimately empty" unless the response is sanity-checked against the list-page shape, so
-    /// without that check this used to sail through every guard and delete the whole letter.
+    /// but the body is a rate-limit interstitial, not a list page. Nothing about the status says so, so
+    /// without a structural sanity check on the body this used to read as "section legitimately has
+    /// zero games" and sail through every guard, deleting the whole letter.
+    ///
+    /// <para>The delete cap is deliberately disabled here so it cannot rescue the scenario: at fixture
+    /// scale losing 1 of 2 games is 50% and the cap would fire regardless of the structural check,
+    /// whereas at real scale (one bad section out of 27) it would not fire at all. With the cap out of
+    /// the way, and the refusal's <i>reason</i> asserted, this test fails if and only if the
+    /// <c>IsListPage</c> check is missing.</para>
     /// </summary>
     [TestMethod]
     public async Task Seed_SectionListingReturns200ButNotAListPage_LeavesExistingCatalogIntact()
@@ -174,11 +228,15 @@ public class VimmCatalogSeedServiceTests
             url.Contains("p=list") && url.Contains("section=T")
                 ? "Too many requests, please slow down."
                 : Route(url));
-        await svc.SeedAsync("wiiu", default);
+        svc.MaxOriginDeleteFraction = 1.0;   // the structural check alone must carry this
+        var seen = new List<string?>();
+        await svc.SeedAsync("wiiu", (m, _, _) => seen.Add(m), default);
 
         var games = await GamesOfSystem("Nintendo - Wii U (Discs)");
         Assert.HasCount(2, games);
         Assert.Contains("Two Disc Game (USA)", games);   // the misread section's game survives
+        Assert.IsTrue(seen.Any(m => m is not null && m.Contains("section listings failed")),
+            "the misread listing must be counted as a failed section, and reported as one");
     }
 
     /// <summary>
@@ -207,6 +265,10 @@ public class VimmCatalogSeedServiceTests
     /// real vault page. Without a structural check this looks exactly like "publishes no hashes" (a
     /// legitimate skip that doesn't count against the run) and the title is silently dropped and then
     /// deleted by the merge; with the check it counts as unreadable, same as a fetch failure.
+    ///
+    /// <para>As above, the delete cap is disabled and the refusal's <i>reason</i> asserted, so this
+    /// test fails if and only if the <c>IsVaultPage</c> check is missing — without it the title would
+    /// be classified <c>NoHashes</c>, the completion ratio would pass, and the merge would run.</para>
     /// </summary>
     [TestMethod]
     public async Task Seed_TitlePageReturns200ButNotAVaultPage_LeavesExistingCatalogIntact()
@@ -217,13 +279,17 @@ public class VimmCatalogSeedServiceTests
         // Two Disc Game's vault page 200s with a WAF/rate-limit body instead of real markup.
         var svc = NewService(url =>
             url.EndsWith("/vault/222222") ? "Too many requests, please slow down." : Route(url));
-        await svc.SeedAsync("wiiu", default);
+        svc.MaxOriginDeleteFraction = 1.0;   // the structural check alone must carry this
+        var seen = new List<string?>();
+        await svc.SeedAsync("wiiu", (m, _, _) => seen.Add(m), default);
 
         // 1 of 2 listed titles unreadable — well past the 10% completion threshold — so the whole
         // run is refused rather than merging with Two Disc Game silently dropped.
         var games = await GamesOfSystem("Nintendo - Wii U (Discs)");
         Assert.HasCount(2, games);
         Assert.Contains("Two Disc Game (USA)", games);
+        Assert.IsTrue(seen.Any(m => m is not null && m.Contains("listed titles could not be read")),
+            "the interstitial must count as unreadable, not as a title that publishes no hashes");
     }
 
     /// <summary>
@@ -239,11 +305,12 @@ public class VimmCatalogSeedServiceTests
         await NewService(Route).SeedAsync("wiiu", default);
         Assert.HasCount(2, await GamesOfSystem("Nintendo - Wii U (Discs)"));
 
-        // Section T now legitimately lists nothing (a real, marker-bearing, empty list — not a fetch
-        // failure), so only Adventure Time is scraped: a clean, complete read that would still drop 1
-        // of the 2 rows this origin sources — 50%, over the 20% default cap.
+        // Section T now legitimately lists nothing (Vimm's real empty-section answer — a 404 carrying
+        // "No matches found", not a fetch failure), so only Adventure Time is scraped: a clean,
+        // complete read that would still drop 1 of the 2 rows this origin sources — 50%, over the 20%
+        // default cap.
         var svc = NewService(url =>
-            url.Contains("p=list") && url.Contains("section=T") ? EmptyList : Route(url));
+            url.Contains("p=list") && url.Contains("section=T") ? EmptySection : Route(url));
         var seen = new List<string?>();
         await svc.SeedAsync("wiiu", (m, _, _) => seen.Add(m), default);
 
@@ -263,7 +330,7 @@ public class VimmCatalogSeedServiceTests
         Assert.HasCount(2, await GamesOfSystem("Nintendo - Wii U (Discs)"));
 
         var svc = NewService(url =>
-            url.Contains("p=list") && url.Contains("section=T") ? EmptyList : Route(url));
+            url.Contains("p=list") && url.Contains("section=T") ? EmptySection : Route(url));
         svc.MaxOriginDeleteFraction = 0.6;   // 50% deleted is comfortably under a 60% cap
         await svc.SeedAsync("wiiu", default);
 
@@ -283,11 +350,14 @@ public class VimmCatalogSeedServiceTests
 
         // Only section A lists anything now, and its one title reads fine → 1/1 complete.
         var svc = NewService(url =>
-            url.Contains("p=list") ? (url.Contains("section=A") ? ListA : EmptyList) : Route(url));
+            url.Contains("p=list") ? (url.Contains("section=A") ? ListA : EmptySection) : Route(url));
         svc.MaxOriginDeleteFraction = 1.0;
         await svc.SeedAsync("wiiu", default);
 
+        // Exactly one row: the merge really ran and really shrank the console (with the cap left at its
+        // default this would refuse and leave 2, so the isolation override is observable here).
         var games = await GamesOfSystem("Nintendo - Wii U (Discs)");
+        Assert.HasCount(1, games);
         Assert.Contains("Adventure Time - Explore the Dungeon (USA)", games);
     }
 
@@ -328,7 +398,7 @@ public class VimmCatalogSeedServiceTests
         {
             if (url.Contains("system=WiiU") && url.Contains("section=A")) return ListA;
             if (url.Contains("system=WiiU") && url.Contains("section=T")) return ListT;
-            return EmptyList;
+            return EmptySection;
         }
         if (url.EndsWith("/vault/128227")) return AdventureTimeMedia;
         if (url.EndsWith("/vault/222222")) return TwoDiscMedia;
@@ -336,10 +406,13 @@ public class VimmCatalogSeedServiceTests
         return null;
     }
 
-    // Real list pages wrap rows in <table><caption>...</caption> — see VimmVaultParserTests' fixture.
-    // A section with no games renders the same wrapper with no rows: EmptyList mirrors that shape and
-    // is what makes it distinguishable, per #297, from a 200 OK body that isn't a list page at all.
-    private const string EmptyList = "<table><caption></caption></table>";
+    // Vimm's two real section shapes, verified live against ?p=list&system=WiiU (#297):
+    //   • a section WITH games → HTTP 200 wrapping its rows in <table><caption>…</caption>
+    //   • a section with NONE  → HTTP 404 whose body is the "No matches found." page, no table at all
+    // The stub below derives the status from the body so these fixtures carry both halves; a `null`
+    // route result stays a bare failure (404, no body), which is NOT a legitimately empty section.
+    private const string EmptySection =
+        """<main class="mainContent"><div>Q</div><p style="text-align:center">No matches found.</p></main>""";
     private const string ListA =
         """<table><caption></caption><tr><td><a href= "/vault/128227">Adventure Time</a></td></tr></table>""";
     private const string ListT =
@@ -364,9 +437,13 @@ public class VimmCatalogSeedServiceTests
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage req, CancellationToken ct)
         {
             var body = route(req.RequestUri!.ToString());
-            return Task.FromResult(body is null
-                ? new HttpResponseMessage(HttpStatusCode.NotFound)
-                : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) });
+            // Mirror Vimm's real status/body pairing so the fixtures can't model a site that doesn't
+            // exist: the "No matches found." page is served with a 404 (that is how an empty section
+            // arrives), everything else a route returns is a 200, and a null route result is a bare
+            // 404 with no body — an ordinary failure.
+            if (body is null) return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
+            var status = body.Contains("No matches found") ? HttpStatusCode.NotFound : HttpStatusCode.OK;
+            return Task.FromResult(new HttpResponseMessage(status) { Content = new StringContent(body) });
         }
     }
 

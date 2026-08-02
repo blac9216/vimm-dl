@@ -205,24 +205,43 @@ class CatalogRepository : ICatalogStore
     }
 
     /// <summary>
-    /// How many of a system's games this origin currently sources — a read-only pre-check callers can
-    /// use to size a merge's blast radius <em>before</em> handing it rows to merge (see
-    /// <see cref="VimmCatalogSeedService"/>'s delete-cap guard). Deliberately separate from
-    /// <see cref="MergeSystemGamesAsync"/> itself: the DAT sync path merges unconditionally and must
-    /// keep doing so, so the cap lives with the one caller that opted into it, not in the shared method.
+    /// What merging <paramref name="incomingKeys"/> would cost this origin, computed read-only
+    /// <em>before</em> the merge runs: <c>Existing</c> = how many of the system's games this origin
+    /// currently sources, <c>Stale</c> = how many of those the merge would drop this origin from.
+    ///
+    /// <para>This is a real <b>set</b> difference, not a count comparison, and it mirrors
+    /// <see cref="MergeSystemGamesAsync"/>'s own survival rule exactly: an existing row survives iff its
+    /// <c>canonical_key</c> is among the incoming keys, so a row whose key is null (CRC-only/unhashable —
+    /// never dedupable) is always stale, and a scrape that returns the same <i>number</i> of different
+    /// titles is correctly measured as dropping all of them. (A stale row is deleted outright only when
+    /// no other origin still sources it; it otherwise survives as a row and merely loses this origin.)</para>
+    ///
+    /// <para>Deliberately separate from <see cref="MergeSystemGamesAsync"/> itself: the DAT sync path
+    /// merges unconditionally and must keep doing so, so the cap lives with the one caller that opted
+    /// into it (see <see cref="VimmCatalogSeedService"/>'s delete-cap guard), not in the shared method.</para>
     /// </summary>
-    public async Task<int> CountGamesForOriginAsync(long systemId, string origin, CancellationToken ct)
+    public async Task<(int Existing, int Stale)> CountOriginMergeImpactAsync(
+        long systemId, string origin, IReadOnlyCollection<string> incomingKeys, CancellationToken ct)
     {
+        var keys = new HashSet<string>(incomingKeys, StringComparer.Ordinal);
         await using var db = await OpenAsync();
         await using var cmd = db.CreateCommand();
         cmd.CommandText = """
-            SELECT COUNT(*) FROM catalog_game g
+            SELECT g.canonical_key FROM catalog_game g
             JOIN catalog_game_source s ON s.game_id = g.id
             WHERE g.system_id = $sid AND s.origin = $origin
             """;
         cmd.Parameters.AddWithValue("$sid", systemId);
         cmd.Parameters.AddWithValue("$origin", origin);
-        return Convert.ToInt32(await cmd.ExecuteScalarAsync(ct));
+
+        int existing = 0, stale = 0;
+        await using var r = await cmd.ExecuteReaderAsync(ct);
+        while (await r.ReadAsync(ct))
+        {
+            existing++;
+            if (r.IsDBNull(0) || !keys.Contains(r.GetString(0))) stale++;
+        }
+        return (existing, stale);
     }
 
     /// <summary>
