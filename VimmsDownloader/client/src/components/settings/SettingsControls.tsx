@@ -76,8 +76,8 @@ export function ToggleRow({ label, description, checked, onChange }: {
   onChange: (checked: boolean) => void
 }) {
   return (
-    <label className="flex items-center justify-between gap-2.5 px-[18px] py-[13px] cursor-pointer
-      hover:bg-accent/[0.06]">
+    <label className="relative flex items-center justify-between gap-2.5 px-[18px] py-[13px]
+      cursor-pointer hover:bg-accent/[0.06]">
       <span className="min-w-0">
         <span className="block text-[13px] text-text-body">{label}</span>
         <span className="block text-[11px] text-text-3">{description}</span>
@@ -112,8 +112,8 @@ export function ConsoleToggleRow({ code, color, label, count, checked, onChange 
   onChange: (checked: boolean) => void
 }) {
   return (
-    <label className="flex items-center justify-between gap-2.5 px-[18px] py-[11px] cursor-pointer
-      hover:bg-accent/[0.06]">
+    <label className="relative flex items-center justify-between gap-2.5 px-[18px] py-[11px]
+      cursor-pointer hover:bg-accent/[0.06]">
       <span className="flex items-center gap-[9px] min-w-0">
         <span className="w-[42px] shrink-0 text-center text-[8.5px] font-bold font-mono tracking-[0.02em]
           py-[3px] rounded-[5px] text-bg" style={{ background: color }}>{code}</span>
