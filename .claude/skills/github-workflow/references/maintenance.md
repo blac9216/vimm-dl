@@ -19,8 +19,9 @@ basic labels; the filer cannot decide precedence. For each item:
   is a standalone theme. Check the target epic's child count.
 - **Sequence it**: `priority:*`; native `blocked by` links where order matters; fold
   small items into the in-flight issue whose natural home they are (say so on both).
-- **Move it**: Ready if sequenced into live work; Backlog if intentionally shelved (add the
-  `backlog` label; it carries no milestone).
+- **Move it**: Ready if the owner has released it for work; Backlog if not (add the
+  `backlog` label; a milestone may or may not be set — Backlog means "don't work it", not
+  "unplanned").
 
 Live-test blockers that gate the active epic's proof are active work by definition —
 they go straight to Ready under that epic, whatever label they arrived with.
