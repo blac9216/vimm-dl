@@ -37,7 +37,7 @@ Read the full mapping and its caveats once at the start: **[../github-workflow/r
 | Comment on the PR | `gh pr comment <N>` | `add_issue_comment` (PR number) |
 | Label the PR / issue | `gh pr edit --add-label` | `issue_write` `update` on the number |
 | Secret scan | _(local scanner, e.g. gitleaks)_ | `run_secret_scanning` |
-| Squash-merge | `gh pr merge <N> --squash` | `merge_pull_request` (`merge_method: squash`) |
+| Squash-merge | `gh pr merge <N> --squash --body-file <file>` (see "If Approved") | `merge_pull_request` (`merge_method: squash`) |
 
 ## Time-Box
 
@@ -239,13 +239,21 @@ The parent will fix the findings, post a `## Fixes Applied` comment, and spawn a
 
 ## If Approved
 
+Before merging, verify the PR's `closingIssuesReferences` matches every issue you
+intend to close — `gh pr view <N> --json closingIssuesReferences` (cloud sandbox:
+read the same field off the PR object). GitHub derives this only from closing keywords
+in the PR **body**, not from commit messages, so a mismatch here means a `Closes` line
+is missing or malformed. Fix the PR body before merging rather than closing the issue
+by hand afterward.
+
 Squash-merge the PR yourself — this is the approval of record.
 
 - **Cloud sandbox:** `merge_pull_request` with `merge_method: "squash"`. There is no MCP tool to delete the head branch and `merge_pull_request` has no delete-branch option, so rely on the repo's "automatically delete head branches" setting or leave the branch for cleanup — do not block the merge on branch deletion.
-- **Local:** run the merge from a **neutral cwd** outside the repo (not the review worktree, not the author's worktree) and pass `--repo` explicitly, because `gh pr merge --delete-branch` runs a post-merge local-checkout step that fails when the cwd is inside a worktree whose base branch is checked out elsewhere:
+- **Local:** run the merge from a **neutral cwd** outside the repo (not the review worktree, not the author's worktree) and pass `--repo` explicitly, because `gh pr merge --delete-branch` runs a post-merge local-checkout step that fails when the cwd is inside a worktree whose base branch is checked out elsewhere. A default squash writes its own commit message and can silently drop closing keywords that only lived in individual commits — for any multi-issue PR, write the PR body to a file and pass it explicitly with `--body-file` so every `Closes` line survives into the squash commit:
   ```bash
   cd /tmp
-  gh pr merge <N> --repo <owner>/<repo> --squash --delete-branch
+  gh pr view <N> --repo <owner>/<repo> --json body -q .body > /tmp/squash-body.md
+  gh pr merge <N> --repo <owner>/<repo> --squash --body-file /tmp/squash-body.md --delete-branch
   ```
   Then verify the remote branch is actually gone (`--delete-branch` is best-effort):
   ```bash
